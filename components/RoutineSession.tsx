@@ -51,18 +51,57 @@ export default function RoutineSession({ groupName, items, today, startIndex = 0
   const target = isCountdown ? (currentItem?.projectedMinutes ?? 0) * 60 : 0;
   const isOver = isCountdown && target > 0 && elapsed >= target;
 
+  // elapsed is derived from real wall-clock time, not from counting interval ticks —
+  // ticks get throttled/suspended when the PWA is backgrounded or the screen locks,
+  // so a naive "+1 every 1000ms" counter silently loses however long you were away.
+  // baseElapsedRef = seconds banked before the current running segment started.
+  // runStartRef = Date.now() when the current running segment began (null if paused).
+  const baseElapsedRef = useRef(0);
+  const runStartRef = useRef<number | null>(null);
+
+  const recompute = useCallback(() => {
+    if (runStartRef.current != null) {
+      const delta = Math.floor((Date.now() - runStartRef.current) / 1000);
+      setElapsed(baseElapsedRef.current + delta);
+    }
+  }, []);
+
   // Don't run the clock for checkbox items — there's nothing to time
   useEffect(() => {
     if (isRunning && phase === "running" && !isCheckbox) {
-      intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      runStartRef.current = Date.now();
+      recompute();
+      intervalRef.current = setInterval(recompute, 1000);
     } else {
+      if (runStartRef.current != null) {
+        baseElapsedRef.current += Math.floor((Date.now() - runStartRef.current) / 1000);
+        runStartRef.current = null;
+      }
       if (intervalRef.current) clearInterval(intervalRef.current);
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isRunning, phase, isCheckbox]);
+  }, [isRunning, phase, isCheckbox, recompute]);
+
+  // Force an immediate resync the moment the app comes back to the foreground —
+  // don't wait for the next 1s tick to correct the frozen display.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") recompute();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+    };
+  }, [recompute]);
 
   // Reset timer state whenever we move to a new item
   useEffect(() => {
+    baseElapsedRef.current = 0;
+    runStartRef.current = isRunning ? Date.now() : null;
     setElapsed(0);
     setIsRunning(true);
   }, [currentIndex]);

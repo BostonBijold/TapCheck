@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 export interface TimerItem {
   _id: string;
@@ -31,16 +31,53 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
   const [isRunning, setIsRunning] = useState(true);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
+  // elapsed is derived from real wall-clock time, not from counting interval ticks —
+  // ticks get throttled/suspended when the PWA is backgrounded or the screen locks,
+  // so a naive "+1 every 1000ms" counter silently loses however long you were away.
+  // baseElapsedRef = seconds banked before the current running segment started.
+  // runStartRef = Date.now() when the current running segment began (null if paused).
+  const baseElapsedRef = useRef(initialElapsed);
+  const runStartRef = useRef<number | null>(null);
+
+  const recompute = useCallback(() => {
+    if (runStartRef.current != null) {
+      const delta = Math.floor((Date.now() - runStartRef.current) / 1000);
+      setElapsed(baseElapsedRef.current + delta);
+    }
+  }, []);
+
   useEffect(() => {
     if (isRunning) {
-      intervalRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+      runStartRef.current = Date.now();
+      recompute();
+      intervalRef.current = setInterval(recompute, 1000);
     } else {
+      if (runStartRef.current != null) {
+        baseElapsedRef.current += Math.floor((Date.now() - runStartRef.current) / 1000);
+        runStartRef.current = null;
+      }
       if (intervalRef.current) clearInterval(intervalRef.current);
     }
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [isRunning]);
+  }, [isRunning, recompute]);
+
+  // Force an immediate resync the moment the app comes back to the foreground —
+  // don't wait for the next 1s tick to correct the frozen display.
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") recompute();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener("pageshow", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener("pageshow", onVisible);
+    };
+  }, [recompute]);
 
   const actualMinutes = Math.max(1, Math.round(elapsed / 60));
 
