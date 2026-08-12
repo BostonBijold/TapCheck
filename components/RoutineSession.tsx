@@ -12,9 +12,20 @@ interface SessionLog {
   actualMinutes: number;
 }
 
+// Subset of RoutineLogEntry (see RoutinesView) needed to resume a timer that was
+// started outside this session (e.g. tapped "Start" on a single habit, then
+// entered "Start Routine") and to reflect items already logged before the
+// session began.
+export interface ExternalLog {
+  state: LogState;
+  startedAt?: string;
+  actualMinutes?: number;
+}
+
 interface Props {
   groupName: string;
   items: RowItem[];
+  logs?: Record<string, ExternalLog>;
   today: string;
   startIndex?: number;
   onClose: () => void;
@@ -35,7 +46,7 @@ const RING_R = 70;
 const RING_CIRC = 2 * Math.PI * RING_R;
 const STOPWATCH_SOFT_CAP = 30 * 60;
 
-export default function RoutineSession({ groupName, items, today, startIndex = 0, onClose, onFinish }: Props) {
+export default function RoutineSession({ groupName, items, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
@@ -98,12 +109,21 @@ export default function RoutineSession({ groupName, items, today, startIndex = 0
     };
   }, [recompute]);
 
-  // Reset timer state whenever we move to a new item
+  // Reset timer state whenever we move to a new item — unless that item already
+  // has an in_progress log from outside this session (started via the single-habit
+  // timer before "Start Routine" was tapped), in which case resume from its
+  // server-recorded startedAt instead of restarting the clock at 0.
   useEffect(() => {
-    baseElapsedRef.current = 0;
+    const existing = currentItem ? externalLogs?.[currentItem._id] : undefined;
+    const seeded =
+      !isCheckbox && existing?.state === "in_progress" && existing.startedAt
+        ? Math.max(0, Math.floor((Date.now() - new Date(existing.startedAt).getTime()) / 1000))
+        : 0;
+    baseElapsedRef.current = seeded;
     runStartRef.current = isRunning ? Date.now() : null;
-    setElapsed(0);
+    setElapsed(seeded);
     setIsRunning(true);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
 
   const saveLog = useCallback(
@@ -221,7 +241,14 @@ export default function RoutineSession({ groupName, items, today, startIndex = 0
   }
 
   // ── Running ──────────────────────────────────────────────────────────────────
-  const loggedIds = new Set(sessionLogs.map((l) => l.itemId));
+  // Items already logged before this session started (e.g. completed earlier today
+  // outside "Start Routine") count as done too, so they don't render as "upcoming".
+  const externalDoneIds = new Set(
+    Object.entries(externalLogs ?? {})
+      .filter(([, l]) => l.state === "done" || l.state === "missed" || l.state === "rest")
+      .map(([id]) => id)
+  );
+  const loggedIds = new Set([...sessionLogs.map((l) => l.itemId), ...Array.from(externalDoneIds)]);
 
   // Countdown ring values
   const countdownRatio = isCountdown && target > 0 ? Math.min(elapsed / target, 1) : 0;
@@ -369,8 +396,14 @@ export default function RoutineSession({ groupName, items, today, startIndex = 0
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4">
         <div className="space-y-1">
           {items.map((item, i) => {
-            const log = sessionLogs.find((l) => l.itemId === item._id);
             const isCurrent = i === currentIndex;
+            const sessionLog = sessionLogs.find((l) => l.itemId === item._id);
+            const ext = !isCurrent ? externalLogs?.[item._id] : undefined;
+            const log: SessionLog | undefined =
+              sessionLog ??
+              (ext && (ext.state === "done" || ext.state === "missed" || ext.state === "rest")
+                ? { itemId: item._id, state: ext.state, actualMinutes: ext.actualMinutes ?? 0 }
+                : undefined);
             const isDone = loggedIds.has(item._id);
             const isUpcoming = !isDone && !isCurrent;
             const isItemCheckbox = item.itemType === "checkbox";

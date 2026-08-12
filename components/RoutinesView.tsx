@@ -402,9 +402,10 @@ export default function RoutinesView({
         <RoutineSession
           groupName={sessionGroup.name}
           items={sessionItems}
+          logs={logs}
           today={selectedDate}
           startIndex={activeSession?.startIndex ?? 0}
-          onClose={() => setActiveSession(null)}
+          onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
         />
       )}

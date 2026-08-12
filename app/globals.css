@@ -32,6 +32,36 @@ body {
   padding-bottom: calc(4rem + env(safe-area-inset-bottom));
 }
 
+/* Post-login splash (app/welcome) — timings here are mirrored by the
+   animation-delay values and constants set in app/welcome/page.tsx. */
+@keyframes splash-fade-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.94); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes splash-word-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.splash-logo,
+.splash-beone {
+  opacity: 0;
+  animation: splash-fade-in 650ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.splash-word {
+  display: inline-block;
+  opacity: 0;
+  animation: splash-word-in 400ms ease-out forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .splash-logo,
+  .splash-beone,
+  .splash-word {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;
