@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineLog from "@/models/RoutineLog";
+import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import VirtueModel from "@/models/Virtue";
 import { seedDefaultRoutines, ensureAfternoonGroup, ensureHabitsGroup, ensureVirtueCheckInItems } from "@/lib/seed";
 import { currentVirtueOrder } from "@/lib/seed-virtues";
@@ -141,10 +142,17 @@ export default async function RoutinesPage({
     state: l.state as "done" | "missed" | "rest",
   }));
 
+  // Today's standalone to-dos, plus any earlier undone ones carried forward as overdue
+  const todayTodos = await Todo.find(todosForDateQuery(userId, today))
+    .sort({ scheduledDate: 1, order: 1, createdAt: 1 })
+    .lean();
+  const initialTodos = todayTodos.map(serializeTodo);
+
   return (
     <RoutinesView
       groups={groupsWithItems}
       initialLogs={initialLogs}
+      initialTodos={initialTodos}
       weekLogs={weekLogs}
       weekDates={weekDates}
       today={today}

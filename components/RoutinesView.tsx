@@ -11,6 +11,9 @@ import VirtueSheet, { type VirtueData } from "@/components/VirtueSheet";
 import VirtueCheckInModal from "@/components/VirtueCheckInModal";
 import AddHabitSheet from "@/components/AddHabitSheet";
 import ManageRoutinesSheet from "@/components/ManageRoutinesSheet";
+import TodoSection, { type TodoEntry } from "@/components/TodoSection";
+import EditTodoSheet from "@/components/EditTodoSheet";
+import FABTaskSheet from "@/components/FABTaskSheet";
 import type { LogState } from "@/models/RoutineLog";
 import type { RowItem } from "@/components/RoutineItemRow";
 import { isItemVisibleOn } from "@/lib/routine-visibility";
@@ -33,6 +36,7 @@ export type WeekLog = { routineItemId: string; date: string; state: LogState };
 interface Props {
   groups: RoutineGroup[];
   initialLogs: RoutineLogEntry[];
+  initialTodos: TodoEntry[];
   weekLogs: WeekLog[];
   weekDates: string[];
   today: string;
@@ -50,7 +54,7 @@ interface ActiveSession {
 }
 
 export default function RoutinesView({
-  groups, initialLogs, weekLogs, weekDates,
+  groups, initialLogs, initialTodos, weekLogs, weekDates,
   today, userName, skipAuth,
   currentVirtue: initialVirtue = null,
   isAdmin = false,
@@ -72,6 +76,9 @@ export default function RoutinesView({
   const [addHabitGroup, setAddHabitGroup] = useState<{ id: string; name: string } | null>(null);
   const [checkInItem, setCheckInItem] = useState<RowItem | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
+  const [addTodoOpen, setAddTodoOpen] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
 
   const isPastDate = selectedDate !== today;
 
@@ -152,6 +159,57 @@ export default function RoutinesView({
       });
     return () => { cancelled = true; };
   }, [selectedDate, today, initialLogs]);
+
+  // Re-fetch to-dos whenever the selected date changes
+  useEffect(() => {
+    if (selectedDate === today) {
+      setTodos(initialTodos);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/todos?date=${selectedDate}`)
+      .then((r) => r.json())
+      .then((data: TodoEntry[]) => {
+        if (!cancelled) setTodos(data);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDate, today, initialTodos]);
+
+  const handleToggleTodo = useCallback(async (id: string, done: boolean) => {
+    setTodos((prev) =>
+      prev.map((t) => (t._id === id ? { ...t, done, completedAt: done ? new Date().toISOString() : null } : t))
+    );
+    await fetch(`/api/todos/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ done }),
+    });
+  }, []);
+
+  const handleDeleteTodo = useCallback(async (id: string) => {
+    setTodos((prev) => prev.filter((t) => t._id !== id));
+    await fetch(`/api/todos/${id}`, { method: "DELETE" });
+  }, []);
+
+  const handleUpdateTodo = useCallback(
+    async (id: string, updates: { name: string; scheduledDate: string; estimatedMinutes: number | null }) => {
+      const res = await fetch(`/api/todos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to save changes");
+      const saved: TodoEntry = await res.json();
+      // Drop it from the list entirely if it no longer belongs on the day being viewed
+      // (rescheduled away, or moved off the overdue carry-forward window).
+      setTodos((prev) => {
+        const stillVisible = saved.scheduledDate === selectedDate || (!saved.done && saved.scheduledDate < selectedDate);
+        if (!stillVisible) return prev.filter((t) => t._id !== id);
+        return prev.map((t) => (t._id === id ? saved : t));
+      });
+    },
+    [selectedDate]
+  );
 
   // weekLogs keyed by itemId → array of {date, state}
   const weekLogsByItem: Record<string, Array<{ date: string; state: LogState }>> = {};
@@ -448,6 +506,23 @@ export default function RoutinesView({
         />
       )}
 
+      {addTodoOpen && (
+        <FABTaskSheet
+          date={selectedDate}
+          startWithNoGoal
+          onClose={() => setAddTodoOpen(false)}
+        />
+      )}
+
+      {editingTodo && (
+        <EditTodoSheet
+          todo={editingTodo}
+          onSave={(updates) => handleUpdateTodo(editingTodo._id, updates)}
+          onDelete={() => { handleDeleteTodo(editingTodo._id); setEditingTodo(null); }}
+          onClose={() => setEditingTodo(null)}
+        />
+      )}
+
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
@@ -523,6 +598,16 @@ export default function RoutinesView({
                 />
               ))}
             </div>
+
+            {/* To-dos for the day */}
+            <TodoSection
+              todos={todos}
+              viewingDate={selectedDate}
+              onToggle={handleToggleTodo}
+              onDelete={handleDeleteTodo}
+              onEdit={setEditingTodo}
+              onAdd={() => setAddTodoOpen(true)}
+            />
 
             {/* Standalone habits section */}
             {(habitGroups.length > 0) && (

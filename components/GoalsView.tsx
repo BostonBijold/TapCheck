@@ -1,9 +1,12 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, ChevronRight, Flag } from "lucide-react";
 import Header from "@/components/Header";
+import TodoSection, { type TodoEntry } from "@/components/TodoSection";
+import EditTodoSheet from "@/components/EditTodoSheet";
+import FABTaskSheet from "@/components/FABTaskSheet";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -67,6 +70,12 @@ const STATUS_STYLE: Record<string, { border: string; badge: string; label: strin
   paused:    { border: "border-amber",         badge: "text-amber bg-amber/10",              label: "Paused"    },
   abandoned: { border: "border-border-light",  badge: "text-dim bg-card",                   label: "Abandoned" },
 };
+
+function addDays(dateStr: string, days: number) {
+  const d = new Date(dateStr + "T12:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().split("T")[0];
+}
 
 function progressBarColor(status: string): string {
   if (status === "complete") return "#5a6b35";
@@ -295,6 +304,10 @@ export default function GoalsView({ userName, today, skipAuth }: Props) {
   const [goals, setGoals] = useState<SerializedGoal[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
+  const [todos, setTodos] = useState<TodoEntry[]>([]);
+  const [addTodoOpen, setAddTodoOpen] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
+  const tomorrow = addDays(today, 1);
 
   useEffect(() => {
     fetch("/api/goals")
@@ -304,6 +317,53 @@ export default function GoalsView({ userName, today, skipAuth }: Props) {
         setLoading(false);
       });
   }, []);
+
+  useEffect(() => {
+    fetch(`/api/todos?after=${today}`)
+      .then((r) => r.json())
+      .then((data: TodoEntry[]) => setTodos(data));
+  }, [today]);
+
+  const handleToggleTodo = useCallback(async (id: string, done: boolean) => {
+    setTodos((prev) =>
+      prev.map((t) => (t._id === id ? { ...t, done, completedAt: done ? new Date().toISOString() : null } : t))
+    );
+    await fetch(`/api/todos/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ done }),
+    });
+  }, []);
+
+  const handleDeleteTodo = useCallback(async (id: string) => {
+    setTodos((prev) => prev.filter((t) => t._id !== id));
+    await fetch(`/api/todos/${id}`, { method: "DELETE" });
+  }, []);
+
+  const handleUpdateTodo = useCallback(
+    async (id: string, updates: { name: string; scheduledDate: string; estimatedMinutes: number | null }) => {
+      const res = await fetch(`/api/todos/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      });
+      if (!res.ok) throw new Error("Failed to save changes");
+      const saved: TodoEntry = await res.json();
+      // Drop it from this backlog if it's no longer strictly in the future
+      // (pulled forward to today/past — it now lives on the Routines page).
+      setTodos((prev) => {
+        if (saved.scheduledDate <= today) return prev.filter((t) => t._id !== id);
+        return prev.map((t) => (t._id === id ? saved : t));
+      });
+    },
+    [today]
+  );
+
+  function refetchTodos() {
+    fetch(`/api/todos?after=${today}`)
+      .then((r) => r.json())
+      .then((data: TodoEntry[]) => setTodos(data));
+  }
 
   function handleCreated(goal: SerializedGoal) {
     setGoals((prev) => [goal, ...prev]);
@@ -397,10 +457,40 @@ export default function GoalsView({ userName, today, skipAuth }: Props) {
             )}
           </>
         )}
+
+        {/* Future to-dos — anything due today or earlier lives on the Routines page instead */}
+        <TodoSection
+          todos={todos}
+          viewingDate={today}
+          title="Upcoming To-Dos"
+          addButtonLabel="+ Add Task"
+          showDates
+          onToggle={handleToggleTodo}
+          onDelete={handleDeleteTodo}
+          onEdit={setEditingTodo}
+          onAdd={() => setAddTodoOpen(true)}
+        />
       </div>
 
       {adding && (
         <AddGoalSheet onClose={() => setAdding(false)} onCreated={handleCreated} />
+      )}
+
+      {addTodoOpen && (
+        <FABTaskSheet
+          date={tomorrow}
+          startWithNoGoal
+          onClose={() => { setAddTodoOpen(false); refetchTodos(); }}
+        />
+      )}
+
+      {editingTodo && (
+        <EditTodoSheet
+          todo={editingTodo}
+          onSave={(updates) => handleUpdateTodo(editingTodo._id, updates)}
+          onDelete={() => { handleDeleteTodo(editingTodo._id); setEditingTodo(null); }}
+          onClose={() => setEditingTodo(null)}
+        />
       )}
     </div>
   );

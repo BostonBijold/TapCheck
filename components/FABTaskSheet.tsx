@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { X, ChevronLeft } from "lucide-react";
 
 interface Goal {
@@ -9,18 +10,23 @@ interface Goal {
   status: string;
 }
 
+type Target = { kind: "goal"; goal: Goal } | { kind: "none" };
+
 interface Props {
   date: string;
   onClose: () => void;
+  // Skip the goal picker and open straight into a goal-less to-do form.
+  startWithNoGoal?: boolean;
 }
 
 type View = "goals" | "form";
 
-export default function FABTaskSheet({ date, onClose }: Props) {
-  const [view, setView] = useState<View>("goals");
+export default function FABTaskSheet({ date, onClose, startWithNoGoal }: Props) {
+  const router = useRouter();
+  const [view, setView] = useState<View>(startWithNoGoal ? "form" : "goals");
   const [goals, setGoals] = useState<Goal[]>([]);
   const [loading, setLoading] = useState(true);
-  const [selectedGoal, setSelectedGoal] = useState<Goal | null>(null);
+  const [target, setTarget] = useState<Target | null>(startWithNoGoal ? { kind: "none" } : null);
   const [taskName, setTaskName] = useState("");
   const [scheduledDate, setScheduledDate] = useState(date);
   const [estimatedMins, setEstimatedMins] = useState("");
@@ -41,8 +47,8 @@ export default function FABTaskSheet({ date, onClose }: Props) {
       });
   }, []);
 
-  const selectGoal = (goal: Goal) => {
-    setSelectedGoal(goal);
+  const selectTarget = (t: Target) => {
+    setTarget(t);
     setTaskName("");
     setScheduledDate(date);
     setEstimatedMins("");
@@ -51,26 +57,40 @@ export default function FABTaskSheet({ date, onClose }: Props) {
   };
 
   const addTask = async () => {
-    if (!taskName.trim() || !selectedGoal) return;
+    if (!taskName.trim() || !target) return;
     setSaving(true);
     setError("");
     try {
-      const res = await fetch(`/api/goals/${selectedGoal._id}/quick-task`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: taskName.trim(),
-          scheduledDate: scheduledDate || undefined,
-          estimatedMinutes: estimatedMins ? parseInt(estimatedMins) : undefined,
-        }),
-      });
+      const res =
+        target.kind === "goal"
+          ? await fetch(`/api/goals/${target.goal._id}/quick-task`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: taskName.trim(),
+                scheduledDate: scheduledDate || undefined,
+                estimatedMinutes: estimatedMins ? parseInt(estimatedMins) : undefined,
+              }),
+            })
+          : await fetch("/api/todos", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: taskName.trim(),
+                scheduledDate: scheduledDate || date,
+                estimatedMinutes: estimatedMins ? parseInt(estimatedMins) : undefined,
+              }),
+            });
       if (!res.ok) throw new Error("Failed to save task");
+      router.refresh();
       onClose();
     } catch {
       setError("Couldn't save task. Try again.");
       setSaving(false);
     }
   };
+
+  const formTitle = target?.kind === "goal" ? target.goal.name : "To-Do";
 
   return (
     <>
@@ -90,8 +110,21 @@ export default function FABTaskSheet({ date, onClose }: Props) {
                   <X size={18} />
                 </button>
               </div>
+
+              <div className="px-5 pt-4 flex-shrink-0">
+                <button
+                  onClick={() => selectTarget({ kind: "none" })}
+                  className="w-full flex items-center gap-3 bg-blue-muted/10 border border-blue-muted/30 rounded-card px-4 py-3.5 text-left hover:bg-blue-muted/15 transition-colors"
+                >
+                  <span className="flex-1 font-body text-sm text-blue-muted font-medium">
+                    Just for today — no goal
+                  </span>
+                  <ChevronLeft size={14} className="text-blue-muted rotate-180 flex-shrink-0" />
+                </button>
+              </div>
+
               <p className="font-mono text-[10px] text-dim uppercase tracking-widest px-5 pt-4 pb-2 flex-shrink-0">
-                Choose a goal
+                Or link to a goal
               </p>
               <div className="overflow-y-auto flex-1">
                 {loading ? (
@@ -103,7 +136,7 @@ export default function FABTaskSheet({ date, onClose }: Props) {
                     {goals.map((goal) => (
                       <li key={goal._id}>
                         <button
-                          onClick={() => selectGoal(goal)}
+                          onClick={() => selectTarget({ kind: "goal", goal })}
                           className="w-full flex items-center gap-3 px-5 py-4 hover:bg-card-hover active:bg-card-hover transition-colors text-left"
                         >
                           <span className="flex-1 font-body text-sm text-text">{goal.name}</span>
@@ -118,18 +151,20 @@ export default function FABTaskSheet({ date, onClose }: Props) {
           )}
 
           {/* ── Task form ─────────────────────────────────────────────────── */}
-          {view === "form" && selectedGoal && (
+          {view === "form" && target && (
             <>
               <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
-                <button
-                  onClick={() => setView("goals")}
-                  className="w-8 h-8 flex items-center justify-center text-dim hover:text-muted transition-colors flex-shrink-0"
-                  aria-label="Back"
-                >
-                  <ChevronLeft size={18} />
-                </button>
+                {!startWithNoGoal && (
+                  <button
+                    onClick={() => setView("goals")}
+                    className="w-8 h-8 flex items-center justify-center text-dim hover:text-muted transition-colors flex-shrink-0"
+                    aria-label="Back"
+                  >
+                    <ChevronLeft size={18} />
+                  </button>
+                )}
                 <div className="flex-1 min-w-0">
-                  <h2 className="font-heading text-base text-text truncate">{selectedGoal.name}</h2>
+                  <h2 className="font-heading text-base text-text truncate">{formTitle}</h2>
                 </div>
                 <button onClick={onClose} className="w-8 h-8 flex items-center justify-center text-dim flex-shrink-0" aria-label="Close">
                   <X size={18} />
