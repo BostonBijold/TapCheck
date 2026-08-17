@@ -39,13 +39,15 @@ export default function FABTaskSheet({ date, onClose, startWithNoGoal }: Props) 
   }, []);
 
   useEffect(() => {
+    // The goal picker is never shown in this mode, so there's nothing to fetch for.
+    if (startWithNoGoal) return;
     fetch("/api/goals")
       .then((r) => r.json())
       .then((data: Goal[]) => {
         setGoals(data.filter((g) => g.status === "active"));
         setLoading(false);
       });
-  }, []);
+  }, [startWithNoGoal]);
 
   const selectTarget = (t: Target) => {
     setTarget(t);

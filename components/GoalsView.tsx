@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import TodoSection, { type TodoEntry } from "@/components/TodoSection";
 import EditTodoSheet from "@/components/EditTodoSheet";
 import FABTaskSheet from "@/components/FABTaskSheet";
+import { useTodoActions } from "@/lib/useTodoActions";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,40 +325,11 @@ export default function GoalsView({ userName, today, skipAuth }: Props) {
       .then((data: TodoEntry[]) => setTodos(data));
   }, [today]);
 
-  const handleToggleTodo = useCallback(async (id: string, done: boolean) => {
-    setTodos((prev) =>
-      prev.map((t) => (t._id === id ? { ...t, done, completedAt: done ? new Date().toISOString() : null } : t))
-    );
-    await fetch(`/api/todos/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ done }),
-    });
-  }, []);
-
-  const handleDeleteTodo = useCallback(async (id: string) => {
-    setTodos((prev) => prev.filter((t) => t._id !== id));
-    await fetch(`/api/todos/${id}`, { method: "DELETE" });
-  }, []);
-
-  const handleUpdateTodo = useCallback(
-    async (id: string, updates: { name: string; scheduledDate: string; estimatedMinutes: number | null }) => {
-      const res = await fetch(`/api/todos/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error("Failed to save changes");
-      const saved: TodoEntry = await res.json();
-      // Drop it from this backlog if it's no longer strictly in the future
-      // (pulled forward to today/past — it now lives on the Routines page).
-      setTodos((prev) => {
-        if (saved.scheduledDate <= today) return prev.filter((t) => t._id !== id);
-        return prev.map((t) => (t._id === id ? saved : t));
-      });
-    },
-    [today]
-  );
+  // A todo stays visible in this backlog only while it's strictly in the future —
+  // once pulled to today/past it belongs on the Routines page instead.
+  const isTodoUpcoming = useCallback((t: TodoEntry) => t.scheduledDate > today, [today]);
+  const { toggle: handleToggleTodo, remove: handleDeleteTodo, update: handleUpdateTodo } =
+    useTodoActions(todos, setTodos, isTodoUpcoming);
 
   function refetchTodos() {
     fetch(`/api/todos?after=${today}`)

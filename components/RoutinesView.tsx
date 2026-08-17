@@ -17,6 +17,7 @@ import FABTaskSheet from "@/components/FABTaskSheet";
 import type { LogState } from "@/models/RoutineLog";
 import type { RowItem } from "@/components/RoutineItemRow";
 import { isItemVisibleOn } from "@/lib/routine-visibility";
+import { useTodoActions } from "@/lib/useTodoActions";
 
 export type RoutineItem = RowItem;
 export type RoutineGroup = GroupCardGroup;
@@ -175,41 +176,14 @@ export default function RoutinesView({
     return () => { cancelled = true; };
   }, [selectedDate, today, initialTodos]);
 
-  const handleToggleTodo = useCallback(async (id: string, done: boolean) => {
-    setTodos((prev) =>
-      prev.map((t) => (t._id === id ? { ...t, done, completedAt: done ? new Date().toISOString() : null } : t))
-    );
-    await fetch(`/api/todos/${id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ done }),
-    });
-  }, []);
-
-  const handleDeleteTodo = useCallback(async (id: string) => {
-    setTodos((prev) => prev.filter((t) => t._id !== id));
-    await fetch(`/api/todos/${id}`, { method: "DELETE" });
-  }, []);
-
-  const handleUpdateTodo = useCallback(
-    async (id: string, updates: { name: string; scheduledDate: string; estimatedMinutes: number | null }) => {
-      const res = await fetch(`/api/todos/${id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      });
-      if (!res.ok) throw new Error("Failed to save changes");
-      const saved: TodoEntry = await res.json();
-      // Drop it from the list entirely if it no longer belongs on the day being viewed
-      // (rescheduled away, or moved off the overdue carry-forward window).
-      setTodos((prev) => {
-        const stillVisible = saved.scheduledDate === selectedDate || (!saved.done && saved.scheduledDate < selectedDate);
-        if (!stillVisible) return prev.filter((t) => t._id !== id);
-        return prev.map((t) => (t._id === id ? saved : t));
-      });
-    },
+  // A todo stays visible on this (today's) list if it's due today, or if it's
+  // an earlier undone item carried forward as overdue.
+  const isTodoVisibleToday = useCallback(
+    (t: TodoEntry) => t.scheduledDate === selectedDate || (!t.done && t.scheduledDate < selectedDate),
     [selectedDate]
   );
+  const { toggle: handleToggleTodo, remove: handleDeleteTodo, update: handleUpdateTodo } =
+    useTodoActions(todos, setTodos, isTodoVisibleToday);
 
   // weekLogs keyed by itemId → array of {date, state}
   const weekLogsByItem: Record<string, Array<{ date: string; state: LogState }>> = {};
