@@ -9,7 +9,7 @@
 In `components/RoutineGroupCard.tsx`:
 
 - **Never collapses.** `isHabitGroup = group.timeOfDay === "habit"` forces `effectivelyCollapsed = false` unconditionally — the time-window collapse logic described in routines.md (`startTime`/`deriveCollapseAfter`) never applies, because habit groups are seeded with `startTime: null`.
-- **No "Start Routine" CTA.** The sequential-session button is explicitly excluded for `timeOfDay === "habit"`; `RoutinesView.tsx` passes a no-op (`onStartRoutine={() => {}}`) for the Habits section.
+- **No "Start Routine" CTA.** The sequential-session button is explicitly excluded for `timeOfDay === "habit"`; `RoutinesView.tsx` passes a no-op (`onStartRoutine={() => {}}`) for the Habits section. The [external API](../api/external-api.md) doesn't share this restriction, though — it's the only current way to open a Routine Session for a Habit group.
 - **Renders `HabitItemCard` instead of `RoutineItemRow`** — a visually different card (always-visible primary action, no tap-to-expand) but the same underlying `RoutineLog` state machine (`pending`/`in_progress`/`done`/`missed`/`rest`, same Undo behavior, same back-entry minutes-input pattern when viewing a past date). This includes the single-active-timer invariant described in [timer.md](timer.md) — starting a habit's timer while some other item (routine or habit) is still `in_progress` auto-completes that other one server-side.
 
 Since habit groups have no time window, `isBackEntry` for a habit item reduces to just "is this a past calendar date" (there's no "scheduled window already passed today" case).

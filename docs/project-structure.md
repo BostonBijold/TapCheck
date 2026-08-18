@@ -20,7 +20,7 @@
 | Path | Purpose |
 |---|---|
 | `app/(app)/` | The authenticated app shell — layout with the bottom nav, plus the `routines`, `goals`, `analytics`, `review`, `virtues`, `profile`, `store` pages. |
-| `app/api/` | Every backend endpoint, grouped by domain (`routines`, `routine-items`, `routine-logs`, `habits`, `habit-templates`, `goals`, `todos`, `virtues`, `virtue-checkins`, `analytics`, `user`, `auth`, `seed`, `dev`). |
+| `app/api/` | Every backend endpoint, grouped by domain (`routines`, `routine-items`, `routine-logs`, `habits`, `habit-templates`, `goals`, `todos`, `virtues`, `virtue-checkins`, `analytics`, `user`, `external`, `auth`, `seed`, `dev`). `external` is API-key-authenticated (no session), for outside callers like an iPhone Shortcut — see `docs/api/external-api.md`. |
 | `app/login/` | The one public, unauthenticated page (per `middleware.ts`) — Google sign-in. |
 | `app/welcome/` | Post-login splash screen, shown once per sign-in before landing on `/routines`. |
 
@@ -40,6 +40,7 @@
 |---|---|
 | [`api/routines-api.md`](api/routines-api.md) | Routine groups, routine items, and routine logs — `/api/routines*`, `/api/routine-items*`, `/api/routine-logs`. |
 | [`api/habits-api.md`](api/habits-api.md) | The habits list and the habit-template catalog — `/api/habits`, `/api/habit-templates`. |
+| [`api/external-api.md`](api/external-api.md) | API-key-authenticated (no session) endpoint for triggering a timer from outside the app, e.g. an iPhone Shortcut — `/api/external/start-timer`, `/api/user/api-key`. |
 
 *More API docs will be added as their corresponding feature docs are written.*
 

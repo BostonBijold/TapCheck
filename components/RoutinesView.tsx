@@ -175,6 +175,32 @@ export default function RoutinesView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Re-run that same check whenever the app returns to the foreground, not just
+  // at mount. A backgrounded/suspended PWA (the normal case on iOS — it isn't
+  // killed, just frozen in memory) never remounts on its own, so without this
+  // the mount-only check above can't catch the calendar day having rolled over
+  // while it was asleep — you'd keep seeing last night's "today" until some
+  // other navigation happened to force a reload. Only acts while viewing
+  // Today; doesn't yank the user out of intentional history browsing.
+  useEffect(() => {
+    const recheckDate = () => {
+      if (document.visibilityState !== "visible") return;
+      if (selectedDate !== today) return;
+      const localDate = new Date().toLocaleDateString("en-CA");
+      if (localDate !== today) {
+        router.replace(`/routines?date=${localDate}`);
+      }
+    };
+    document.addEventListener("visibilitychange", recheckDate);
+    window.addEventListener("focus", recheckDate);
+    window.addEventListener("pageshow", recheckDate);
+    return () => {
+      document.removeEventListener("visibilitychange", recheckDate);
+      window.removeEventListener("focus", recheckDate);
+      window.removeEventListener("pageshow", recheckDate);
+    };
+  }, [today, selectedDate, router]);
+
   // If `today` changes (e.g. timezone redirect delivers a new date from the server),
   // move selectedDate forward so logs sync to the correct day.
   useEffect(() => {

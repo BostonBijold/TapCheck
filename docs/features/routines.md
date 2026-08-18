@@ -46,7 +46,7 @@ Each row shows `StreakDots` (`components/StreakDots.tsx`) — a 7-day dot strip 
 ## Reordering & editing groups
 
 - `components/ManageRoutinesSheet.tsx` — sheet for adding/reordering/renaming groups and items.
-- `components/RoutineEditView.tsx` (`app/(app)/routines/[groupId]/edit/page.tsx`) — dedicated group-edit page.
+- `components/RoutineEditView.tsx` (`app/(app)/routines/[groupId]/edit/page.tsx`) — dedicated group-edit page. Also displays each group's and item's raw Mongo `_id` read-only (`select-all`, no copy button) — these are the ids the [external API](../api/external-api.md) needs to target a specific timer.
 - Deleting an item is a **soft delete** (`isActive: false`, via `DELETE /api/routine-items/[id]`) — history in `RoutineLog` is preserved even after an item is removed from the active list.
 
 ## The "Start Routine" sequential session
