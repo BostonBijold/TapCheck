@@ -1,6 +1,8 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
+import { Copy, Check } from "lucide-react";
 import Header from "@/components/Header";
 
 interface Props {
@@ -11,6 +13,25 @@ interface Props {
 }
 
 export default function ProfileView({ name, email, today, skipAuth }: Props) {
+  const [apiKey, setApiKey] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/user/api-key")
+      .then((r) => r.json())
+      .then((data: { apiKey?: string }) => setApiKey(data.apiKey ?? null))
+      .catch(() => {});
+  }, []);
+
+  const handleCopy = async () => {
+    if (!apiKey) return;
+    try {
+      await navigator.clipboard.writeText(apiKey);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* clipboard unavailable — key is still selectable by hand */ }
+  };
+
   return (
     <div className="min-h-screen bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
@@ -30,6 +51,32 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
                 <p className="font-mono text-dim text-xs mt-0.5 truncate">{email}</p>
               </div>
             </div>
+          </div>
+
+          {/* External API key */}
+          <div className="bg-card rounded-card border border-border p-5">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
+              External API Key
+            </p>
+            <p className="font-body text-xs text-muted mb-3">
+              Paste into an iPhone Shortcut (e.g. fired from an NFC tag) to start a habit or task timer from outside the app.
+            </p>
+            {apiKey ? (
+              <div className="flex items-center gap-2 bg-bg border border-border rounded-card px-3 py-2.5">
+                <span className="font-mono text-[11px] text-text break-all select-all flex-1">
+                  {apiKey}
+                </span>
+                <button
+                  onClick={handleCopy}
+                  aria-label="Copy API key"
+                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-dim hover:text-olive transition-colors"
+                >
+                  {copied ? <Check size={14} className="text-olive" /> : <Copy size={14} />}
+                </button>
+              </div>
+            ) : (
+              <p className="font-mono text-xs text-dim">Loading…</p>
+            )}
           </div>
 
           {/* Sign out */}

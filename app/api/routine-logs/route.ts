@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineLog from "@/models/RoutineLog";
 import type { LogState } from "@/models/RoutineLog";
+import { minutesSince, serializeLog, startInProgressLog } from "@/lib/routine-log-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -12,30 +13,6 @@ function resolveUserId(sessionId?: string): string | null {
   if (sessionId) return sessionId;
   if (process.env.SKIP_AUTH === "true") return DEV_USER_ID;
   return null;
-}
-
-function minutesSince(startedAt: Date): number {
-  return Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 60000));
-}
-
-function serializeLog(l: {
-  _id: { toString(): string };
-  routineItemId: { toString(): string };
-  date: string;
-  actualMinutes?: number | null;
-  startedAt?: Date | null;
-  completedAt?: Date | null;
-  state: LogState;
-}) {
-  return {
-    _id: l._id.toString(),
-    routineItemId: l.routineItemId.toString(),
-    date: l.date,
-    actualMinutes: l.actualMinutes ?? null,
-    startedAt: l.startedAt ? new Date(l.startedAt).toISOString() : null,
-    completedAt: l.completedAt ? new Date(l.completedAt).toISOString() : null,
-    state: l.state,
-  };
 }
 
 export async function GET(req: NextRequest) {
@@ -50,7 +27,8 @@ export async function GET(req: NextRequest) {
 }
 
 // POST — creates or replaces a log entry.
-// For state 'in_progress': records startedAt = now, clears prior time fields.
+// For state 'in_progress': delegates to startInProgressLog (see lib/routine-log-actions),
+// which enforces the single-active-timer invariant server-side.
 // For terminal states (done/missed/rest): sets state + actualMinutes + isBackEntry.
 // Uses $set only — DO NOT put filter fields in $setOnInsert, MongoDB rejects it as
 // conflicting mods and the write silently fails on the client.
@@ -73,50 +51,14 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  let setData: Record<string, unknown>;
   if (state === "in_progress") {
-    // Enforce a single active timer per user, server-side — never trust the
-    // client to have closed out whatever it left running. Any other
-    // in_progress log (on any date, for any other item) is auto-completed
-    // with its actual elapsed time before this new one is allowed to start,
-    // rather than being left dangling.
-    const stray = await RoutineLog.find({
-      userId,
-      state: "in_progress",
-      routineItemId: { $ne: routineItemId },
-    }).lean();
-    for (const s of stray) {
-      const startedAt = s.startedAt ? new Date(s.startedAt) : null;
-      await RoutineLog.updateOne(
-        { _id: s._id },
-        {
-          $set: {
-            state: "done",
-            completedAt: new Date(),
-            actualMinutes: startedAt ? minutesSince(startedAt) : 1,
-          },
-        }
-      );
-    }
-
-    setData = {
-      state,
-      startedAt: new Date(),
-      completedAt: null,
-      actualMinutes: null,
-      isBackEntry: false,
-    };
-  } else {
-    setData = {
-      state,
-      actualMinutes: actualMinutes ?? null,
-      isBackEntry: isBackEntry ?? false,
-    };
+    const log = await startInProgressLog(userId, routineItemId, date);
+    return NextResponse.json(serializeLog(log));
   }
 
   const log = await RoutineLog.findOneAndUpdate(
     { userId, routineItemId, date },
-    { $set: setData },
+    { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false } },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
@@ -148,7 +90,9 @@ export async function PATCH(req: NextRequest) {
   await connectDB();
 
   const now = new Date();
-  const setData: Record<string, unknown> = { state };
+  // Leaving a session anchor behind on the log's next state doesn't help anyone —
+  // once it's no longer in_progress it should behave like any other completed log.
+  const setData: Record<string, unknown> = { state, sessionGroupId: null };
 
   if (startOverride && endOverride) {
     // Manual time edit: client supplied explicit start + end in local time converted to ISO

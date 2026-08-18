@@ -175,7 +175,26 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
       setSessionLogs((prev) => [...prev, log]);
       await saveLog(currentItem._id, state, actualMinutes);
 
-      const nextIndex = currentIndex + 1;
+      // Skip forward past anything already logged today, from ANY source —
+      // an earlier API call, a manual tap elsewhere, or this session itself —
+      // not just what this session instance happens to know about locally.
+      // Re-fetch rather than trust sessionLogs/externalLogs, since either can
+      // be stale relative to an out-of-band completion that just happened.
+      const loggedIds = new Set(sessionLogs.map((l) => l.itemId));
+      loggedIds.add(currentItem._id);
+      try {
+        const res = await fetch(`/api/routine-logs?date=${today}`);
+        if (res.ok) {
+          const fresh: Array<{ routineItemId: string }> = await res.json();
+          for (const l of fresh) loggedIds.add(l.routineItemId);
+        }
+      } catch { /* fall back to what we already know locally */ }
+
+      let nextIndex = currentIndex + 1;
+      while (nextIndex < items.length && loggedIds.has(items[nextIndex]._id)) {
+        nextIndex++;
+      }
+
       if (nextIndex < items.length) {
         setCurrentIndex(nextIndex);
       } else {
@@ -183,7 +202,7 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
         setIsRunning(false);
       }
     },
-    [currentItem, currentIndex, items.length, saveLog]
+    [currentItem, currentIndex, items, today, saveLog, sessionLogs]
   );
 
   // Closing mid-item (the X button) used to silently discard whatever the

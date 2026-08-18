@@ -12,6 +12,12 @@ export interface IRoutineLog extends Document {
   state: LogState;
   note?: string;
   isBackEntry: boolean;
+  // Set only while state === "in_progress" and this timer was started with a
+  // routineGroupId (currently only possible via the external API — see
+  // app/api/external/start-timer). Tells the client to reopen this item inside
+  // a RoutineSession for that group on resume, instead of the standalone
+  // timer. Cleared whenever the log leaves in_progress.
+  sessionGroupId?: mongoose.Types.ObjectId | null;
   createdAt: Date;
 }
 
@@ -26,6 +32,7 @@ const RoutineLogSchema = new Schema<IRoutineLog>(
     state: { type: String, enum: ["in_progress", "done", "missed", "rest"], required: true },
     note: { type: String, default: null },
     isBackEntry: { type: Boolean, default: false },
+    sessionGroupId: { type: Schema.Types.ObjectId, ref: "RoutineGroup", default: null },
   },
   { timestamps: true }
 );

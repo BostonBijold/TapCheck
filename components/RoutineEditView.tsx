@@ -198,6 +198,14 @@ function SortableRow({
             <Check size={12} />
             {saving ? "Saving…" : "Save changes"}
           </button>
+
+          {/* For the external API (see Profile > External API Key) */}
+          <div className="pt-2 border-t border-border">
+            <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
+              Item ID
+            </p>
+            <p className="font-mono text-[10px] text-dim break-all select-all">{item._id}</p>
+          </div>
         </div>
       )}
     </div>
@@ -358,6 +366,14 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
           {scheduleSaved && (
             <p className="font-mono text-[10px] text-olive">Schedule saved</p>
           )}
+        </div>
+
+        {/* For the external API (see Profile > External API Key) */}
+        <div className="px-4 py-3 border-b border-border">
+          <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1">
+            Group ID
+          </p>
+          <p className="font-mono text-[11px] text-muted break-all select-all">{group._id}</p>
         </div>
 
         {/* Sortable list */}

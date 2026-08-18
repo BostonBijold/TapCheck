@@ -31,6 +31,7 @@ export interface RoutineLogEntry {
   startedAt?: string;   // ISO string — set when timer starts
   completedAt?: string; // ISO string — set when timer finishes
   state: LogState;
+  sessionGroupId?: string | null; // set when this in_progress timer is anchored inside a Routine Session
 }
 
 export type WeekLog = { routineItemId: string; date: string; state: LogState };
@@ -114,11 +115,27 @@ export default function RoutinesView({
 
   // Shared by both resume effects below — finds the day's in_progress log (at
   // most one can exist, per the single-active-timer invariant enforced in
-  // POST /api/routine-logs) and opens TimerScreen for it, seeded with elapsed
-  // time computed from the server-recorded startedAt. Returns whether it found one.
+  // POST /api/routine-logs). If it carries a sessionGroupId (set only via the
+  // external API's routineGroupId param), reopen it inside a RoutineSession
+  // for that group, anchored at that item, instead of the standalone timer —
+  // reproducing "tapped Start Routine and navigated to that item by hand."
+  // Otherwise opens TimerScreen as before, seeded with elapsed time computed
+  // from the server-recorded startedAt. Returns whether it found one.
   const openInProgressTimer = useCallback(() => {
     const inProgressLog = initialLogs.find((l) => l.state === "in_progress");
     if (!inProgressLog?.startedAt) return false;
+
+    if (inProgressLog.sessionGroupId) {
+      const group = groups.find((g) => g._id === inProgressLog.sessionGroupId);
+      const startIndex = group?.items.findIndex((i) => i._id === inProgressLog.routineItemId) ?? -1;
+      if (group && startIndex !== -1) {
+        setActiveSession({ group, startIndex });
+        return true;
+      }
+      // Fall through to the standalone timer if the group/item can't be
+      // resolved (e.g. the group was deleted after the anchor was set).
+    }
+
     for (const g of [...routineGroups, ...habitGroups]) {
       const item = g.items.find((i) => i._id === inProgressLog.routineItemId);
       if (item) {
@@ -129,7 +146,7 @@ export default function RoutinesView({
       }
     }
     return false;
-  }, [initialLogs, routineGroups, habitGroups]);
+  }, [initialLogs, routineGroups, habitGroups, groups]);
 
   // Auto-resume any in_progress timer from a previous session
   useEffect(() => {
@@ -317,6 +334,16 @@ export default function RoutinesView({
       const existingLog = logs[item._id];
 
       if (existingLog?.state === "in_progress" && existingLog.startedAt) {
+        // Session-anchored (started via the external API with a group id) —
+        // resuming this item means resuming the session, not the standalone timer.
+        if (existingLog.sessionGroupId) {
+          const group = groups.find((g) => g._id === existingLog.sessionGroupId);
+          if (group) {
+            const startIndex = Math.max(0, group.items.findIndex((i) => i._id === item._id));
+            setActiveSession({ group, startIndex });
+            return;
+          }
+        }
         const elapsed = Math.max(0, Math.floor((Date.now() - new Date(existingLog.startedAt).getTime()) / 1000));
         setTimerInitialElapsed(elapsed);
         setTimerItem(item);
@@ -355,7 +382,7 @@ export default function RoutinesView({
       setTimerInitialElapsed(0);
       setTimerItem(item);
     },
-    [logs, selectedDate]
+    [logs, selectedDate, groups]
   );
 
   // PATCH the in_progress log to done. Server derives actualMinutes from startedAt.

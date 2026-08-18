@@ -5,6 +5,10 @@ import { Schema, model, models } from "mongoose";
 const UserSchema = new Schema(
   {
     virtueWalkthroughSeen: { type: Boolean, default: false },
+    // Long-lived token for external triggers (e.g. an iPhone Shortcut fired by
+    // an NFC tag) — see app/api/external/start-timer. Generated once, lazily,
+    // the first time it's requested; never rotated automatically.
+    apiKey: { type: String, default: null, index: true, unique: true, sparse: true },
   },
   {
     strict: false, // allow adapter-owned fields to coexist without declaring them
