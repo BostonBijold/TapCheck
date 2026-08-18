@@ -13,11 +13,12 @@
 
 html {
   background: #18160f;
-  /* dvh tracks the real visible viewport on iOS standalone PWAs — plain
-     100% can resolve taller than what's actually on screen there, which
-     pushes fixed-bottom elements (the nav/FAB) below the visible fold. */
   height: 100%;
   height: 100dvh;
+  /* Explicit rather than relying on the browser's overflow-propagation-to-
+     viewport rule (which only kicks in because body also sets overflow:hidden
+     below) — makes the behavior intentional instead of an implicit side effect. */
+  overflow: hidden;
 }
 
 body {
@@ -26,8 +27,15 @@ body {
   font-family: var(--font-inter), system-ui, sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  height: 100%;
-  height: 100dvh;
+  /* Pinned to the live visual viewport rather than sized via height (even
+     100dvh) — on iOS standalone PWAs a statically-sized body can drift from
+     the actual visible area (status bar / home indicator geometry), which is
+     what left a gap below the fixed bottom nav despite the dvh fix. inset:0
+     tracks the real viewport directly, the standard fix for this class of
+     bug. Don't reintroduce an explicit height here — for a fixed element,
+     height wins over the bottom:0 half of inset, which defeats the point. */
+  position: fixed;
+  inset: 0;
   overflow: hidden;
 }
 

@@ -506,7 +506,7 @@ export default function RoutinesView({
     : [];
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       {timerItem && (
         <TimerScreen
           item={timerItem}

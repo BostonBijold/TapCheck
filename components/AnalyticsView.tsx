@@ -11,7 +11,7 @@ interface Props {
 
 export default function AnalyticsView({ userName, today, skipAuth }: Props) {
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-12">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
         <AnalyticsContent />

@@ -6,7 +6,7 @@ export default async function LoginPage() {
   if (session) redirect("/routines");
 
   return (
-    <main className="min-h-screen bg-bg flex flex-col items-center justify-center p-6">
+    <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-mobile">
         <div className="mb-16">
           <h1 className="font-heading text-5xl text-text leading-tight mb-3">

@@ -108,7 +108,7 @@ export default function ReviewView({
   }, [returnTo, router, loadSummary, days]);
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       {mode === "checkin" && (
         <VirtueCheckInModal
           thisWeekVirtue={currentVirtue}

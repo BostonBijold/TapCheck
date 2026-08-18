@@ -504,7 +504,7 @@ export default function GoalDetailView({ initialGoal, today }: Props) {
   else if (totalMs > 0)  progressLabel += ` — ${doneMs} of ${totalMs} milestones`;
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-24">
         {/* ── Back + title ── */}
         <div className="flex items-center gap-3 pt-6 pb-5">

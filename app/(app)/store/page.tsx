@@ -7,7 +7,7 @@ export default async function StorePage() {
   if (!skipAuth && !session?.user?.id) redirect("/login");
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4">
         <header className="pt-8 pb-6">
           <h1 className="font-heading text-2xl text-text">Store</h1>

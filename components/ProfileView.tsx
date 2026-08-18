@@ -33,7 +33,7 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
   };
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={name} today={today} skipAuth={skipAuth} />
 

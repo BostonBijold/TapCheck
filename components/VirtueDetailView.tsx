@@ -105,7 +105,7 @@ export default function VirtueDetailView({ virtue: initial, isAdmin, thisWeekOrd
   }
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-24">
 
         {/* ── Back ── */}

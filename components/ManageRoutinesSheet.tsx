@@ -23,7 +23,10 @@ export default function ManageRoutinesSheet({ groups, onClose }: Props) {
       />
 
       {/* Sheet */}
-      <div className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-mobile bg-card rounded-t-[16px] pb-safe">
+      <div
+        className="fixed bottom-0 left-0 right-0 z-50 mx-auto max-w-mobile bg-card rounded-t-[16px]"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
         {/* Handle */}
         <div className="flex justify-center pt-3 pb-1">
           <div className="w-10 h-1 rounded-full bg-border" />

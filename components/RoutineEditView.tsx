@@ -315,7 +315,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     : `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}`.trim();
 
   return (
-    <div className="min-h-screen bg-bg">
+    <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile">
         {/* Header */}
         <header className="flex items-center gap-3 px-4 pt-10 pb-4 border-b border-border">
