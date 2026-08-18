@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
+import { emitRoutineLogChanged } from "@/lib/routine-log-events";
 
 interface HabitRow {
   _id: string;
@@ -53,6 +54,7 @@ export default function FABHabitSheet({ date, onClose }: Props) {
       setHabits((prev) =>
         prev.map((h) => (h._id === habit._id ? { ...h, done: true } : h))
       );
+      emitRoutineLogChanged();
     } finally {
       setPending((p) => { const next = new Set(p); next.delete(habit._id); return next; });
     }

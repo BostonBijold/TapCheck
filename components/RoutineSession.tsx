@@ -5,6 +5,7 @@ import { X, ChevronRight } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
 import type { RowItem } from "@/components/RoutineItemRow";
 import type { LogState } from "@/models/RoutineLog";
+import { emitRoutineLogChanged } from "@/lib/routine-log-events";
 
 interface SessionLog {
   itemId: string;
@@ -109,20 +110,49 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
     };
   }, [recompute]);
 
-  // Reset timer state whenever we move to a new item — unless that item already
-  // has an in_progress log from outside this session (started via the single-habit
-  // timer before "Start Routine" was tapped), in which case resume from its
-  // server-recorded startedAt instead of restarting the clock at 0.
+  // Move to a new item — unless it already has an in_progress log from outside
+  // this session (started via the single-habit timer before "Start Routine" was
+  // tapped), stamp a fresh in_progress record on the server (startedAt = now)
+  // before starting its clock locally, mirroring the standalone timer's
+  // handleStartTimer pattern. This is what lets closing mid-item (below) and
+  // the mount-time auto-resume in RoutinesView find an accurate startedAt
+  // instead of discarding progress silently.
   useEffect(() => {
-    const existing = currentItem ? externalLogs?.[currentItem._id] : undefined;
-    const seeded =
-      !isCheckbox && existing?.state === "in_progress" && existing.startedAt
-        ? Math.max(0, Math.floor((Date.now() - new Date(existing.startedAt).getTime()) / 1000))
+    if (!currentItem) return;
+    let cancelled = false;
+    const item = currentItem;
+    const existing = externalLogs?.[item._id];
+    const isCheckboxItem = item.itemType === "checkbox";
+    const isResuming = !isCheckboxItem && existing?.state === "in_progress" && !!existing.startedAt;
+
+    // Blank the display immediately so it doesn't show the previous item's
+    // leftover elapsed value while the in_progress POST (if any) is in flight.
+    baseElapsedRef.current = 0;
+    runStartRef.current = null;
+    setElapsed(0);
+    setIsRunning(false);
+
+    (async () => {
+      if (!isCheckboxItem && !isResuming) {
+        await fetch("/api/routine-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ routineItemId: item._id, date: today, state: "in_progress" }),
+        });
+        emitRoutineLogChanged();
+      }
+      if (cancelled) return;
+
+      const seeded = isResuming
+        ? Math.max(0, Math.floor((Date.now() - new Date(existing!.startedAt!).getTime()) / 1000))
         : 0;
-    baseElapsedRef.current = seeded;
-    runStartRef.current = isRunning ? Date.now() : null;
-    setElapsed(seeded);
-    setIsRunning(true);
+      baseElapsedRef.current = seeded;
+      runStartRef.current = Date.now();
+      setElapsed(seeded);
+      setIsRunning(true);
+    })();
+
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentIndex]);
 
@@ -133,6 +163,7 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ routineItemId: itemId, date: today, state, actualMinutes }),
       });
+      emitRoutineLogChanged();
     },
     [today]
   );
@@ -154,6 +185,27 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
     },
     [currentItem, currentIndex, items.length, saveLog]
   );
+
+  // Closing mid-item (the X button) used to silently discard whatever the
+  // current item's timer had accumulated. Now that a server-side in_progress
+  // record exists for it (see the effect above), flush it as done with the
+  // elapsed time actually run rather than leaving it dangling or losing it.
+  const handleClose = useCallback(async () => {
+    if (phase === "running" && currentItem && currentItem.itemType !== "checkbox") {
+      await fetch("/api/routine-logs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routineItemId: currentItem._id,
+          date: today,
+          state: "done",
+          actualMinutes: Math.max(1, Math.round(elapsed / 60)),
+        }),
+      });
+      emitRoutineLogChanged();
+    }
+    onClose();
+  }, [phase, currentItem, elapsed, today, onClose]);
 
   const handleDone = () => {
     if (isCheckbox) {
@@ -264,7 +316,7 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
     <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
       {/* Top bar */}
       <div className="flex items-center justify-between px-4 pt-10 pb-2 flex-shrink-0">
-        <button onClick={onClose} className="flex items-center justify-center w-9 h-9 rounded-full bg-card text-dim">
+        <button onClick={handleClose} className="flex items-center justify-center w-9 h-9 rounded-full bg-card text-dim">
           <X size={16} />
         </button>
         <span className="font-mono text-muted text-sm">{currentIndex + 1} of {items.length}</span>

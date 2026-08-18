@@ -14,6 +14,10 @@ function resolveUserId(sessionId?: string): string | null {
   return null;
 }
 
+function minutesSince(startedAt: Date): number {
+  return Math.max(1, Math.round((Date.now() - startedAt.getTime()) / 60000));
+}
+
 function serializeLog(l: {
   _id: { toString(): string };
   routineItemId: { toString(): string };
@@ -71,6 +75,30 @@ export async function POST(req: NextRequest) {
 
   let setData: Record<string, unknown>;
   if (state === "in_progress") {
+    // Enforce a single active timer per user, server-side — never trust the
+    // client to have closed out whatever it left running. Any other
+    // in_progress log (on any date, for any other item) is auto-completed
+    // with its actual elapsed time before this new one is allowed to start,
+    // rather than being left dangling.
+    const stray = await RoutineLog.find({
+      userId,
+      state: "in_progress",
+      routineItemId: { $ne: routineItemId },
+    }).lean();
+    for (const s of stray) {
+      const startedAt = s.startedAt ? new Date(s.startedAt) : null;
+      await RoutineLog.updateOne(
+        { _id: s._id },
+        {
+          $set: {
+            state: "done",
+            completedAt: new Date(),
+            actualMinutes: startedAt ? minutesSince(startedAt) : 1,
+          },
+        }
+      );
+    }
+
     setData = {
       state,
       startedAt: new Date(),
@@ -134,9 +162,7 @@ export async function PATCH(req: NextRequest) {
     setData.completedAt = now;
     const existing = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
     const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
-    setData.actualMinutes = startedAt
-      ? Math.max(1, Math.round((now.getTime() - startedAt.getTime()) / 60000))
-      : (fallbackMins ?? 1);
+    setData.actualMinutes = startedAt ? minutesSince(startedAt) : (fallbackMins ?? 1);
   }
 
   const log = await RoutineLog.findOneAndUpdate(

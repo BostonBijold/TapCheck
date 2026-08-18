@@ -29,7 +29,7 @@ function getWeekDates(anchorDate: string): string[] {
 export default async function RoutinesPage({
   searchParams,
 }: {
-  searchParams?: { startNext?: string; addHabit?: string; date?: string };
+  searchParams?: { startNext?: string; addHabit?: string; date?: string; resumeTimer?: string };
 }) {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
@@ -162,6 +162,7 @@ export default async function RoutinesPage({
       isAdmin={isAdmin}
       autoStartNext={!!searchParams?.startNext}
       autoAddHabit={!!searchParams?.addHabit}
+      autoResumeTimer={!!searchParams?.resumeTimer}
     />
   );
 }

@@ -18,6 +18,7 @@ import type { LogState } from "@/models/RoutineLog";
 import type { RowItem } from "@/components/RoutineItemRow";
 import { isItemVisibleOn } from "@/lib/routine-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
+import { emitRoutineLogChanged } from "@/lib/routine-log-events";
 
 export type RoutineItem = RowItem;
 export type RoutineGroup = GroupCardGroup;
@@ -47,6 +48,7 @@ interface Props {
   isAdmin?: boolean;
   autoStartNext?: boolean;
   autoAddHabit?: boolean;
+  autoResumeTimer?: boolean;
 }
 
 interface ActiveSession {
@@ -61,6 +63,7 @@ export default function RoutinesView({
   isAdmin = false,
   autoStartNext = false,
   autoAddHabit = false,
+  autoResumeTimer = false,
 }: Props) {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -109,22 +112,42 @@ export default function RoutinesView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-resume any in_progress timer from a previous session
-  useEffect(() => {
-    if (autoStartNext) return; // FAB will handle timer open
+  // Shared by both resume effects below — finds the day's in_progress log (at
+  // most one can exist, per the single-active-timer invariant enforced in
+  // POST /api/routine-logs) and opens TimerScreen for it, seeded with elapsed
+  // time computed from the server-recorded startedAt. Returns whether it found one.
+  const openInProgressTimer = useCallback(() => {
     const inProgressLog = initialLogs.find((l) => l.state === "in_progress");
-    if (!inProgressLog?.startedAt) return;
+    if (!inProgressLog?.startedAt) return false;
     for (const g of [...routineGroups, ...habitGroups]) {
       const item = g.items.find((i) => i._id === inProgressLog.routineItemId);
       if (item) {
         const elapsed = Math.max(0, Math.floor((Date.now() - new Date(inProgressLog.startedAt).getTime()) / 1000));
         setTimerInitialElapsed(elapsed);
         setTimerItem(item as TimerItem);
-        break;
+        return true;
       }
     }
+    return false;
+  }, [initialLogs, routineGroups, habitGroups]);
+
+  // Auto-resume any in_progress timer from a previous session
+  useEffect(() => {
+    if (autoStartNext) return; // FAB will handle timer open
+    openInProgressTimer();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Explicit resume request from the FAB's active-timer indicator (see
+  // BottomNav.tsx) — must work even when RoutinesView was already mounted on
+  // this route, unlike the mount-only effect above, since navigating to the
+  // same route with a new search param doesn't remount the component.
+  useEffect(() => {
+    if (!autoResumeTimer) return;
+    openInProgressTimer();
+    router.replace("/routines");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoResumeTimer]);
 
   // Correct for server/client timezone mismatch — server uses UTC, browser knows local date.
   useEffect(() => {
@@ -310,16 +333,25 @@ export default function RoutinesView({
       };
       setLogs((l) => ({ ...l, [item._id]: optimistic }));
 
-      const res = await fetch("/api/routine-logs", {
+      await fetch("/api/routine-logs", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ routineItemId: item._id, date: selectedDate, state: "in_progress" }),
       });
-      if (res.ok) {
-        const saved: RoutineLogEntry = await res.json();
-        setLogs((l) => ({ ...l, [item._id]: saved }));
-      }
 
+      // The server also auto-completes any other dangling in_progress log for
+      // this user (single-active-timer invariant, enforced in the route
+      // handler) — re-fetch the whole day so that gets reflected locally too,
+      // not just the item we just started.
+      try {
+        const res = await fetch(`/api/routine-logs?date=${selectedDate}`);
+        if (res.ok) {
+          const fresh: RoutineLogEntry[] = await res.json();
+          setLogs(Object.fromEntries(fresh.map((l) => [l.routineItemId, l])));
+        }
+      } catch { /* optimistic state already applied; will resync on next refresh */ }
+
+      emitRoutineLogChanged();
       setTimerInitialElapsed(0);
       setTimerItem(item);
     },
@@ -344,6 +376,7 @@ export default function RoutinesView({
         const saved: RoutineLogEntry = await res.json();
         setLogs((l) => ({ ...l, [timerItem._id]: saved }));
       }
+      emitRoutineLogChanged();
       setTimerItem(null);
     },
     [timerItem, selectedDate]
@@ -360,6 +393,7 @@ export default function RoutinesView({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ routineItemId: timerItem._id, date: selectedDate, state: "missed" }),
     });
+    emitRoutineLogChanged();
     setTimerItem(null);
   }, [timerItem, selectedDate]);
 

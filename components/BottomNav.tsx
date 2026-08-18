@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import FABHabitSheet from "@/components/FABHabitSheet";
 import FABTaskSheet from "@/components/FABTaskSheet";
+import HabitIcon from "@/components/HabitIcon";
+import { ROUTINE_LOG_CHANGED_EVENT } from "@/lib/routine-log-events";
 
 const LEFT_TABS = [
   { href: "/routines",  label: "Routines",  Icon: ListChecks },
@@ -61,8 +63,27 @@ const DIAL_LABELS: Record<string, string> = {
   habit: "Habit",
 };
 
+interface ActiveTimer {
+  routineItemId: string;
+  date: string;
+  startedAt: string;
+  itemName: string;
+  itemIcon: string;
+  itemType: string;
+  projectedMinutes: number;
+}
+
+const ACTIVE_TIMER_POLL_MS = 30000;
+
 function todayStr() {
   return new Date().toLocaleDateString("sv"); // YYYY-MM-DD in local time
+}
+
+function fmtClock(totalSeconds: number) {
+  const s = Math.max(0, Math.floor(totalSeconds));
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  return `${m}:${sec.toString().padStart(2, "0")}`;
 }
 
 export default function BottomNav() {
@@ -73,6 +94,8 @@ export default function BottomNav() {
   const [taskOpen, setTaskOpen] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [startLabel, setStartLabel] = useState<"Start Routine" | "Continue Routine">("Start Routine");
+  const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const showToast = (msg: string) => {
@@ -94,6 +117,57 @@ export default function BottomNav() {
       .catch(() => {});
   }, []);
 
+  // ── Active-timer awareness ──────────────────────────────────────────────────
+  // Checked on load, on every route change, immediately whenever a
+  // RoutineLog mutation happens anywhere in the app (see lib/routine-log-events),
+  // and on a background poll as a safety net — so the FAB reflects reality
+  // without requiring a manual refresh.
+  const fetchActiveTimer = useCallback(async () => {
+    try {
+      const res = await fetch("/api/routine-logs/active");
+      if (!res.ok) return;
+      const data = await res.json();
+      setActiveTimer(data.active ? data : null);
+    } catch { /* keep previous state; next poll/event will retry */ }
+  }, []);
+
+  useEffect(() => {
+    fetchActiveTimer();
+  }, [pathname, fetchActiveTimer]);
+
+  useEffect(() => {
+    const onChanged = () => fetchActiveTimer();
+    window.addEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+    const poll = setInterval(fetchActiveTimer, ACTIVE_TIMER_POLL_MS);
+    return () => {
+      window.removeEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+      clearInterval(poll);
+    };
+  }, [fetchActiveTimer]);
+
+  // The dial is meaningless while a timer owns the FAB — close it if one
+  // becomes active while open (e.g. started from another tab/device).
+  useEffect(() => {
+    if (activeTimer) setOpen(false);
+  }, [activeTimer]);
+
+  // Live clock for the resume pill — wall-clock based like the timer screens
+  // themselves, not tick-counting, so it self-corrects after being backgrounded.
+  useEffect(() => {
+    if (!activeTimer) return;
+    const tick = () => setNowTick(Date.now());
+    tick();
+    const interval = setInterval(tick, 1000);
+    const onVisible = () => { if (document.visibilityState === "visible") tick(); };
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    return () => {
+      clearInterval(interval);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+    };
+  }, [activeTimer]);
+
   const handleStartNext = async () => {
     const date = todayStr();
     const res = await fetch(`/api/routines/start-next?date=${date}`);
@@ -112,12 +186,41 @@ export default function BottomNav() {
     }
   };
 
+  const handleResumeTimer = () => {
+    if (!activeTimer) return;
+    const url = `/routines?resumeTimer=1&date=${activeTimer.date}`;
+    if (pathname === "/routines") {
+      router.replace(url);
+    } else {
+      router.push(url);
+    }
+  };
+
   const handleAction = (key: string) => {
     setOpen(false);
     if (key === "startNext") { handleStartNext(); return; }
     if (key === "task")      { setTaskOpen(true);  return; }
     if (key === "habit")     { setHabitOpen(true); return; }
   };
+
+  const handleFabClick = () => {
+    if (activeTimer) { handleResumeTimer(); return; }
+    setOpen((v) => !v);
+  };
+
+  const elapsedSeconds = activeTimer
+    ? Math.floor((nowTick - new Date(activeTimer.startedAt).getTime()) / 1000)
+    : 0;
+  const isCountdown = !!activeTimer && activeTimer.itemType !== "stopwatch" && activeTimer.projectedMinutes > 0;
+  const targetSeconds = isCountdown ? activeTimer!.projectedMinutes * 60 : 0;
+  const isOverTarget = isCountdown && elapsedSeconds >= targetSeconds;
+  const clockText = activeTimer
+    ? isCountdown
+      ? isOverTarget
+        ? `+${fmtClock(elapsedSeconds - targetSeconds)}`
+        : fmtClock(targetSeconds - elapsedSeconds)
+      : fmtClock(elapsedSeconds)
+    : "";
 
   return (
     <>
@@ -142,7 +245,7 @@ export default function BottomNav() {
       )}
 
       {/* Backdrop */}
-      {open && (
+      {open && !activeTimer && (
         <div
           className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm"
           onClick={() => setOpen(false)}
@@ -150,7 +253,7 @@ export default function BottomNav() {
       )}
 
       {/* Arc bubbles */}
-      {DIAL.map(({ key, icon: Icon, bg, fg, left, bottom, origin, delay }) => {
+      {!activeTimer && DIAL.map(({ key, icon: Icon, bg, fg, left, bottom, origin, delay }) => {
         const label = key === "startNext" ? startLabel : DIAL_LABELS[key] ?? key;
         return (
           <button
@@ -182,15 +285,34 @@ export default function BottomNav() {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="mx-auto max-w-mobile relative">
+          {/* Active-timer resume pill — anchored to the FAB's own position
+              (not the raw viewport) so it sits right against it regardless
+              of safe-area insets, instead of floating at a fixed offset. */}
+          {activeTimer && (
+            <button
+              onClick={handleResumeTimer}
+              aria-label={`Resume ${activeTimer.itemName}`}
+              className="absolute bottom-[94px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-card border border-amber/40 text-text font-mono text-[11px] pl-2.5 pr-3 py-1.5 rounded-pill shadow-lg max-w-[240px] active:opacity-90 transition-opacity"
+            >
+              <HabitIcon name={activeTimer.itemIcon} size={13} className="text-amber flex-shrink-0" />
+              <span className="truncate">{activeTimer.itemName}</span>
+              <span className={`flex-shrink-0 ${isOverTarget ? "text-burgundy-light" : "text-amber"}`}>
+                {clockText}
+              </span>
+            </button>
+          )}
+
           {/* FAB */}
           <button
-            onClick={() => setOpen((v) => !v)}
-            aria-label={open ? "Close" : "Quick add"}
+            onClick={handleFabClick}
+            aria-label={activeTimer ? `Resume ${activeTimer.itemName}` : open ? "Close" : "Quick add"}
             className={`absolute left-1/2 -translate-x-1/2 -top-6 z-10 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center transition-all duration-200 ${
-              open ? "bg-card-hover" : "bg-olive"
+              activeTimer ? "bg-amber" : open ? "bg-card-hover" : "bg-olive"
             }`}
           >
-            {open ? (
+            {activeTimer ? (
+              <HabitIcon name={activeTimer.itemIcon} size={26} className="text-bg relative" />
+            ) : open ? (
               <X size={20} className="text-muted" />
             ) : (
               <Image
