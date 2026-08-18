@@ -37,12 +37,13 @@ export async function POST(req: NextRequest) {
   const userId = resolveUserId(session?.user?.id);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { routineItemId, date, actualMinutes, state, isBackEntry } = (await req.json()) as {
+  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId } = (await req.json()) as {
     routineItemId: string;
     date: string;
     actualMinutes?: number;
     state: LogState;
     isBackEntry?: boolean;
+    sessionGroupId?: string | null; // set by RoutineSession to anchor this timer inside a session
   };
 
   if (!routineItemId || !date || !state) {
@@ -52,13 +53,15 @@ export async function POST(req: NextRequest) {
   await connectDB();
 
   if (state === "in_progress") {
-    const log = await startInProgressLog(userId, routineItemId, date);
+    const log = await startInProgressLog(userId, routineItemId, date, sessionGroupId ?? null);
     return NextResponse.json(serializeLog(log));
   }
 
+  // A terminal state (done/missed/rest) is never session-anchored, regardless
+  // of which state this log was in before — same rule PATCH enforces.
   const log = await RoutineLog.findOneAndUpdate(
     { userId, routineItemId, date },
-    { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false } },
+    { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false, sessionGroupId: null } },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 

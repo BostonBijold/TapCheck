@@ -24,6 +24,7 @@ export interface ExternalLog {
 }
 
 interface Props {
+  groupId: string;
   groupName: string;
   items: RowItem[];
   logs?: Record<string, ExternalLog>;
@@ -47,7 +48,7 @@ const RING_R = 70;
 const RING_CIRC = 2 * Math.PI * RING_R;
 const STOPWATCH_SOFT_CAP = 30 * 60;
 
-export default function RoutineSession({ groupName, items, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
+export default function RoutineSession({ groupId, groupName, items, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
@@ -134,10 +135,15 @@ export default function RoutineSession({ groupName, items, logs: externalLogs, t
 
     (async () => {
       if (!isCheckboxItem && !isResuming) {
+        // Stamp the group id too, not just startedAt — this is what lets
+        // closing the app mid-item (without tapping X) resume straight back
+        // into this session on reopen, instead of falling back to the
+        // standalone timer. Mirrors the external API's routineGroupId param;
+        // openInProgressTimer already branches on sessionGroupId either way.
         await fetch("/api/routine-logs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ routineItemId: item._id, date: today, state: "in_progress" }),
+          body: JSON.stringify({ routineItemId: item._id, date: today, state: "in_progress", sessionGroupId: groupId }),
         });
         emitRoutineLogChanged();
       }
