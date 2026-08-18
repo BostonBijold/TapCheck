@@ -31,9 +31,12 @@ export default auth((req) => {
 });
 
 export const config = {
-  // Run on everything except static assets, images, PWA files, and NextAuth's
-  // own callback/session endpoints (those must stay reachable to complete sign-in).
+  // Run on everything except static assets, images, PWA files, NextAuth's own
+  // callback/session endpoints, and the external API (those must stay reachable
+  // without a session — api/auth to establish one, api/external because it's
+  // authenticated by its own API key instead and is called by things like an
+  // iPhone Shortcut that never has a session cookie to send).
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/external|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };
