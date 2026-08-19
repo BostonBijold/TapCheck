@@ -667,6 +667,7 @@ export default function RoutinesView({
                   weekDates={weekDates}
                   isPastDate={isPastDate}
                   selectedDate={selectedDate}
+                  today={today}
                   onStateChange={handleStateChange}
                   onStartTimer={handleStartTimer}
                   onStartRoutine={(g, startIndex) => setActiveSession({ group: g, startIndex })}
@@ -715,6 +716,7 @@ export default function RoutinesView({
                       weekDates={weekDates}
                       isPastDate={isPastDate}
                       selectedDate={selectedDate}
+                      today={today}
                       onStateChange={handleStateChange}
                       onStartTimer={handleStartTimer}
                       onStartRoutine={() => {}}

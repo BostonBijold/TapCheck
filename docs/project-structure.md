@@ -31,8 +31,9 @@
 | [`features/routines.md`](features/routines.md) | Time-of-day routine groups (Morning/Afternoon/Evening/Custom), item states, back-entry, streaks, and the "Start Routine" sequential session. |
 | [`features/habits.md`](features/habits.md) | The standalone (never-collapsing) Habits group, quick-log flow, and the habit-template catalog. |
 | [`features/timer.md`](features/timer.md) | Both timer UIs (single-habit and sequential-session), how elapsed time is tracked, and the resume-on-reload behavior. |
+| [`features/analytics.md`](features/analytics.md) | The 7-day fixed-calendar-week / 30-day rolling dashboard, `/api/analytics`'s aggregation, and the pending/today rendering in its charts. |
 
-*More feature docs (todos, goals, virtues, analytics) will be added over time following this same structure.*
+*More feature docs (todos, goals, virtues) will be added over time following this same structure.*
 
 ## API Docs
 

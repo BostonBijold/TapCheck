@@ -22,9 +22,10 @@ interface Props {
   group: GroupCardGroup;
   logs: Record<string, RoutineLogEntry>;
   weekLogs: Record<string, Array<{ date: string; state: LogState }>>;
-  weekDates: string[];
+  weekDates: string[]; // Sunday→Saturday, fixed calendar week (see lib/week-dates.ts)
   isPastDate?: boolean;
   selectedDate: string;
+  today: string; // YYYY-MM-DD — marks today's dot and what counts as "future" in StreakDots
   onStateChange: (
     routineItemId: string,
     state: LogState | null,
@@ -102,7 +103,7 @@ const STATE_SYMBOL: Record<LogState, string> = {
 
 export default function RoutineGroupCard({
   group, logs, weekLogs, weekDates,
-  isPastDate = false, selectedDate,
+  isPastDate = false, selectedDate, today,
   onStateChange, onStartTimer, onStartRoutine,
   onOpenCheckIn, onOpenReview,
 }: Props) {
@@ -302,6 +303,7 @@ export default function RoutineGroupCard({
                   log={logs[item._id]}
                   weekLogs={weekLogs[item._id] ?? []}
                   weekDates={weekDates}
+                  today={today}
                   isBackEntry={isBackEntry}
                   onStartTimer={() => onStartTimer(item)}
                   onStateChange={(s, opts) => onStateChange(item._id, s, opts)}
@@ -317,6 +319,7 @@ export default function RoutineGroupCard({
                   log={logs[item._id]}
                   weekLogs={weekLogs[item._id] ?? []}
                   weekDates={weekDates}
+                  today={today}
                   isExpanded={expandedItemId === item._id}
                   isBackEntry={isBackEntry}
                   selectedDate={selectedDate}

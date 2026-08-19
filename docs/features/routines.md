@@ -41,7 +41,9 @@ Custom groups without a `startTime` never derive a collapse window and simply st
 
 ## Streaks & variance
 
-Each row shows `StreakDots` (`components/StreakDots.tsx`) — a 7-day dot strip built from `weekLogs`. For timed items marked done, the row also shows the variance between `actualMinutes` and `projectedMinutes` (e.g. `+8m` in an "over" color, `-3m` in an "under" color).
+Each row shows `StreakDots` (`components/StreakDots.tsx`) — a dot strip built from `weekLogs`, one dot per day of the **fixed Sunday–Saturday calendar week** containing `today` (`lib/week-dates.ts`'s `calendarWeekDates`, computed once server-side in `app/(app)/routines/page.tsx` and passed down as `weekDates`/`weekLogs`). This is a fixed frame, not a trailing "last 7 days" window — the dot for a given weekday always sits in the same position regardless of what day it currently is. Days later in the week that haven't happened yet render as a distinct hollow dot (not the same as a past/today day with no log, which is a plain filled `bg-border` dot), and today's dot gets a small gold ring around it so it's identifiable without reading a label — `StreakDots` has no day-letter labels at all, unlike the Analytics chart (see `analytics.md`), which is deliberately a lighter-weight treatment since this strip repeats on every row. For timed items marked done, the row also shows the variance between `actualMinutes` and `projectedMinutes` (e.g. `+8m` in an "over" color, `-3m` in an "under" color).
+
+Note this is a different week convention than virtue rotation/weekly review, which is Monday-anchored (ISO week, see `lib/virtue-dates.ts`) — "this week" is Sunday-Saturday here specifically, by design.
 
 ## Reordering & editing groups
 

@@ -44,7 +44,7 @@ Either path ends by calling `POST /api/routine-items` (documented in [routines-a
 - `components/RoutineGroupCard.tsx` — the `timeOfDay === "habit"` branch described above.
 - `components/HabitItemCard.tsx` — per-item card for habit groups (done/missed/rest/pending, timer-start or checkbox-done, back-entry minutes input, skip options).
 - `components/AddHabitSheet.tsx` — browse-template / create-custom flow.
-- `components/HabitIcon.tsx`, `components/StreakDots.tsx` — shared icon renderer/picker and 7-day streak strip.
+- `components/HabitIcon.tsx`, `components/StreakDots.tsx` — shared icon renderer/picker and the fixed-calendar-week (Sunday–Saturday) streak strip, see [routines.md](routines.md#streaks--variance).
 - `lib/seed.ts` (`ensureHabitsGroup`), `lib/seed-templates.ts` (`ensureSystemTemplates`, the hardcoded `SYSTEM_TEMPLATES` catalog).
 - `models/HabitTemplate.ts` — the catalog schema; `RoutineItem.templateId` is the only link back to it, and it's a one-time copy (editing/deleting a template afterward does not affect items already created from it).
 

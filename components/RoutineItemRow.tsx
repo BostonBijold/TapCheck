@@ -20,10 +20,11 @@ interface Props {
   item: RowItem;
   log?: RoutineLogEntry;
   weekLogs: Array<{ date: string; state: LogState }>;
-  weekDates: string[];
+  weekDates: string[]; // Sunday→Saturday, fixed calendar week
   isExpanded: boolean;
   isBackEntry: boolean;
   selectedDate: string;
+  today: string; // YYYY-MM-DD — marks today's dot and what counts as "future" in StreakDots
   onToggleExpand: () => void;
   onStartTimer: () => void;
   onStateChange: (state: LogState | null, opts?: { actualMinutes?: number; isBackEntry?: boolean; startedAt?: string; completedAt?: string }) => void;
@@ -80,7 +81,7 @@ const LABEL: Record<LogState, string> = {
 
 export default function RoutineItemRow({
   item, log, weekLogs, weekDates,
-  isExpanded, isBackEntry, selectedDate,
+  isExpanded, isBackEntry, selectedDate, today,
   onToggleExpand, onStartTimer, onStateChange,
   onOpenCheckIn, onOpenReview,
 }: Props) {
@@ -208,7 +209,7 @@ export default function RoutineItemRow({
             {item.name}
           </p>
           <div className="mt-1.5">
-            <StreakDots logs={weekLogs} dates={weekDates} />
+            <StreakDots logs={weekLogs} dates={weekDates} today={today} />
           </div>
         </div>
 

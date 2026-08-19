@@ -8,6 +8,7 @@ import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import VirtueModel from "@/models/Virtue";
 import { seedDefaultRoutines, ensureAfternoonGroup, ensureHabitsGroup, ensureVirtueCheckInItems } from "@/lib/seed";
 import { currentVirtueOrder } from "@/lib/seed-virtues";
+import { calendarWeekDates } from "@/lib/week-dates";
 import RoutinesView from "@/components/RoutinesView";
 import type { LogState } from "@/models/RoutineLog";
 
@@ -16,15 +17,6 @@ const ADMIN_EMAIL = "bostonrbijold@gmail.com";
 export const dynamic = "force-dynamic";
 
 const DEV_USER_ID = "dev-local-user";
-
-function getWeekDates(anchorDate: string): string[] {
-  return Array.from({ length: 7 }, (_, i) => {
-    // Parse anchor as a local noon to avoid DST edge cases
-    const d = new Date(anchorDate + "T12:00:00");
-    d.setDate(d.getDate() - (6 - i)); // oldest → newest, anchor last
-    return d.toISOString().split("T")[0];
-  });
-}
 
 export default async function RoutinesPage({
   searchParams,
@@ -86,7 +78,7 @@ export default async function RoutinesPage({
   // Never fall back to server UTC — the server doesn't know the user's timezone.
   // The client-side useEffect in RoutinesView will redirect with ?date= on first load.
   const today = searchParams?.date ?? new Date().toISOString().split("T")[0];
-  const weekDates = getWeekDates(today);
+  const weekDates = calendarWeekDates(today);
 
   const groups = await RoutineGroup.find({ userId }).sort({ order: 1 }).lean();
 

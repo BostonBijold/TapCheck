@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
+import { calendarWeekDates } from "@/lib/week-dates";
 
 export const dynamic = "force-dynamic";
 import RoutineGroup from "@/models/RoutineGroup";
@@ -10,7 +11,13 @@ import RoutineLog from "@/models/RoutineLog";
 const DEV_USER_ID = "dev-local-user";
 
 // anchorDate: client's local today (YYYY-MM-DD). Never derive from server UTC.
+// The 7-day view is a fixed Sunday–Saturday calendar week containing
+// anchorDate — it can include days after anchorDate (later this week), which
+// the client renders as a distinct pending state. The 30-day view stays a
+// trailing window ending at anchorDate, which by construction never
+// includes a future date.
 function getDates(days: number, anchorDate: string): string[] {
+  if (days === 7) return calendarWeekDates(anchorDate);
   return Array.from({ length: days }, (_, i) => {
     const d = new Date(anchorDate + "T12:00:00");
     d.setDate(d.getDate() - (days - 1 - i));
@@ -29,6 +36,10 @@ export async function GET(req: NextRequest) {
   // Client must send its local date so date windows match stored local-date strings
   const localDate = searchParams.get("localDate") ?? new Date().toISOString().split("T")[0];
   const dates = getDates(days, localDate);
+  // Days later this week that haven't happened yet still appear in `dates`
+  // (for a consistent chart width) but can't have logs — exclude them from
+  // "how many days could this have been logged" denominators below.
+  const elapsedDates = dates.filter((d) => d <= localDate);
 
   await connectDB();
 
@@ -179,15 +190,15 @@ export async function GET(req: NextRequest) {
       doneCount,
       missedCount,
       restCount,
-      unloggedCount: dates.length - doneCount - missedCount - restCount,
+      unloggedCount: elapsedDates.length - doneCount - missedCount - restCount,
       avgActualMins,
       avgVariance,
       completionRate: engagedDays > 0 ? doneCount / engagedDays : 0,
       engagedDays,
-      totalDays: dates.length,
+      totalDays: elapsedDates.length,
       itemType: (item.itemType ?? "standard") as string,
     };
   });
 
-  return NextResponse.json({ dates, days, groups: groupStats, habits: habitStats });
+  return NextResponse.json({ dates, days, today: localDate, groups: groupStats, habits: habitStats });
 }
