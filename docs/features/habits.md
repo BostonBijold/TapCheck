@@ -18,10 +18,14 @@ Since habit groups have no time window, `isBackEntry` for a habit item reduces t
 
 `components/AddHabitSheet.tsx` (opened from the "+ Add" link on the Habits section, or the FAB's dial) offers two paths:
 
-1. **Browse a template** — `GET /api/habit-templates?groupId=…` returns the catalog of `HabitTemplate` documents (system-seeded + this user's own custom ones), excluding templates already added as an active item in this group. Selecting one always creates the new `RoutineItem` with `itemType: "standard"`, regardless of the template's own metadata.
-2. **Create a custom habit** — the user picks a type (`standard`/`stopwatch`/`checkbox`), icon, name, and (for `standard`) a target duration. Saving first `POST`s a brand-new `HabitTemplate` (`isSystem: false`, no dedupe against existing custom templates of the same name), then adds a `RoutineItem` referencing it.
+1. **Browse a template** — `GET /api/habit-templates?groupId=…` returns the catalog of `HabitTemplate` documents (system-seeded + this user's own custom ones), excluding templates already added as an active item in this group. Selecting one always creates the new `RoutineItem` with `itemType: "standard"`, and skips the schedule/threshold prompt below — every day, full threshold, same as any other unconfigured item — editable afterward (see "Editing a habit" below).
+2. **Create a custom habit** — the user picks a type (`standard`/`stopwatch`/`checkbox`), icon, name, (for `standard`) a target duration, and a **schedule + success threshold**: a day-of-week toggle row (default all 7 selected) and a threshold number input that auto-follows the selected-day count until the user deliberately lowers it below that (see [routines.md](routines.md#weekly-schedule--success-threshold) for what these mean). Saving first `POST`s a brand-new `HabitTemplate` (`isSystem: false`, no dedupe against existing custom templates of the same name), then adds a `RoutineItem` referencing it with the chosen schedule/threshold.
 
 Either path ends by calling `POST /api/routine-items` (documented in [routines-api.md](../api/routines-api.md) — there is no habit-specific item-creation endpoint).
+
+## Editing a habit
+
+There's no edit affordance directly on `HabitItemCard` — the edit path is the same one time-of-day routine items use: the "⚙ Manage" button (in the Routine groups section header) opens `ManageRoutinesSheet`, which lists **every** group including the "Habits" group, linking to `/routines/[groupId]/edit` → `components/RoutineEditView.tsx`. That view is completely generic over `RoutineItem`s regardless of the parent group's `timeOfDay`, so a habit item's name/icon/type/minutes and its `scheduledDays`/`successThreshold` are all editable there exactly like a routine item's — see [routines.md](routines.md#reordering--editing-groups).
 
 ## Quick-log flow (FAB → "Habit")
 
@@ -43,8 +47,10 @@ Either path ends by calling `POST /api/routine-items` (documented in [routines-a
 - `components/RoutinesView.tsx` — splits `groups` into `routineGroups` vs `habitGroups` and renders the Habits section.
 - `components/RoutineGroupCard.tsx` — the `timeOfDay === "habit"` branch described above.
 - `components/HabitItemCard.tsx` — per-item card for habit groups (done/missed/rest/pending, timer-start or checkbox-done, back-entry minutes input, skip options).
-- `components/AddHabitSheet.tsx` — browse-template / create-custom flow.
+- `components/AddHabitSheet.tsx` — browse-template / create-custom flow, including the schedule/threshold controls (custom-create only).
+- `components/RoutineEditView.tsx` — also the habit-item edit path, see "Editing a habit" above.
 - `components/HabitIcon.tsx`, `components/StreakDots.tsx` — shared icon renderer/picker and the fixed-calendar-week (Sunday–Saturday) streak strip, see [routines.md](routines.md#streaks--variance).
+- `lib/routine-progress.ts` — the shared weekly schedule/threshold math (see [routines.md](routines.md#weekly-schedule--success-threshold)) — same function, same behavior, whether the item lives in a habit group or a time-of-day one.
 - `lib/seed.ts` (`ensureHabitsGroup`), `lib/seed-templates.ts` (`ensureSystemTemplates`, the hardcoded `SYSTEM_TEMPLATES` catalog).
 - `models/HabitTemplate.ts` — the catalog schema; `RoutineItem.templateId` is the only link back to it, and it's a one-time copy (editing/deleting a template afterward does not affect items already created from it).
 

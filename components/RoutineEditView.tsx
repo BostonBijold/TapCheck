@@ -32,12 +32,16 @@ export interface EditItem {
   projectedMinutes: number;
   order: number;
   itemType: "standard" | "stopwatch" | "checkbox";
+  scheduledDays: number[];  // 0=Sun..6=Sat — which days this item is expected
+  successThreshold: number; // how many of this week's scheduled days = 100%
 }
 
 interface Props {
   group: { _id: string; name: string; startTime: string | null };
   items: EditItem[];
 }
+
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // Sun..Sat, matches calendarWeekDates order
 
 // ── Sortable row ─────────────────────────────────────────────────────────────
 
@@ -51,7 +55,14 @@ function SortableRow({
   item: EditItem;
   isEditing: boolean;
   onToggleEdit: () => void;
-  onSave: (name: string, icon: string, projectedMinutes: number, itemType: "standard" | "stopwatch" | "checkbox") => Promise<void>;
+  onSave: (
+    name: string,
+    icon: string,
+    projectedMinutes: number,
+    itemType: "standard" | "stopwatch" | "checkbox",
+    scheduledDays: number[],
+    successThreshold: number
+  ) => Promise<void>;
   onRemove: () => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
@@ -68,12 +79,22 @@ function SortableRow({
   const [editIcon, setEditIcon] = useState(item.icon);
   const [editMins, setEditMins] = useState(String(item.projectedMinutes));
   const [editType, setEditType] = useState<"standard" | "stopwatch" | "checkbox">(item.itemType);
+  const [editScheduledDays, setEditScheduledDays] = useState<number[]>(item.scheduledDays);
+  const [editThreshold, setEditThreshold] = useState(item.successThreshold);
   const [saving, setSaving] = useState(false);
+
+  function toggleEditDay(day: number) {
+    setEditScheduledDays((prev) => {
+      const next = prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort();
+      setEditThreshold((t) => Math.min(t, Math.max(next.length, 1)));
+      return next;
+    });
+  }
 
   const handleSave = async () => {
     setSaving(true);
     const mins = editType === "standard" ? (parseInt(editMins) || item.projectedMinutes) : 0;
-    await onSave(editName.trim() || item.name, editIcon || item.icon, mins, editType);
+    await onSave(editName.trim() || item.name, editIcon || item.icon, mins, editType, editScheduledDays, editThreshold);
     setSaving(false);
   };
 
@@ -190,6 +211,49 @@ function SortableRow({
             </label>
             <IconPicker selected={editIcon} onSelect={setEditIcon} />
           </div>
+          {/* Schedule */}
+          <div>
+            <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
+              Days expected
+            </label>
+            <div className="flex gap-1.5">
+              {DAY_LABELS.map((label, day) => (
+                <button
+                  key={day}
+                  type="button"
+                  onClick={() => toggleEditDay(day)}
+                  className={`w-8 h-8 rounded-full font-mono text-xs transition-colors ${
+                    editScheduledDays.includes(day)
+                      ? "bg-olive text-text"
+                      : "bg-bg border border-border text-dim"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Threshold */}
+          <div>
+            <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
+              Counts as a win when done
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={editThreshold}
+                onChange={(e) =>
+                  setEditThreshold(Math.max(1, Math.min(parseInt(e.target.value) || 1, editScheduledDays.length)))
+                }
+                min={1}
+                max={Math.max(editScheduledDays.length, 1)}
+                className="w-16 bg-bg border border-border rounded-card px-3 py-2 font-mono text-sm text-text outline-none focus:border-olive"
+              />
+              <span className="font-mono text-xs text-dim">
+                of {editScheduledDays.length} scheduled day{editScheduledDays.length === 1 ? "" : "s"} this week
+              </span>
+            </div>
+          </div>
           <button
             onClick={handleSave}
             disabled={saving}
@@ -261,15 +325,23 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     });
   };
 
-  const handleSaveItem = async (id: string, name: string, icon: string, projectedMinutes: number, itemType: "standard" | "stopwatch" | "checkbox") => {
+  const handleSaveItem = async (
+    id: string,
+    name: string,
+    icon: string,
+    projectedMinutes: number,
+    itemType: "standard" | "stopwatch" | "checkbox",
+    scheduledDays: number[],
+    successThreshold: number
+  ) => {
     setItems((prev) =>
-      prev.map((it) => (it._id === id ? { ...it, name, icon, projectedMinutes, itemType } : it))
+      prev.map((it) => (it._id === id ? { ...it, name, icon, projectedMinutes, itemType, scheduledDays, successThreshold } : it))
     );
     setEditingId(null);
     await fetch(`/api/routine-items/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, icon, projectedMinutes, itemType }),
+      body: JSON.stringify({ name, icon, projectedMinutes, itemType, scheduledDays, successThreshold }),
     });
     router.refresh(); // invalidate routines page cache
   };
@@ -285,12 +357,14 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     name: string,
     icon: string,
     projectedMinutes: number,
-    itemType: "standard" | "stopwatch" | "checkbox" = "standard"
+    itemType: "standard" | "stopwatch" | "checkbox" = "standard",
+    scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
+    successThreshold: number = 7
   ) => {
     const res = await fetch("/api/routine-items", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupId: group._id, templateId, name, icon, projectedMinutes, itemType }),
+      body: JSON.stringify({ groupId: group._id, templateId, name, icon, projectedMinutes, itemType, scheduledDays, successThreshold }),
     });
     const newItem = await res.json();
     // Push directly into local state — don't wait for a server round-trip
@@ -303,6 +377,8 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
         projectedMinutes: newItem.projectedMinutes,
         itemType: (newItem.itemType ?? "standard") as "standard" | "stopwatch" | "checkbox",
         order: prev.length,
+        scheduledDays: newItem.scheduledDays ?? scheduledDays,
+        successThreshold: newItem.successThreshold ?? successThreshold,
       },
     ]);
     setShowAddSheet(false);
@@ -396,7 +472,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
                     onToggleEdit={() =>
                       setEditingId((prev) => (prev === item._id ? null : item._id))
                     }
-                    onSave={(name, icon, mins, type) => handleSaveItem(item._id, name, icon, mins, type)}
+                    onSave={(name, icon, mins, type, days, threshold) => handleSaveItem(item._id, name, icon, mins, type, days, threshold)}
                     onRemove={() => handleRemove(item._id)}
                   />
                 ))}

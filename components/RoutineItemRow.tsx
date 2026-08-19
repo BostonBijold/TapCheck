@@ -14,6 +14,8 @@ export interface RowItem {
   projectedMinutes: number;
   order: number;
   itemType?: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review";
+  scheduledDays: number[];   // 0=Sun..6=Sat — which days this item is expected
+  successThreshold: number;  // how many of this week's scheduled days = 100%
 }
 
 interface Props {
@@ -209,7 +211,13 @@ export default function RoutineItemRow({
             {item.name}
           </p>
           <div className="mt-1.5">
-            <StreakDots logs={weekLogs} dates={weekDates} today={today} />
+            <StreakDots
+              logs={weekLogs}
+              dates={weekDates}
+              today={today}
+              scheduledDays={item.scheduledDays}
+              successThreshold={item.successThreshold}
+            />
           </div>
         </div>
 

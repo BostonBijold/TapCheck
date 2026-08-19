@@ -13,6 +13,13 @@ export interface IRoutineItem extends Document {
   isActive: boolean;
   linkedGoalId: mongoose.Types.ObjectId | null;
   itemType: ItemType;
+  // 0=Sun..6=Sat — which days this item is expected. Defaults to every day
+  // so existing items are unaffected until a user opts in.
+  scheduledDays: number[];
+  // How many of this week's *scheduled* days need to be done/rest to read
+  // as 100% — never allowed to exceed scheduledDays.length (see the API
+  // routes, which clamp on write; this field alone doesn't enforce it).
+  successThreshold: number;
 }
 
 const RoutineItemSchema = new Schema<IRoutineItem>(
@@ -27,6 +34,8 @@ const RoutineItemSchema = new Schema<IRoutineItem>(
     isActive: { type: Boolean, default: true },
     linkedGoalId: { type: Schema.Types.ObjectId, ref: "Goal", default: null },
     itemType: { type: String, enum: ["standard", "stopwatch", "checkbox", "virtue_checkin", "weekly_review"], default: "standard" },
+    scheduledDays: { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
+    successThreshold: { type: Number, default: 7 },
   },
   { timestamps: true }
 );

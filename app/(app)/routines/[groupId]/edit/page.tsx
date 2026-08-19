@@ -48,6 +48,10 @@ export default async function EditRoutinePage({
         projectedMinutes: i.projectedMinutes,
         order: i.order,
         itemType: (i.itemType ?? "standard") as "standard" | "stopwatch" | "checkbox",
+        // Existing documents predate these fields — Mongoose defaults only
+        // apply on create, so a .lean() read can come back undefined.
+        scheduledDays: i.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+        successThreshold: i.successThreshold ?? (i.scheduledDays?.length ?? 7),
       }))}
     />
   );

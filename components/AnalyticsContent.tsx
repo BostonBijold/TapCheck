@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import HabitIcon from "@/components/HabitIcon";
+import type { WeeklyProgress, DayState } from "@/lib/routine-progress";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,9 @@ interface HabitStats {
   engagedDays: number;
   totalDays: number;
   itemType: string;
+  // Only present for the 7-day (fixed calendar week) view — a weekly
+  // threshold has no clean meaning over a 30-day trailing window.
+  weeklyProgress?: WeeklyProgress;
 }
 
 interface AnalyticsData {
@@ -89,6 +93,22 @@ function completionBarColor(pct: number): string {
   if (pct >= 0.5) return "#c47a2a";
   return "#7a2e2e";
 }
+
+// Same day-state palette as StreakDots — a segment here should read as the
+// same thing a dot there does.
+const DAY_SEGMENT_COLOR: Record<DayState, string> = {
+  done: "#c4a84a",
+  rest: "#4a7a9a",
+  missed: "#7a2e2e",
+  pending: "transparent", // outlined instead, see the segment's border below
+  not_scheduled: "#2e2c2233",
+};
+
+const PACING: Record<WeeklyProgress["pacing"], { color: string; label: string }> = {
+  green: { color: "#7a9248", label: "on track" },
+  amber: { color: "#c47a2a", label: "in reach" },
+  red: { color: "#a03a3a", label: "will miss" },
+};
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
 
@@ -153,6 +173,7 @@ function RoutineChart({
 // ── Habit row ─────────────────────────────────────────────────────────────────
 
 function HabitRow({ habit }: { habit: HabitStats }) {
+  const wp = habit.weeklyProgress;
   const pct = habit.completionRate;
   const pctDisplay = Math.round(pct * 100);
   const isCheckbox = habit.itemType === "checkbox";
@@ -162,6 +183,14 @@ function HabitRow({ habit }: { habit: HabitStats }) {
     : habit.avgVariance > 5   ? "text-tobacco"
     : habit.avgVariance < -5  ? "text-gold"
     : "text-dim";
+
+  // 7-day view: counts come from the schedule-aware weekly breakdown (a
+  // stray log on a not_scheduled day, or a not_scheduled day itself, never
+  // shows up as done/missed/unlogged here) rather than the unscoped fields
+  // used by the 30-day fallback below.
+  const weekDoneCount = wp?.days.filter((d) => d.state === "done").length ?? habit.doneCount;
+  const weekMissedCount = wp?.days.filter((d) => d.state === "missed").length ?? habit.missedCount;
+  const weekRestCount = wp?.days.filter((d) => d.state === "rest").length ?? habit.restCount;
 
   return (
     <div className="py-3.5 border-b border-border last:border-0">
@@ -179,14 +208,14 @@ function HabitRow({ habit }: { habit: HabitStats }) {
       </div>
 
       <div className="flex items-center gap-3 pl-7 mb-2">
-        <span className="font-mono text-xs text-olive">{habit.doneCount} done</span>
-        {habit.missedCount > 0 && (
-          <span className="font-mono text-xs text-burgundy-light">{habit.missedCount} missed</span>
+        <span className="font-mono text-xs text-olive">{weekDoneCount} done</span>
+        {weekMissedCount > 0 && (
+          <span className="font-mono text-xs text-burgundy-light">{weekMissedCount} missed</span>
         )}
-        {habit.restCount > 0 && (
-          <span className="font-mono text-xs text-blue-muted">{habit.restCount} rest</span>
+        {weekRestCount > 0 && (
+          <span className="font-mono text-xs text-blue-muted">{weekRestCount} rest</span>
         )}
-        {habit.unloggedCount > 0 && (
+        {!wp && habit.unloggedCount > 0 && (
           <span className="font-mono text-xs text-dim">{habit.unloggedCount} unlogged</span>
         )}
         {!isCheckbox && !isStopwatch && habit.avgActualMins !== null && (
@@ -201,26 +230,54 @@ function HabitRow({ habit }: { habit: HabitStats }) {
         )}
       </div>
 
-      <div className="pl-7">
-        <div className="flex items-center gap-2">
-          <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
-            <div
-              className="h-full rounded-full"
-              style={{
-                width: `${pctDisplay}%`,
-                backgroundColor: completionBarColor(pct),
-                transition: "width 0.5s ease",
-              }}
-            />
+      {wp ? (
+        <div className="pl-7">
+          <div className="flex items-center gap-2 mb-1">
+            {wp.days.map((d) => (
+              <div
+                key={d.date}
+                className="flex-1 h-2.5 rounded-sm"
+                style={{
+                  backgroundColor: DAY_SEGMENT_COLOR[d.state],
+                  border: d.state === "pending" ? "1px dashed #5a5548" : undefined,
+                }}
+              />
+            ))}
           </div>
-          <span className="font-mono text-[10px] w-8 text-right flex-shrink-0" style={{ color: completionBarColor(pct) }}>
-            {habit.engagedDays > 0 ? `${pctDisplay}%` : "—"}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[10px] font-medium" style={{ color: PACING[wp.pacing].color }}>
+              {PACING[wp.pacing].label}
+            </span>
+            <span className="font-mono text-[9px] text-dim ml-auto">
+              {wp.successCount} of {wp.successThreshold}
+            </span>
+            <span className="font-mono text-[10px] font-medium" style={{ color: PACING[wp.pacing].color }}>
+              {Math.round(wp.percentage)}%
+            </span>
+          </div>
         </div>
-        <p className="font-mono text-[9px] text-dim mt-1">
-          {habit.engagedDays} of {habit.totalDays} days logged
-        </p>
-      </div>
+      ) : (
+        <div className="pl-7">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full"
+                style={{
+                  width: `${pctDisplay}%`,
+                  backgroundColor: completionBarColor(pct),
+                  transition: "width 0.5s ease",
+                }}
+              />
+            </div>
+            <span className="font-mono text-[10px] w-8 text-right flex-shrink-0" style={{ color: completionBarColor(pct) }}>
+              {habit.engagedDays > 0 ? `${pctDisplay}%` : "—"}
+            </span>
+          </div>
+          <p className="font-mono text-[9px] text-dim mt-1">
+            {habit.engagedDays} of {habit.totalDays} days logged
+          </p>
+        </div>
+      )}
     </div>
   );
 }

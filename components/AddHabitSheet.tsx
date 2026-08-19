@@ -17,9 +17,20 @@ interface Template {
 interface Props {
   groupId: string;
   groupName: string;
-  onAdd: (templateId: string | null, name: string, icon: string, projectedMinutes: number, itemType: "standard" | "stopwatch" | "checkbox") => Promise<void>;
+  onAdd: (
+    templateId: string | null,
+    name: string,
+    icon: string,
+    projectedMinutes: number,
+    itemType: "standard" | "stopwatch" | "checkbox",
+    scheduledDays: number[],
+    successThreshold: number
+  ) => Promise<void>;
   onClose: () => void;
 }
+
+const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // Sun..Sat, matches calendarWeekDates order
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 const CATEGORY_LABELS: Record<string, string> = {
   hygiene: "Hygiene",
@@ -44,7 +55,19 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
   const [customName, setCustomName] = useState("");
   const [customMins, setCustomMins] = useState("15");
   const [customType, setCustomType] = useState<"standard" | "stopwatch" | "checkbox">("standard");
+  const [customScheduledDays, setCustomScheduledDays] = useState<number[]>(ALL_DAYS);
+  const [customThreshold, setCustomThreshold] = useState(7);
   const [saving, setSaving] = useState(false);
+
+  function toggleCustomDay(day: number) {
+    setCustomScheduledDays((prev) => {
+      const next = prev.includes(day) ? prev.filter((d) => d !== day) : [...prev, day].sort();
+      // Auto-follow the day count until the user deliberately lowers the
+      // threshold below it — never force it back up when a day is re-added.
+      setCustomThreshold((t) => Math.min(t, Math.max(next.length, 1)));
+      return next;
+    });
+  }
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -72,7 +95,9 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
 
   const handleAddTemplate = async (t: Template) => {
     setAdding(t._id);
-    await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "standard");
+    // Browsing a template skips the schedule/threshold prompt — every day,
+    // full threshold — same as today's behavior; editable afterward.
+    await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "standard", ALL_DAYS, 7);
     setAdding(null);
   };
 
@@ -92,7 +117,7 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
       }),
     });
     const template = await res.json();
-    await onAdd(template._id, template.name, template.icon, template.defaultProjectedMinutes, customType);
+    await onAdd(template._id, template.name, template.icon, template.defaultProjectedMinutes, customType, customScheduledDays, customThreshold);
     setSaving(false);
   };
 
@@ -286,6 +311,51 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
                     />
                   </div>
                 )}
+
+                {/* Schedule */}
+                <div>
+                  <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
+                    Days expected
+                  </label>
+                  <div className="flex gap-1.5">
+                    {DAY_LABELS.map((label, day) => (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => toggleCustomDay(day)}
+                        className={`w-9 h-9 rounded-full font-mono text-xs transition-colors ${
+                          customScheduledDays.includes(day)
+                            ? "bg-olive text-text"
+                            : "bg-bg border border-border text-dim"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Threshold */}
+                <div>
+                  <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
+                    Counts as a win when done
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      value={customThreshold}
+                      onChange={(e) =>
+                        setCustomThreshold(Math.max(1, Math.min(parseInt(e.target.value) || 1, customScheduledDays.length)))
+                      }
+                      min={1}
+                      max={Math.max(customScheduledDays.length, 1)}
+                      className="w-16 bg-bg border border-border rounded-card px-3 py-2.5 font-mono text-sm text-text outline-none focus:border-olive"
+                    />
+                    <span className="font-mono text-xs text-dim">
+                      of {customScheduledDays.length} scheduled day{customScheduledDays.length === 1 ? "" : "s"} this week
+                    </span>
+                  </div>
+                </div>
 
                 <button
                   onClick={handleSaveCustom}

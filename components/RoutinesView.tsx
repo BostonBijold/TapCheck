@@ -486,7 +486,9 @@ export default function RoutinesView({
       name: string,
       icon: string,
       projectedMinutes: number,
-      itemType: "standard" | "stopwatch" | "checkbox" = "standard"
+      itemType: "standard" | "stopwatch" | "checkbox" = "standard",
+      scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
+      successThreshold: number = 7
     ) => {
       if (!addHabitGroup) return;
       await fetch("/api/routine-items", {
@@ -499,6 +501,8 @@ export default function RoutinesView({
           icon,
           projectedMinutes,
           itemType,
+          scheduledDays,
+          successThreshold,
         }),
       });
       setAddHabitGroup(null);

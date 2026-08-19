@@ -44,13 +44,30 @@ export async function PATCH(
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const updates = await req.json();
-  const allowed = ["name", "icon", "projectedMinutes", "itemType"] as const;
+  const allowed = ["name", "icon", "projectedMinutes", "itemType", "scheduledDays", "successThreshold"] as const;
   const sanitized: Partial<Record<(typeof allowed)[number], unknown>> = {};
   for (const key of allowed) {
     if (key in updates) sanitized[key] = updates[key];
   }
 
   await connectDB();
+
+  // Clamp threshold against whichever scheduledDays is now in effect —
+  // the one just sent, or the item's existing one if only the threshold
+  // changed — rather than rejecting a mathematically impossible value.
+  // If neither is actually changing the threshold, preserve whatever it
+  // already was (only clamping it down, never bumping it up to days.length
+  // just because scheduledDays changed for an unrelated reason).
+  if ("scheduledDays" in sanitized || "successThreshold" in sanitized) {
+    const existing = await RoutineItem.findOne({ _id: params.id, userId }).lean();
+    const days = Array.isArray(sanitized.scheduledDays)
+      ? (sanitized.scheduledDays as number[])
+      : existing?.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
+    const requestedThreshold = "successThreshold" in sanitized
+      ? Number(sanitized.successThreshold)
+      : existing?.successThreshold ?? days.length;
+    sanitized.successThreshold = Math.max(1, Math.min(requestedThreshold, days.length));
+  }
 
   const item = await RoutineItem.findOneAndUpdate(
     { _id: params.id, userId },
@@ -65,5 +82,7 @@ export async function PATCH(
     icon: item.icon,
     projectedMinutes: item.projectedMinutes,
     itemType: item.itemType,
+    scheduledDays: item.scheduledDays,
+    successThreshold: item.successThreshold,
   });
 }

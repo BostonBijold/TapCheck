@@ -116,6 +116,10 @@ export default async function RoutinesPage({
         projectedMinutes: item.projectedMinutes,
         order: item.order,
         itemType: item.itemType,
+        // Existing documents predate these fields — Mongoose defaults only
+        // apply on create, so a .lean() read can come back undefined.
+        scheduledDays: item.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+        successThreshold: item.successThreshold ?? (item.scheduledDays?.length ?? 7),
       })),
     };
   });

@@ -41,14 +41,28 @@ Custom groups without a `startTime` never derive a collapse window and simply st
 
 ## Streaks & variance
 
-Each row shows `StreakDots` (`components/StreakDots.tsx`) — a dot strip built from `weekLogs`, one dot per day of the **fixed Sunday–Saturday calendar week** containing `today` (`lib/week-dates.ts`'s `calendarWeekDates`, computed once server-side in `app/(app)/routines/page.tsx` and passed down as `weekDates`/`weekLogs`). This is a fixed frame, not a trailing "last 7 days" window — the dot for a given weekday always sits in the same position regardless of what day it currently is. Days later in the week that haven't happened yet render as a distinct hollow dot (not the same as a past/today day with no log, which is a plain filled `bg-border` dot), and today's dot gets a small gold ring around it so it's identifiable without reading a label — `StreakDots` has no day-letter labels at all, unlike the Analytics chart (see `analytics.md`), which is deliberately a lighter-weight treatment since this strip repeats on every row. For timed items marked done, the row also shows the variance between `actualMinutes` and `projectedMinutes` (e.g. `+8m` in an "over" color, `-3m` in an "under" color).
+Each row shows `StreakDots` (`components/StreakDots.tsx`) — a dot strip built from `weekLogs`, one dot per day of the **fixed Sunday–Saturday calendar week** containing `today` (`lib/week-dates.ts`'s `calendarWeekDates`, computed once server-side in `app/(app)/routines/page.tsx` and passed down as `weekDates`/`weekLogs`). This is a fixed frame, not a trailing "last 7 days" window — the dot for a given weekday always sits in the same position regardless of what day it currently is. `StreakDots` has no day-letter labels at all, unlike the Analytics chart (see `analytics.md`) — deliberately a lighter-weight treatment since this strip repeats on every row — but today's dot still gets a small gold ring around it so it's identifiable without one. For timed items marked done, the row also shows the variance between `actualMinutes` and `projectedMinutes` (e.g. `+8m` in an "over" color, `-3m` in an "under" color).
 
 Note this is a different week convention than virtue rotation/weekly review, which is Monday-anchored (ISO week, see `lib/virtue-dates.ts`) — "this week" is Sunday-Saturday here specifically, by design.
+
+### Weekly schedule + success threshold
+
+Every `RoutineItem` carries `scheduledDays` (0=Sun..6=Sat, which days it's expected — default every day) and `successThreshold` (how many of this week's *scheduled* days need to be `done`/`rest` to read as 100%, default = the number of scheduled days). Both are set/edited via the schedule row and threshold input in the item's inline edit form (`components/RoutineEditView.tsx`'s `SortableRow`, reached through "⚙ Manage" — see "Reordering & editing groups" below) or at creation time in `AddHabitSheet`'s custom-habit form. **This is purely a weekly-analytics/streak concept** — it never hides an item from the Today view on a non-scheduled day, and never changes whether a `RoutineGroupCard` reads as complete for the day; an item still shows and still needs an explicit Done/Missed/Rest every day regardless of its schedule.
+
+The shared math lives in `lib/routine-progress.ts`'s `computeWeeklyProgress` (imported by both `StreakDots` and the Analytics Habit Breakdown, see `analytics.md`, so the two never diverge). Each of the week's 7 days classifies into one of five states:
+
+- **`done`** — logged done that day (gold dot)
+- **`rest`** — an intentional skip (blue-muted dot) — counts toward `successCount` exactly like `done`, never rendered as a fail state
+- **`missed`** — an explicit Missed tap, *or* a strictly-past scheduled day with no log at all (burgundy dot) — unlogged-past reads as missed for this calculation only; nothing is ever written to the database to represent it
+- **`pending`** — a scheduled day that's today (and not yet resolved) or later this week (hollow/dashed outline)
+- **`not_scheduled`** — a day outside `scheduledDays` entirely (dim, flatter fill than `pending`) — excluded from every count above; a log that happens to exist on a non-scheduled day (e.g. logged anyway) is invisible to this math, not a bonus
+
+The resulting percentage (`successCount / successThreshold * 100`) is **uncapped** — hitting the threshold with days to spare stays a win past 100%, it doesn't clamp back down. A three-state, non-gradient **pacing** verdict — `green` (threshold already reached), `red` (mathematically out of reach even with a perfect rest of the week: `successCount + remainingScheduled < successThreshold`), `amber` (still achievable, everything else) — drives the Analytics Habit Breakdown's bar/badge (`StreakDots` itself doesn't surface pacing, only the per-day dots).
 
 ## Reordering & editing groups
 
 - `components/ManageRoutinesSheet.tsx` — sheet for adding/reordering/renaming groups and items.
-- `components/RoutineEditView.tsx` (`app/(app)/routines/[groupId]/edit/page.tsx`) — dedicated group-edit page. Also displays each group's and item's raw Mongo `_id` read-only (`select-all`, no copy button) — these are the ids the [external API](../api/external-api.md) needs to target a specific timer.
+- `components/RoutineEditView.tsx` (`app/(app)/routines/[groupId]/edit/page.tsx`) — dedicated group-edit page. Also displays each group's and item's raw Mongo `_id` read-only (`select-all`, no copy button) — these are the ids the [external API](../api/external-api.md) needs to target a specific timer. Its per-item inline edit form (`SortableRow`) is also where `scheduledDays`/`successThreshold` (see "Weekly schedule + success threshold" above) get edited after creation — a day-of-week toggle row plus a threshold input, clamped client-side to never exceed the number of selected days.
 - Deleting an item is a **soft delete** (`isActive: false`, via `DELETE /api/routine-items/[id]`) — history in `RoutineLog` is preserved even after an item is removed from the active list.
 
 ## The "Start Routine" sequential session
@@ -63,8 +77,9 @@ Tapping "Start Routine"/"Continue Routine" on a group (not shown for Habit group
 - `components/RoutineItemRow.tsx` — per-item row and its full action panel (all states above).
 - `components/RoutineSession.tsx` — sequential multi-item session (see [timer.md](timer.md)).
 - `components/DateNav.tsx` — the `< Today >` date picker driving `selectedDate`.
-- `components/ManageRoutinesSheet.tsx`, `components/RoutineEditView.tsx` — group/item management.
-- `lib/routine-visibility.ts` — determines whether an item is visible on a given date (custom recurrence).
+- `components/ManageRoutinesSheet.tsx`, `components/RoutineEditView.tsx` — group/item management (also the path for editing a Habit item — see [habits.md](habits.md)).
+- `lib/routine-visibility.ts` — **not** a general recurrence system despite the name suggesting one: today it's a single hardcoded rule (`weekly_review` items are visible only on Sundays). `scheduledDays`/`successThreshold` (above) are a separate, unrelated concept — they never affect this function or Today-view visibility at all.
+- `lib/routine-progress.ts` — the shared weekly-progress math (see "Weekly schedule + success threshold" above).
 - `lib/seed.ts` — idempotent seeding of default groups/items for new users.
 
 ## Depends on

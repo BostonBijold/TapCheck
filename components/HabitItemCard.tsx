@@ -55,7 +55,13 @@ export default function HabitItemCard({
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim line-through leading-tight">{item.name}</p>
             <div className="mt-1.5">
-              <StreakDots logs={weekLogs} dates={weekDates} today={today} />
+              <StreakDots
+              logs={weekLogs}
+              dates={weekDates}
+              today={today}
+              scheduledDays={item.scheduledDays}
+              successThreshold={item.successThreshold}
+            />
             </div>
           </div>
           <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
@@ -99,7 +105,13 @@ export default function HabitItemCard({
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim leading-tight">{item.name}</p>
             <div className="mt-1.5">
-              <StreakDots logs={weekLogs} dates={weekDates} today={today} />
+              <StreakDots
+              logs={weekLogs}
+              dates={weekDates}
+              today={today}
+              scheduledDays={item.scheduledDays}
+              successThreshold={item.successThreshold}
+            />
             </div>
           </div>
           <span className="font-mono text-xs text-burgundy-light bg-burgundy/10 px-2 py-0.5 rounded-pill flex-shrink-0">
@@ -127,7 +139,13 @@ export default function HabitItemCard({
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim leading-tight">{item.name}</p>
             <div className="mt-1.5">
-              <StreakDots logs={weekLogs} dates={weekDates} today={today} />
+              <StreakDots
+              logs={weekLogs}
+              dates={weekDates}
+              today={today}
+              scheduledDays={item.scheduledDays}
+              successThreshold={item.successThreshold}
+            />
             </div>
           </div>
           <span className="font-mono text-xs text-blue-muted bg-blue-muted/10 px-2 py-0.5 rounded-pill flex-shrink-0">
@@ -155,7 +173,13 @@ export default function HabitItemCard({
         <div className="flex-1 min-w-0">
           <p className="font-body text-sm text-text leading-tight">{item.name}</p>
           <div className="mt-1.5">
-            <StreakDots logs={weekLogs} dates={weekDates} today={today} />
+            <StreakDots
+              logs={weekLogs}
+              dates={weekDates}
+              today={today}
+              scheduledDays={item.scheduledDays}
+              successThreshold={item.successThreshold}
+            />
           </div>
         </div>
 

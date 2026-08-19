@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
   const userId = resolveUserId(session?.user?.id);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { groupId, templateId, name, icon, projectedMinutes, itemType } = await req.json();
+  const { groupId, templateId, name, icon, projectedMinutes, itemType, scheduledDays, successThreshold } = await req.json();
 
   if (!groupId || !name?.trim() || !icon) {
     return NextResponse.json({ error: "groupId, name, and icon required" }, { status: 400 });
@@ -33,6 +33,12 @@ export async function POST(req: NextRequest) {
     .lean();
   const nextOrder = maxOrder ? maxOrder.order + 1 : 0;
 
+  // Default: every day, full threshold — existing (pre-schedule) behavior.
+  const days: number[] = Array.isArray(scheduledDays) && scheduledDays.length > 0 ? scheduledDays : [0, 1, 2, 3, 4, 5, 6];
+  // Clamp rather than reject — a threshold that can't mathematically be hit
+  // is silently capped at the number of scheduled days instead.
+  const threshold = Math.max(1, Math.min(typeof successThreshold === "number" ? successThreshold : days.length, days.length));
+
   const item = await RoutineItem.create({
     userId,
     groupId,
@@ -44,6 +50,8 @@ export async function POST(req: NextRequest) {
     order: nextOrder,
     isActive: true,
     linkedGoalId: null,
+    scheduledDays: days,
+    successThreshold: threshold,
   });
 
   return NextResponse.json({
@@ -52,5 +60,7 @@ export async function POST(req: NextRequest) {
     icon: item.icon,
     projectedMinutes: item.projectedMinutes,
     order: item.order,
+    scheduledDays: item.scheduledDays,
+    successThreshold: item.successThreshold,
   });
 }

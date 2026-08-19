@@ -2,7 +2,7 @@
 
 # Habits API
 
-Covers the habit-item list and the habit-template catalog — the data consumed by [habits.md](../features/habits.md). Adding an item to a habit group, and logging a habit's daily state, both go through the shared endpoints documented in [routines-api.md](routines-api.md) (`/api/routine-items`, `/api/routine-logs`) — not duplicated here.
+Covers the habit-item list and the habit-template catalog — the data consumed by [habits.md](../features/habits.md). Adding an item to a habit group, and logging a habit's daily state, both go through the shared endpoints documented in [routines-api.md](routines-api.md) (`/api/routine-items`, `/api/routine-logs`) — not duplicated here. This includes `scheduledDays`/`successThreshold` (routines-api.md's Routine Items section) — habit items are `RoutineItem`s in a `timeOfDay: "habit"` group, same collection, same fields, same clamping behavior, nothing habit-specific about them.
 
 **Auth**: same pattern as routines-api.md — NextAuth session, with a `SKIP_AUTH`-gated dev fallback, `401` otherwise.
 

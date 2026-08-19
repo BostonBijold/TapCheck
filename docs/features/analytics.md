@@ -21,6 +21,16 @@ Per-day breakdowns (`daily` on both group and habit stats) always include every 
 
 `RoutineChart` (inside `AnalyticsContent.tsx`) renders each group's `daily` array as a bar chart. For a date after `today`, it renders a dashed hollow placeholder bar instead of the normal solid one — distinct from how a real past/today day with zero logged items renders (a solid, minimal-height dark bar via `barColor`'s `!hasLogs` branch). When `showLabels` is on (7-day view only), today's weekday letter is bolded in gold with a small dot beneath it, so today is identifiable without hunting for the right label — a heavier treatment than `StreakDots`' small ring, appropriate for a larger standalone chart per-instance rather than something repeated on every row.
 
+## Habit Breakdown: schedule-aware, not a flat gold bar
+
+Each `HabitRow` used to render one solid bar colored by raw completion rate, regardless of whether the item was even expected every day — a Mon–Fri item with two weekday misses looked identical to one with none. For the 7-day view, this is now driven by the same weekly schedule/threshold model documented in [routines.md](routines.md#weekly-schedule--success-threshold): `app/api/analytics/route.ts` calls the shared `lib/routine-progress.ts`'s `computeWeeklyProgress(item.scheduledDays, item.successThreshold, ...)` per habit and attaches the result as an optional `weeklyProgress` field, present only when `days === 7` (a weekly threshold has no clean meaning over the 30-day trailing window, so that toggle keeps the original single completion-rate bar unchanged).
+
+When `weeklyProgress` is present, `HabitRow` replaces the single bar with:
+- A **7-segment day strip** — one segment per day of the week, colored by that day's `DayState` (`done`/`rest`/`missed`/`pending`/`not_scheduled`), the exact same palette `StreakDots` uses, so a segment and a dot always mean the same thing.
+- A **pacing badge** (`green` "on track" / `amber` "in reach" / `red` "will miss") plus the uncapped percentage (`successCount / successThreshold * 100`, can read over 100%).
+
+The done/missed/rest count line above the bar also switches source for the 7-day view — it reads off `weeklyProgress.days` (schedule-aware: a `not_scheduled` day or an off-schedule stray log is never counted) instead of the unscoped `habit.doneCount`-style fields, which stay in place only as the 30-day view's fallback.
+
 ## Data shape (`GET /api/analytics?days=7|30&localDate=YYYY-MM-DD`)
 
 ```ts
@@ -29,7 +39,12 @@ Per-day breakdowns (`daily` on both group and habit stats) always include every 
   days: number;
   today: string;     // == localDate, echoed back
   groups: Array<{ _id, name, totalItems, daily: DailyStat[], avgCompletionRate, avgActualMins, totalProjectedMins, avgStartMinutesUtc, startTimeSampleSize }>;
-  habits: Array<{ _id, name, icon, groupId, groupName, projectedMinutes, daily, doneCount, missedCount, restCount, unloggedCount, avgActualMins, avgVariance, completionRate, engagedDays, totalDays, itemType }>;
+  habits: Array<{
+    _id, name, icon, groupId, groupName, projectedMinutes, daily,
+    doneCount, missedCount, restCount, unloggedCount, avgActualMins, avgVariance,
+    completionRate, engagedDays, totalDays, itemType,
+    weeklyProgress?: WeeklyProgress; // only when days === 7 — see lib/routine-progress.ts
+  }>;
 }
 ```
 
@@ -37,11 +52,12 @@ Per-day breakdowns (`daily` on both group and habit stats) always include every 
 
 ## Files
 
-- `app/api/analytics/route.ts` — all aggregation; `getDates` (7-day fixed week vs. 30-day trailing), `elapsedDates` denominator handling.
+- `app/api/analytics/route.ts` — all aggregation; `getDates` (7-day fixed week vs. 30-day trailing), `elapsedDates` denominator handling, per-habit `weeklyProgress`.
 - `lib/week-dates.ts` — `calendarWeekDates`, shared with `StreakDots`'s date range.
-- `components/AnalyticsContent.tsx` — `RoutineChart` (group bar charts, pending/today rendering), `HabitRow` (per-habit completion bar).
+- `lib/routine-progress.ts` — `computeWeeklyProgress`, shared with `StreakDots` — see [routines.md](routines.md#weekly-schedule--success-threshold).
+- `components/AnalyticsContent.tsx` — `RoutineChart` (group bar charts, pending/today rendering, unaffected by the schedule/threshold work), `HabitRow` (per-habit bar — segmented + pacing for the 7-day view, the original single completion bar for 30-day).
 - `components/AnalyticsView.tsx` — thin wrapper adding `Header`.
 
 ## Depends on
 
-[`api/routines-api.md`](../api/routines-api.md) for the `RoutineLog` states this all aggregates over.
+[`api/routines-api.md`](../api/routines-api.md) for the `RoutineLog` states this all aggregates over, and the `scheduledDays`/`successThreshold` fields on `RoutineItem`.

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import { calendarWeekDates } from "@/lib/week-dates";
+import { computeWeeklyProgress } from "@/lib/routine-progress";
 
 export const dynamic = "force-dynamic";
 import RoutineGroup from "@/models/RoutineGroup";
@@ -179,6 +180,27 @@ export async function GET(req: NextRequest) {
     const avgVariance = avgActualMins !== null && !isStopwatch ? avgActualMins - item.projectedMinutes : null;
 
     const engagedDays = doneCount + missedCount;
+
+    // Only meaningful against a *weekly* threshold — omitted for the 30-day
+    // trailing view, which has no clean interpretation against one week's
+    // schedule. `dates`/`localDate` are already the Sun–Sat week + its
+    // anchor when days === 7 (see getDates above).
+    const scheduledDays = item.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
+    const successThreshold = item.successThreshold ?? scheduledDays.length;
+    const weeklyProgress = days === 7
+      ? computeWeeklyProgress(
+          scheduledDays,
+          successThreshold,
+          Object.fromEntries(
+            dates
+              .map((date) => [date, logMap[itemId]?.[date]?.state])
+              .filter(([, s]) => s === "done" || s === "missed" || s === "rest")
+          ) as Record<string, "done" | "missed" | "rest">,
+          dates,
+          localDate
+        )
+      : undefined;
+
     return {
       _id: itemId,
       name: item.name,
@@ -193,6 +215,7 @@ export async function GET(req: NextRequest) {
       unloggedCount: elapsedDates.length - doneCount - missedCount - restCount,
       avgActualMins,
       avgVariance,
+      weeklyProgress,
       completionRate: engagedDays > 0 ? doneCount / engagedDays : 0,
       engagedDays,
       totalDays: elapsedDates.length,
