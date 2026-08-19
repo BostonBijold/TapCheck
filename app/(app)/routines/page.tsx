@@ -90,33 +90,43 @@ export default async function RoutinesPage({
 
   const groups = await RoutineGroup.find({ userId }).sort({ order: 1 }).lean();
 
-  const groupsWithItems = await Promise.all(
-    groups.map(async (group) => {
-      const items = await RoutineItem.find({
-        groupId: group._id,
-        userId,
-        isActive: true,
-      })
-        .sort({ order: 1 })
-        .lean();
+  // Single query for every group's items instead of one query per group —
+  // the result is already sorted by order, so grouping it in memory below
+  // preserves each group's item order exactly as the old per-group query did.
+  const allItems = await RoutineItem.find({
+    groupId: { $in: groups.map((g) => g._id) },
+    userId,
+    isActive: true,
+  })
+    .sort({ order: 1 })
+    .lean();
 
-      return {
-        _id: group._id.toString(),
-        name: group.name,
-        timeOfDay: group.timeOfDay as "morning" | "evening" | "custom" | "habit",
-        startTime: group.startTime ?? null,
-        order: group.order,
-        items: items.map((item) => ({
-          _id: item._id.toString(),
-          name: item.name,
-          icon: item.icon,
-          projectedMinutes: item.projectedMinutes,
-          order: item.order,
-          itemType: item.itemType,
-        })),
-      };
-    })
-  );
+  const itemsByGroupId = new Map<string, typeof allItems>();
+  for (const item of allItems) {
+    const key = item.groupId.toString();
+    const list = itemsByGroupId.get(key);
+    if (list) list.push(item);
+    else itemsByGroupId.set(key, [item]);
+  }
+
+  const groupsWithItems = groups.map((group) => {
+    const items = itemsByGroupId.get(group._id.toString()) ?? [];
+    return {
+      _id: group._id.toString(),
+      name: group.name,
+      timeOfDay: group.timeOfDay as "morning" | "evening" | "custom" | "habit",
+      startTime: group.startTime ?? null,
+      order: group.order,
+      items: items.map((item) => ({
+        _id: item._id.toString(),
+        name: item.name,
+        icon: item.icon,
+        projectedMinutes: item.projectedMinutes,
+        order: item.order,
+        itemType: item.itemType,
+      })),
+    };
+  });
 
   // Today's logs for initial state
   const todayLogs = await RoutineLog.find({ userId, date: today }).lean();
@@ -127,6 +137,7 @@ export default async function RoutinesPage({
     actualMinutes: l.actualMinutes ?? undefined,
     startedAt: l.startedAt ? (l.startedAt as Date).toISOString() : undefined,
     completedAt: l.completedAt ? (l.completedAt as Date).toISOString() : undefined,
+    pausedSeconds: l.pausedSeconds ?? 0,
     state: l.state as LogState,
   }));
 

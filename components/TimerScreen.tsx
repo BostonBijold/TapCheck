@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { useRingDrag } from "@/lib/useRingDrag";
 
 export interface TimerItem {
   _id: string;
@@ -38,8 +39,12 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
   // runStartRef = Date.now() when the current running segment began (null if paused).
   const baseElapsedRef = useRef(initialElapsed);
   const runStartRef = useRef<number | null>(null);
+  // While the ring is being dragged, the drag gesture owns `elapsed` —
+  // recompute() stands down so the two don't fight over it.
+  const isDraggingRef = useRef(false);
 
   const recompute = useCallback(() => {
+    if (isDraggingRef.current) return;
     if (runStartRef.current != null) {
       const delta = Math.floor((Date.now() - runStartRef.current) / 1000);
       setElapsed(baseElapsedRef.current + delta);
@@ -81,6 +86,26 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
 
   const actualMinutes = Math.max(1, Math.round(elapsed / 60));
 
+  // Drag the ring like a dial to set elapsed time directly: one full
+  // clockwise lap = the item's target (or 30m for a stopwatch, no target).
+  // Winding never changes whether the timer is running — it only ever
+  // reanchors runStartRef to "now" (see onChange) so that if it was
+  // running going in, it keeps running from the dragged value the instant
+  // you let go; if it was paused, it stays paused right where you left it.
+  const revolutionSeconds = isStopwatch ? STOPWATCH_SOFT_CAP : item.projectedMinutes * 60;
+  const { svgRef, isDragging, handlers: dragHandlers } = useRingDrag({
+    revolutionSeconds,
+    getElapsedSeconds: () => elapsed,
+    onChange: (seconds) => {
+      const rounded = Math.round(seconds);
+      baseElapsedRef.current = rounded;
+      if (runStartRef.current != null) runStartRef.current = Date.now();
+      setElapsed(rounded);
+    },
+    onDragStart: () => { isDraggingRef.current = true; },
+    onDragEnd: () => { isDraggingRef.current = false; },
+  });
+
   // ── Countdown mode ───────────────────────────────────────────────────────────
   if (!isStopwatch) {
     const target = item.projectedMinutes * 60;
@@ -110,33 +135,51 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
           </div>
         </div>
 
-        <div className="text-center px-4 mt-6">
-          <span className="text-5xl block mb-3 leading-none">{item.icon}</span>
-          <h2 className="font-heading text-2xl text-text">{item.name}</h2>
-        </div>
+        {/* Icon, name, and ring together are one big drag surface for setting
+            elapsed time — not just the thin ring stroke. pointer-events-none
+            on the inner content means the wrapper's own handlers always get
+            the gesture, never a child. */}
+        <div
+          className="flex-1 flex flex-col select-none"
+          style={{ touchAction: "none", cursor: isDragging ? "grabbing" : "grab" }}
+          {...dragHandlers}
+        >
+          <div className="text-center px-4 mt-6 pointer-events-none">
+            <span className="text-5xl block mb-3 leading-none">{item.icon}</span>
+            <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+          </div>
 
-        <div className="flex-1 flex items-center justify-center">
-          <div className="relative w-56 h-56">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 200 200">
-              <circle cx="100" cy="100" r={r} fill="none" stroke="#2e2c22" strokeWidth="10" />
-              <circle
-                cx="100" cy="100" r={r}
-                fill="none"
-                stroke={ringColor}
-                strokeWidth="10"
-                strokeLinecap="round"
-                strokeDasharray={circumference}
-                strokeDashoffset={dashOffset}
-                style={{ transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-              <span className="font-mono text-[2.5rem] font-semibold leading-none" style={{ color: timeColor }}>
-                {timeDisplay}
-              </span>
-              <span className="font-mono text-xs text-dim mt-1">
-                {isOver ? "over target" : "remaining"}
-              </span>
+          <div className="flex-1 flex items-center justify-center pointer-events-none">
+            <div className="relative w-56 h-56">
+              <svg ref={svgRef} className="w-full h-full -rotate-90" viewBox="0 0 200 200">
+                <circle cx="100" cy="100" r={r} fill="none" stroke="#2e2c22" strokeWidth="10" />
+                <circle
+                  cx="100" cy="100" r={r}
+                  fill="none"
+                  stroke={ringColor}
+                  strokeWidth="10"
+                  strokeLinecap="round"
+                  strokeDasharray={circumference}
+                  strokeDashoffset={dashOffset}
+                  style={isDragging ? undefined : { transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
+                />
+                {/* Handle at the arc's tip — purely visual, the whole area above is draggable */}
+                <circle
+                  cx={100 + r * Math.cos(Math.min(ratio, 1) * 2 * Math.PI)}
+                  cy={100 + r * Math.sin(Math.min(ratio, 1) * 2 * Math.PI)}
+                  r={isDragging ? 12 : 9}
+                  fill={ringColor}
+                  style={{ transition: isDragging ? "none" : "r 0.15s ease" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+                <span className="font-mono text-[2.5rem] font-semibold leading-none" style={{ color: timeColor }}>
+                  {timeDisplay}
+                </span>
+                <span className="font-mono text-xs text-dim mt-1">
+                  {isOver ? "over target" : "remaining"}
+                </span>
+              </div>
             </div>
           </div>
         </div>
@@ -186,31 +229,49 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
         </div>
       </div>
 
-      <div className="text-center px-4 mt-6">
-        <span className="text-5xl block mb-3 leading-none">{item.icon}</span>
-        <h2 className="font-heading text-2xl text-text">{item.name}</h2>
-      </div>
+      {/* Icon, name, and ring together are one big drag surface for setting
+          elapsed time — not just the thin ring stroke. pointer-events-none
+          on the inner content means the wrapper's own handlers always get
+          the gesture, never a child. */}
+      <div
+        className="flex-1 flex flex-col select-none"
+        style={{ touchAction: "none", cursor: isDragging ? "grabbing" : "grab" }}
+        {...dragHandlers}
+      >
+        <div className="text-center px-4 mt-6 pointer-events-none">
+          <span className="text-5xl block mb-3 leading-none">{item.icon}</span>
+          <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+        </div>
 
-      <div className="flex-1 flex items-center justify-center">
-        <div className="relative w-56 h-56">
-          <svg className="w-full h-full -rotate-90" viewBox="0 0 200 200">
-            <circle cx="100" cy="100" r={r} fill="none" stroke="#2e2c22" strokeWidth="10" />
-            <circle
-              cx="100" cy="100" r={r}
-              fill="none"
-              stroke="#5a6b35"
-              strokeWidth="10"
-              strokeLinecap="round"
-              strokeDasharray={circumference}
-              strokeDashoffset={dashOffset}
-              style={{ transition: "stroke-dashoffset 0.95s linear" }}
-            />
-          </svg>
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
-            <span className="font-mono text-[2.5rem] font-semibold leading-none text-text">
-              {timeDisplay}
-            </span>
-            <span className="font-mono text-xs text-dim mt-1">elapsed</span>
+        <div className="flex-1 flex items-center justify-center pointer-events-none">
+          <div className="relative w-56 h-56">
+            <svg ref={svgRef} className="w-full h-full -rotate-90" viewBox="0 0 200 200">
+              <circle cx="100" cy="100" r={r} fill="none" stroke="#2e2c22" strokeWidth="10" />
+              <circle
+                cx="100" cy="100" r={r}
+                fill="none"
+                stroke="#5a6b35"
+                strokeWidth="10"
+                strokeLinecap="round"
+                strokeDasharray={circumference}
+                strokeDashoffset={dashOffset}
+                style={isDragging ? undefined : { transition: "stroke-dashoffset 0.95s linear" }}
+              />
+              {/* Handle at the arc's tip — purely visual, the whole area above is draggable */}
+              <circle
+                cx={100 + r * Math.cos(ratio * 2 * Math.PI)}
+                cy={100 + r * Math.sin(ratio * 2 * Math.PI)}
+                r={isDragging ? 12 : 9}
+                fill="#5a6b35"
+                style={{ transition: isDragging ? "none" : "r 0.15s ease" }}
+              />
+            </svg>
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">
+              <span className="font-mono text-[2.5rem] font-semibold leading-none text-text">
+                {timeDisplay}
+              </span>
+              <span className="font-mono text-xs text-dim mt-1">elapsed</span>
+            </div>
           </div>
         </div>
       </div>

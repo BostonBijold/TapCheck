@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineLog from "@/models/RoutineLog";
 import type { LogState } from "@/models/RoutineLog";
-import { minutesSince, serializeLog, startInProgressLog } from "@/lib/routine-log-actions";
+import { minutesSince, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/routine-log-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -37,13 +37,20 @@ export async function POST(req: NextRequest) {
   const userId = resolveUserId(session?.user?.id);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId } = (await req.json()) as {
+  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId, sessionNav } = (await req.json()) as {
     routineItemId: string;
     date: string;
     actualMinutes?: number;
     state: LogState;
     isBackEntry?: boolean;
     sessionGroupId?: string | null; // set by RoutineSession to anchor this timer inside a session
+    // Set by RoutineSession when moving between items (advancing or jumping).
+    // Still enforces a single running timer — whatever was active gets
+    // paused, banking its elapsed time — but never marks the item being left
+    // done or missed the way the default sweep (startInProgressLog) does,
+    // since navigating within an already-open session isn't "I've started
+    // doing something else." See switchActiveLog in lib/routine-log-actions.ts.
+    sessionNav?: boolean;
   };
 
   if (!routineItemId || !date || !state) {
@@ -53,7 +60,9 @@ export async function POST(req: NextRequest) {
   await connectDB();
 
   if (state === "in_progress") {
-    const log = await startInProgressLog(userId, routineItemId, date, sessionGroupId ?? null);
+    const log = sessionNav
+      ? await switchActiveLog(userId, routineItemId, date, sessionGroupId ?? null)
+      : await startInProgressLog(userId, routineItemId, date, sessionGroupId ?? null);
     return NextResponse.json(serializeLog(log));
   }
 
@@ -61,7 +70,7 @@ export async function POST(req: NextRequest) {
   // of which state this log was in before — same rule PATCH enforces.
   const log = await RoutineLog.findOneAndUpdate(
     { userId, routineItemId, date },
-    { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false, sessionGroupId: null } },
+    { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false, sessionGroupId: null, pausedSeconds: 0 } },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
@@ -95,7 +104,8 @@ export async function PATCH(req: NextRequest) {
   const now = new Date();
   // Leaving a session anchor behind on the log's next state doesn't help anyone —
   // once it's no longer in_progress it should behave like any other completed log.
-  const setData: Record<string, unknown> = { state, sessionGroupId: null };
+  // pausedSeconds only means anything while running/paused — always cleared here.
+  const setData: Record<string, unknown> = { state, sessionGroupId: null, pausedSeconds: 0 };
 
   if (startOverride && endOverride) {
     // Manual time edit: client supplied explicit start + end in local time converted to ISO
@@ -105,11 +115,17 @@ export async function PATCH(req: NextRequest) {
     setData.completedAt = end;
     setData.actualMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
   } else if (state === "done") {
-    // Timer completion: derive duration from server-recorded startedAt
+    // Timer completion: derive duration from server-recorded startedAt, plus
+    // any time banked from earlier paused segments of this same log.
     setData.completedAt = now;
     const existing = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
     const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
-    setData.actualMinutes = startedAt ? minutesSince(startedAt) : (fallbackMins ?? 1);
+    const banked = existing?.pausedSeconds ?? 0;
+    setData.actualMinutes = startedAt
+      ? minutesSince(startedAt, banked)
+      : banked > 0
+        ? Math.max(1, Math.round(banked / 60))
+        : (fallbackMins ?? 1);
   }
 
   const log = await RoutineLog.findOneAndUpdate(

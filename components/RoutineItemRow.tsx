@@ -56,6 +56,7 @@ function calcMinutes(date: string, start: string, end: string): number | null {
 
 const BORDER: Record<LogState, string> = {
   in_progress: "border-l-[3px] border-l-amber",
+  paused:      "border-l-[3px] border-l-amber",
   done:        "border-l-[3px] border-l-olive",
   missed:      "border-l-[3px] border-l-burgundy",
   rest:        "border-l-[3px] border-l-blue-muted",
@@ -63,6 +64,7 @@ const BORDER: Record<LogState, string> = {
 
 const BADGE: Record<LogState, string> = {
   in_progress: "text-amber bg-amber/10",
+  paused:      "text-amber bg-amber/10",
   done:        "text-olive bg-olive/10",
   missed:      "text-burgundy-light bg-burgundy/10",
   rest:        "text-blue-muted bg-blue-muted/10",
@@ -70,6 +72,7 @@ const BADGE: Record<LogState, string> = {
 
 const LABEL: Record<LogState, string> = {
   in_progress: "Active",
+  paused:      "Paused",
   done:        "Done",
   missed:      "Missed",
   rest:        "Rest",
@@ -239,7 +242,7 @@ export default function RoutineItemRow({
       {/* Action panel */}
       {isExpanded && (
         <div className="px-4 pb-4 space-y-2">
-          {editingTime ? timeEditPanel : state === "in_progress" ? (
+          {editingTime ? timeEditPanel : state === "in_progress" || state === "paused" ? (
             <>
               <button
                 onClick={onStartTimer}

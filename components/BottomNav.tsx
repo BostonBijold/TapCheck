@@ -67,6 +67,7 @@ interface ActiveTimer {
   routineItemId: string;
   date: string;
   startedAt: string;
+  pausedSeconds?: number;
   itemName: string;
   itemIcon: string;
   itemType: string;
@@ -137,10 +138,22 @@ export default function BottomNav() {
 
   useEffect(() => {
     const onChanged = () => fetchActiveTimer();
+    // Resync immediately on returning to the foreground instead of waiting up
+    // to ACTIVE_TIMER_POLL_MS for the next poll — mirrors the pattern used
+    // for the live clock below and for RoutinesView's date-resync.
+    const onVisible = () => { if (document.visibilityState === "visible") fetchActiveTimer(); };
     window.addEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
-    const poll = setInterval(fetchActiveTimer, ACTIVE_TIMER_POLL_MS);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    // Skip the network call while backgrounded — the visibility listener
+    // above already covers resyncing the moment it matters again.
+    const poll = setInterval(() => {
+      if (document.visibilityState === "visible") fetchActiveTimer();
+    }, ACTIVE_TIMER_POLL_MS);
     return () => {
       window.removeEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
       clearInterval(poll);
     };
   }, [fetchActiveTimer]);
@@ -209,7 +222,7 @@ export default function BottomNav() {
   };
 
   const elapsedSeconds = activeTimer
-    ? Math.floor((nowTick - new Date(activeTimer.startedAt).getTime()) / 1000)
+    ? (activeTimer.pausedSeconds ?? 0) + Math.floor((nowTick - new Date(activeTimer.startedAt).getTime()) / 1000)
     : 0;
   const isCountdown = !!activeTimer && activeTimer.itemType !== "stopwatch" && activeTimer.projectedMinutes > 0;
   const targetSeconds = isCountdown ? activeTimer!.projectedMinutes * 60 : 0;

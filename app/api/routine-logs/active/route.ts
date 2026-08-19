@@ -13,10 +13,12 @@ function resolveUserId(sessionId?: string): string | null {
   return null;
 }
 
-// The user's single currently-active timer, if any — used by the FAB to
-// switch into its resume state. Relies on the single-active-timer invariant
-// enforced in POST /api/routine-logs (at most one in_progress log can exist
-// per user), so findOne is sufficient — no ambiguity about which one it is.
+// The user's single active timer, if any — used by the FAB to switch into
+// its resume state. Only one log is ever in_progress at a time (jumping to a
+// different item inside a Routine Session pauses whatever was running
+// instead of leaving it in_progress — see switchActiveLog in
+// lib/routine-log-actions.ts), but sort defensively in case more than one
+// ever exists transiently.
 export async function GET() {
   const session = await auth();
   const userId = resolveUserId(session?.user?.id);
@@ -24,7 +26,9 @@ export async function GET() {
 
   await connectDB();
 
-  const log = await RoutineLog.findOne({ userId, state: "in_progress" }).lean();
+  const log = await RoutineLog.findOne({ userId, state: "in_progress" })
+    .sort({ startedAt: -1 })
+    .lean();
   if (!log?.startedAt) {
     return NextResponse.json({ active: false });
   }
@@ -40,6 +44,7 @@ export async function GET() {
     routineItemId: log.routineItemId.toString(),
     date: log.date,
     startedAt: new Date(log.startedAt).toISOString(),
+    pausedSeconds: log.pausedSeconds ?? 0,
     itemName: item.name,
     itemIcon: item.icon,
     itemType: item.itemType,

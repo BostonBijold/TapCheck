@@ -28,8 +28,9 @@ export interface RoutineLogEntry {
   routineItemId: string;
   date: string;
   actualMinutes?: number;
-  startedAt?: string;   // ISO string — set when timer starts
+  startedAt?: string;   // ISO string — set when timer starts; null/unset while paused
   completedAt?: string; // ISO string — set when timer finishes
+  pausedSeconds?: number; // elapsed seconds banked from an earlier running segment (see models/RoutineLog)
   state: LogState;
   sessionGroupId?: string | null; // set when this in_progress timer is anchored inside a Routine Session
 }
@@ -113,16 +114,22 @@ export default function RoutinesView({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shared by both resume effects below — finds the day's in_progress log (at
-  // most one can exist, per the single-active-timer invariant enforced in
-  // POST /api/routine-logs). If it carries a sessionGroupId (set only via the
+  // Shared by both resume effects below — finds the day's in_progress log.
+  // Only one is ever in_progress at a time (jumping to a different item
+  // inside a Routine Session pauses whatever was running instead of leaving
+  // it in_progress — see switchActiveLog in lib/routine-log-actions.ts), but
+  // sort defensively in case more than one ever exists transiently.
+  // If it carries a sessionGroupId (set via the session itself, or the
   // external API's routineGroupId param), reopen it inside a RoutineSession
   // for that group, anchored at that item, instead of the standalone timer —
   // reproducing "tapped Start Routine and navigated to that item by hand."
   // Otherwise opens TimerScreen as before, seeded with elapsed time computed
   // from the server-recorded startedAt. Returns whether it found one.
   const openInProgressTimer = useCallback(() => {
-    const inProgressLog = initialLogs.find((l) => l.state === "in_progress");
+    const inProgressLogs = initialLogs.filter((l) => l.state === "in_progress" && l.startedAt);
+    const inProgressLog = inProgressLogs.sort(
+      (a, b) => new Date(b.startedAt!).getTime() - new Date(a.startedAt!).getTime()
+    )[0];
     if (!inProgressLog?.startedAt) return false;
 
     if (inProgressLog.sessionGroupId) {
@@ -139,7 +146,7 @@ export default function RoutinesView({
     for (const g of [...routineGroups, ...habitGroups]) {
       const item = g.items.find((i) => i._id === inProgressLog.routineItemId);
       if (item) {
-        const elapsed = Math.max(0, Math.floor((Date.now() - new Date(inProgressLog.startedAt).getTime()) / 1000));
+        const elapsed = (inProgressLog.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(inProgressLog.startedAt).getTime()) / 1000));
         setTimerInitialElapsed(elapsed);
         setTimerItem(item as TimerItem);
         return true;
@@ -359,9 +366,12 @@ export default function RoutinesView({
     async (item: TimerItem) => {
       const existingLog = logs[item._id];
 
-      if (existingLog?.state === "in_progress" && existingLog.startedAt) {
-        // Session-anchored (started via the external API with a group id) —
-        // resuming this item means resuming the session, not the standalone timer.
+      if (existingLog?.state === "in_progress" || existingLog?.state === "paused") {
+        // Session-anchored (started via the session itself, or the external API
+        // with a group id) — resuming this item means resuming the session, not
+        // the standalone timer. A paused item always carries its session anchor
+        // (pausing only ever happens from within an open session), and its
+        // startedAt is null, so it can't be resumed as a standalone timer anyway.
         if (existingLog.sessionGroupId) {
           const group = groups.find((g) => g._id === existingLog.sessionGroupId);
           if (group) {
@@ -370,10 +380,15 @@ export default function RoutinesView({
             return;
           }
         }
-        const elapsed = Math.max(0, Math.floor((Date.now() - new Date(existingLog.startedAt).getTime()) / 1000));
-        setTimerInitialElapsed(elapsed);
-        setTimerItem(item);
-        return;
+        if (existingLog.state === "in_progress" && existingLog.startedAt) {
+          const elapsed = (existingLog.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(existingLog.startedAt).getTime()) / 1000));
+          setTimerInitialElapsed(elapsed);
+          setTimerItem(item);
+          return;
+        }
+        // Paused with no resolvable session (e.g. the group was deleted) — fall
+        // through to start fresh below; the server still preserves its banked
+        // time (see startInProgressLog), only the initial display resets to 0.
       }
 
       // Create in_progress log immediately so startedAt is server-authoritative

@@ -85,12 +85,14 @@ function fmtMins(mins: number) {
 
 const STATE_COLOR: Record<LogState, string> = {
   in_progress: "text-amber",
+  paused:      "text-amber",
   done:        "text-olive",
   missed:      "text-burgundy-light",
   rest:        "text-blue-muted",
 };
 const STATE_SYMBOL: Record<LogState, string> = {
   in_progress: "▶",
+  paused:      "❚❚",
   done:        "✓",
   missed:      "✗",
   rest:        "~",

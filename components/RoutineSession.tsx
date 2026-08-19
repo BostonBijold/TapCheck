@@ -6,11 +6,20 @@ import HabitIcon from "@/components/HabitIcon";
 import type { RowItem } from "@/components/RoutineItemRow";
 import type { LogState } from "@/models/RoutineLog";
 import { emitRoutineLogChanged } from "@/lib/routine-log-events";
+import { useRingDrag } from "@/lib/useRingDrag";
 
 interface SessionLog {
   itemId: string;
   state: LogState;
   actualMinutes: number;
+}
+
+interface DayLogRecord {
+  routineItemId: string;
+  state: LogState;
+  actualMinutes: number;
+  startedAt: string | null;
+  pausedSeconds: number;
 }
 
 // Subset of RoutineLogEntry (see RoutinesView) needed to resume a timer that was
@@ -21,6 +30,7 @@ export interface ExternalLog {
   state: LogState;
   startedAt?: string;
   actualMinutes?: number;
+  pausedSeconds?: number;
 }
 
 interface Props {
@@ -44,6 +54,22 @@ function fmtMins(secs: number) {
   return `${pad(m)}:${pad(s)}`;
 }
 
+// Finds the next item that isn't done/missed/rest yet, starting just after
+// afterIndex and wrapping back to the start if nothing remains going
+// forward — so a session never reaches the summary screen just because it
+// ran off the end of the list. An item that's paused (jumped away from) or
+// was never touched (jumped over) still needs resolving, however far back
+// in the list it sits. Returns -1 only when every item is finished.
+function nextUnfinishedIndex(items: RowItem[], finishedIds: Set<string>, afterIndex: number): number {
+  for (let i = afterIndex + 1; i < items.length; i++) {
+    if (!finishedIds.has(items[i]._id)) return i;
+  }
+  for (let i = 0; i <= afterIndex; i++) {
+    if (!finishedIds.has(items[i]._id)) return i;
+  }
+  return -1;
+}
+
 const RING_R = 70;
 const RING_CIRC = 2 * Math.PI * RING_R;
 const STOPWATCH_SOFT_CAP = 30 * 60;
@@ -55,6 +81,12 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
   const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
   const [phase, setPhase] = useState<"running" | "summary">("running");
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Latest known state of every item's log today, from any source — this
+  // session's own actions, an external API call, or a manual tap elsewhere.
+  // Kept fresh by advance(), the foreground-revalidation effect, and the
+  // jump-to-item handler, all of which re-fetch rather than trust stale state.
+  const [latestLogs, setLatestLogs] = useState<Record<string, DayLogRecord>>({});
+  const [jumpNotice, setJumpNotice] = useState<string | null>(null);
 
   const currentItem = items[currentIndex];
   const isCheckbox = currentItem?.itemType === "checkbox";
@@ -71,13 +103,39 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
   // runStartRef = Date.now() when the current running segment began (null if paused).
   const baseElapsedRef = useRef(0);
   const runStartRef = useRef<number | null>(null);
+  // While the ring is being dragged, the drag gesture owns `elapsed` —
+  // recompute() stands down so the two don't fight over it.
+  const isDraggingRef = useRef(false);
 
   const recompute = useCallback(() => {
+    if (isDraggingRef.current) return;
     if (runStartRef.current != null) {
       const delta = Math.floor((Date.now() - runStartRef.current) / 1000);
       setElapsed(baseElapsedRef.current + delta);
     }
   }, []);
+
+  // Drag the ring like a dial to set elapsed time directly: one full
+  // clockwise lap = the current item's target (or 30m for a stopwatch, no
+  // target). Winding never changes whether the timer is running — it only
+  // ever reanchors runStartRef to "now" (see onChange) so that if it was
+  // running going in, it keeps running from the dragged value the instant
+  // you let go; if it was paused, it stays paused right where you left it.
+  // Called unconditionally (before the summary-phase early return below) —
+  // it's simply unused there, since the summary screen has no ring.
+  const revolutionSeconds = isStopwatch ? STOPWATCH_SOFT_CAP : (currentItem?.projectedMinutes ?? 0) * 60;
+  const { svgRef, isDragging, handlers: dragHandlers } = useRingDrag({
+    revolutionSeconds,
+    getElapsedSeconds: () => elapsed,
+    onChange: (seconds) => {
+      const rounded = Math.round(seconds);
+      baseElapsedRef.current = rounded;
+      if (runStartRef.current != null) runStartRef.current = Date.now();
+      setElapsed(rounded);
+    },
+    onDragStart: () => { isDraggingRef.current = true; },
+    onDragEnd: () => { isDraggingRef.current = false; },
+  });
 
   // Don't run the clock for checkbox items — there's nothing to time
   useEffect(() => {
@@ -111,47 +169,135 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
     };
   }, [recompute]);
 
-  // Move to a new item — unless it already has an in_progress log from outside
-  // this session (started via the single-habit timer before "Start Routine" was
-  // tapped), stamp a fresh in_progress record on the server (startedAt = now)
-  // before starting its clock locally, mirroring the standalone timer's
-  // handleStartTimer pattern. This is what lets closing mid-item (below) and
-  // the mount-time auto-resume in RoutinesView find an accurate startedAt
-  // instead of discarding progress silently.
+  useEffect(() => {
+    if (!jumpNotice) return;
+    const t = setTimeout(() => setJumpNotice(null), 2500);
+    return () => clearTimeout(t);
+  }, [jumpNotice]);
+
+  // Fetches today's full log list (not just ids) and folds it into latestLogs,
+  // used for skip-forward decisions, foreground revalidation, and the jump
+  // safety check below — always the live server truth, never a stale prop.
+  const fetchDayLogs = useCallback(async (): Promise<DayLogRecord[]> => {
+    try {
+      const res = await fetch(`/api/routine-logs?date=${today}`);
+      if (!res.ok) return [];
+      const fresh: Array<{ routineItemId: string; state: LogState; actualMinutes: number | null; startedAt: string | null; pausedSeconds?: number }> = await res.json();
+      const records: DayLogRecord[] = fresh.map((l) => ({
+        routineItemId: l.routineItemId,
+        state: l.state,
+        actualMinutes: l.actualMinutes ?? 0,
+        startedAt: l.startedAt ?? null,
+        pausedSeconds: l.pausedSeconds ?? 0,
+      }));
+      setLatestLogs((prev) => {
+        const next = { ...prev };
+        for (const r of records) next[r.routineItemId] = r;
+        return next;
+      });
+      return records;
+    } catch {
+      return [];
+    }
+  }, [today]);
+
+  // Detects whether the current item was auto-completed out from under this
+  // session by something outside it — e.g. the external API starting a
+  // different item while this session was backgrounded, which the single-
+  // active-timer invariant resolves by auto-completing whatever this session
+  // had running. Without this, tapping Done on the now-stale UI would
+  // silently overwrite the server's correct completion with a fabricated one
+  // from the frozen local clock.
+  useEffect(() => {
+    const revalidate = async () => {
+      if (document.visibilityState !== "visible") return;
+      if (phase !== "running" || !currentItem) return;
+      const records = await fetchDayLogs();
+      const currentLog = records.find((r) => r.routineItemId === currentItem._id);
+      // No log yet, or still legitimately running/paused (presumably ours,
+      // or another tab/device paused it and it's still resumable) — nothing to do.
+      if (!currentLog || currentLog.state === "in_progress" || currentLog.state === "paused") return;
+
+      setSessionLogs((prev) =>
+        prev.some((l) => l.itemId === currentItem._id)
+          ? prev
+          : [...prev, { itemId: currentItem._id, state: currentLog.state, actualMinutes: currentLog.actualMinutes }]
+      );
+
+      const finishedIds = new Set(
+        records.filter((r) => r.state === "done" || r.state === "missed" || r.state === "rest").map((r) => r.routineItemId)
+      );
+      const nextIndex = nextUnfinishedIndex(items, finishedIds, currentIndex);
+      if (nextIndex !== -1) {
+        setCurrentIndex(nextIndex);
+      } else {
+        setPhase("summary");
+        setIsRunning(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", revalidate);
+    window.addEventListener("focus", revalidate);
+    window.addEventListener("pageshow", revalidate);
+    return () => {
+      document.removeEventListener("visibilitychange", revalidate);
+      window.removeEventListener("focus", revalidate);
+      window.removeEventListener("pageshow", revalidate);
+    };
+  }, [phase, currentItem, currentIndex, items, fetchDayLogs]);
+
+  // Move to a new item — advancing sequentially, or jumping. Only one timer
+  // is ever actively running: switching to a new current item pauses
+  // whatever was running before (banking its elapsed time server-side via
+  // switchActiveLog / sessionNav: true) rather than leaving it ticking
+  // alongside the new one or marking it done. If this item was itself
+  // paused earlier (jumped away and back), the server resumes it from its
+  // banked time instead of restarting the clock. Nothing here ever sets a
+  // terminal state — only an explicit Done/Missed/Rest (or the external API)
+  // does that. Re-fetching afterwards (rather than trusting the POST
+  // response alone) keeps latestLogs correct for every item, including
+  // whichever one was just paused.
   useEffect(() => {
     if (!currentItem) return;
     let cancelled = false;
     const item = currentItem;
-    const existing = externalLogs?.[item._id];
     const isCheckboxItem = item.itemType === "checkbox";
-    const isResuming = !isCheckboxItem && existing?.state === "in_progress" && !!existing.startedAt;
 
     // Blank the display immediately so it doesn't show the previous item's
-    // leftover elapsed value while the in_progress POST (if any) is in flight.
+    // leftover elapsed value while the switch is in flight.
     baseElapsedRef.current = 0;
     runStartRef.current = null;
     setElapsed(0);
     setIsRunning(false);
 
     (async () => {
-      if (!isCheckboxItem && !isResuming) {
-        // Stamp the group id too, not just startedAt — this is what lets
-        // closing the app mid-item (without tapping X) resume straight back
-        // into this session on reopen, instead of falling back to the
-        // standalone timer. Mirrors the external API's routineGroupId param;
-        // openInProgressTimer already branches on sessionGroupId either way.
-        await fetch("/api/routine-logs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ routineItemId: item._id, date: today, state: "in_progress", sessionGroupId: groupId }),
-        });
-        emitRoutineLogChanged();
-      }
+      // Stamp the group id too, not just startedAt — this is what lets
+      // closing the app mid-item (without tapping X) resume straight back
+      // into this session on reopen, instead of falling back to the
+      // standalone timer. Mirrors the external API's routineGroupId param;
+      // openInProgressTimer already branches on sessionGroupId either way.
+      await fetch("/api/routine-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          routineItemId: item._id,
+          date: today,
+          state: "in_progress",
+          sessionGroupId: groupId,
+          sessionNav: true,
+        }),
+      });
+      emitRoutineLogChanged();
       if (cancelled) return;
 
-      const seeded = isResuming
-        ? Math.max(0, Math.floor((Date.now() - new Date(existing!.startedAt!).getTime()) / 1000))
-        : 0;
+      const records = await fetchDayLogs();
+      if (cancelled) return;
+
+      const own = records.find((r) => r.routineItemId === item._id);
+      const seeded =
+        !isCheckboxItem && own?.startedAt
+          ? (own.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(own.startedAt).getTime()) / 1000))
+          : 0;
       baseElapsedRef.current = seeded;
       runStartRef.current = Date.now();
       setElapsed(seeded);
@@ -181,34 +327,61 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
       setSessionLogs((prev) => [...prev, log]);
       await saveLog(currentItem._id, state, actualMinutes);
 
-      // Skip forward past anything already logged today, from ANY source —
-      // an earlier API call, a manual tap elsewhere, or this session itself —
-      // not just what this session instance happens to know about locally.
-      // Re-fetch rather than trust sessionLogs/externalLogs, since either can
-      // be stale relative to an out-of-band completion that just happened.
-      const loggedIds = new Set(sessionLogs.map((l) => l.itemId));
-      loggedIds.add(currentItem._id);
-      try {
-        const res = await fetch(`/api/routine-logs?date=${today}`);
-        if (res.ok) {
-          const fresh: Array<{ routineItemId: string }> = await res.json();
-          for (const l of fresh) loggedIds.add(l.routineItemId);
-        }
-      } catch { /* fall back to what we already know locally */ }
-
-      let nextIndex = currentIndex + 1;
-      while (nextIndex < items.length && loggedIds.has(items[nextIndex]._id)) {
-        nextIndex++;
+      // Skip past anything already FINISHED today (done/missed/rest), from
+      // ANY source — an earlier API call, a manual tap elsewhere, or this
+      // session itself. An in_progress or paused item is deliberately NOT
+      // skipped — it becomes current instead, resuming from its real banked
+      // time, since it's just something you (or another source) started
+      // earlier and haven't finished yet, not something to bypass. The walk
+      // below wraps back to the start of the list rather than stopping at
+      // the end, so a paused/pending item earlier in the list (jumped away
+      // from or jumped over) still gets revisited instead of silently
+      // ending the session. Re-fetch rather than trust sessionLogs/
+      // externalLogs, since either can be stale relative to an out-of-band
+      // completion that just happened.
+      const records = await fetchDayLogs();
+      const finishedIds = new Set(sessionLogs.map((l) => l.itemId));
+      finishedIds.add(currentItem._id);
+      for (const r of records) {
+        if (r.state === "done" || r.state === "missed" || r.state === "rest") finishedIds.add(r.routineItemId);
       }
 
-      if (nextIndex < items.length) {
+      const nextIndex = nextUnfinishedIndex(items, finishedIds, currentIndex);
+      if (nextIndex !== -1) {
         setCurrentIndex(nextIndex);
       } else {
         setPhase("summary");
         setIsRunning(false);
       }
     },
-    [currentItem, currentIndex, items, today, saveLog, sessionLogs]
+    [currentItem, currentIndex, items, saveLog, sessionLogs, fetchDayLogs]
+  );
+
+  // Jump directly to a different item — pending (never started), in_progress
+  // (rare: started earlier via another tab/device and still actively running),
+  // or paused (started earlier in this session, left when you jumped away) —
+  // without marking the current one done, missed, or rest. The item you're
+  // leaving is paused, not completed: the per-item effect above switches the
+  // active timer via switchActiveLog (sessionNav: true), which banks its
+  // elapsed time and marks it paused. Only an explicit Done/Missed/Rest (or
+  // the external API) ever marks an item. Only a FINISHED item (done/missed/
+  // rest) can't be jumped to — that's what Undo is for, not a jump.
+  const handleJumpTo = useCallback(
+    async (index: number) => {
+      if (phase !== "running" || index === currentIndex) return;
+      const target = items[index];
+      if (!target) return;
+      // Re-check freshness right before jumping — the row's own displayed
+      // state could be a moment stale if something finished it since the last render.
+      const records = await fetchDayLogs();
+      const targetLog = records.find((r) => r.routineItemId === target._id);
+      if (targetLog && (targetLog.state === "done" || targetLog.state === "missed" || targetLog.state === "rest")) {
+        setJumpNotice(`${target.name} was already logged — refreshed.`);
+        return;
+      }
+      setCurrentIndex(index);
+    },
+    [phase, currentIndex, items, fetchDayLogs]
   );
 
   // Closing mid-item (the X button) used to silently discard whatever the
@@ -244,11 +417,24 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
 
   // ── Summary ─────────────────────────────────────────────────────────────────
   if (phase === "summary") {
-    const totalActual = sessionLogs.reduce((s, l) => s + l.actualMinutes, 0);
+    // Anything this session itself walked through and logged, PLUS anything
+    // else that ended up logged today by another source (an external call,
+    // e.g.) — without this fallback those items would silently vanish from
+    // the summary instead of being shown, and the completed count would be
+    // wrong relative to items.length.
+    const logMap: Record<string, SessionLog> = {};
+    for (const [id, l] of Object.entries(latestLogs)) {
+      if (l.state === "done" || l.state === "missed" || l.state === "rest") {
+        logMap[id] = { itemId: id, state: l.state, actualMinutes: l.actualMinutes };
+      }
+    }
+    for (const l of sessionLogs) logMap[l.itemId] = l; // this session's own record wins if both exist
+
+    const allLogs = Object.values(logMap);
+    const totalActual = allLogs.reduce((s, l) => s + l.actualMinutes, 0);
     const timedItems = items.filter((i) => i.itemType !== "checkbox");
     const totalProjected = timedItems.reduce((s, i) => s + i.projectedMinutes, 0);
-    const doneCount = sessionLogs.filter((l) => l.state === "done").length;
-    const logMap = Object.fromEntries(sessionLogs.map((l) => [l.itemId, l]));
+    const doneCount = allLogs.filter((l) => l.state === "done").length;
 
     return (
       <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
@@ -325,7 +511,18 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
       .filter(([, l]) => l.state === "done" || l.state === "missed" || l.state === "rest")
       .map(([id]) => id)
   );
-  const loggedIds = new Set([...sessionLogs.map((l) => l.itemId), ...Array.from(externalDoneIds)]);
+  // Same, but from live server state rather than the static prop — covers
+  // anything completed mid-session by another source (a jump, an external call).
+  const liveDoneIds = new Set(
+    Object.entries(latestLogs)
+      .filter(([, l]) => l.state === "done" || l.state === "missed" || l.state === "rest")
+      .map(([id]) => id)
+  );
+  const loggedIds = new Set([
+    ...sessionLogs.map((l) => l.itemId),
+    ...Array.from(externalDoneIds),
+    ...Array.from(liveDoneIds),
+  ]);
 
   // Countdown ring values
   const countdownRatio = isCountdown && target > 0 ? Math.min(elapsed / target, 1) : 0;
@@ -347,20 +544,101 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
         <span className="font-mono text-muted text-sm">{currentIndex + 1} of {items.length}</span>
       </div>
 
-      {/* Item info */}
-      <div className="text-center px-4 pt-2 pb-3 flex-shrink-0">
-        <div className="flex justify-center mb-3">
-          <HabitIcon name={currentItem.icon} size={44} strokeWidth={1.25} className="text-text" />
+      {/* Item info + ring together are one big drag surface for setting
+          elapsed time — not just the thin ring stroke. pointer-events-none
+          on the inner content means the wrapper's own handlers always get
+          the gesture, never a child. Checkbox items have no timer, so their
+          own big Done button below is a separate, ordinarily-clickable
+          element outside this wrapper. */}
+      <div
+        className="flex flex-col select-none"
+        style={!isCheckbox ? { touchAction: "none", cursor: isDragging ? "grabbing" : "grab" } : undefined}
+        {...(!isCheckbox ? dragHandlers : {})}
+      >
+        <div className="text-center px-4 pt-2 pb-3 flex-shrink-0 pointer-events-none">
+          <div className="flex justify-center mb-3">
+            <HabitIcon name={currentItem.icon} size={44} strokeWidth={1.25} className="text-text" />
+          </div>
+          <h2 className="font-heading text-xl text-text leading-tight">{currentItem.name}</h2>
+          {isCountdown && (
+            <p className="font-mono text-dim text-xs mt-1">{currentItem.projectedMinutes}m target</p>
+          )}
+          {isStopwatch && (
+            <p className="font-mono text-dim text-xs mt-1">stopwatch · no target</p>
+          )}
+          {isCheckbox && (
+            <p className="font-mono text-dim text-xs mt-1">mark when done</p>
+          )}
         </div>
-        <h2 className="font-heading text-xl text-text leading-tight">{currentItem.name}</h2>
+
+        {/* ── Countdown ring ── */}
         {isCountdown && (
-          <p className="font-mono text-dim text-xs mt-1">{currentItem.projectedMinutes}m target</p>
+          <div className="flex justify-center flex-shrink-0 pb-3 pointer-events-none">
+            <div className="relative w-44 h-44">
+              <svg ref={svgRef} className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+                <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#2e2c22" strokeWidth="9" />
+                <circle
+                  cx="80" cy="80" r={RING_R}
+                  fill="none"
+                  stroke={countdownColor}
+                  strokeWidth="9"
+                  strokeLinecap="round"
+                  strokeDasharray={RING_CIRC}
+                  strokeDashoffset={countdownOffset}
+                  style={isDragging ? undefined : { transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
+                />
+                {/* Handle at the arc's tip — purely visual, the whole area above is draggable */}
+                <circle
+                  cx={80 + RING_R * Math.cos(countdownRatio * 2 * Math.PI)}
+                  cy={80 + RING_R * Math.sin(countdownRatio * 2 * Math.PI)}
+                  r={isDragging ? 11 : 8}
+                  fill={countdownColor}
+                  style={{ transition: isDragging ? "none" : "r 0.15s ease" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-mono text-3xl font-semibold leading-none" style={{ color: isOver ? "#a03a3a" : "#e8e0cc" }}>
+                  {countdownDisplay}
+                </span>
+                <span className="font-mono text-[10px] text-dim mt-1">{isOver ? "over" : "remaining"}</span>
+              </div>
+            </div>
+          </div>
         )}
+
+        {/* ── Stopwatch ring ── */}
         {isStopwatch && (
-          <p className="font-mono text-dim text-xs mt-1">stopwatch · no target</p>
-        )}
-        {isCheckbox && (
-          <p className="font-mono text-dim text-xs mt-1">mark when done</p>
+          <div className="flex justify-center flex-shrink-0 pb-3 pointer-events-none">
+            <div className="relative w-44 h-44">
+              <svg ref={svgRef} className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+                <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#2e2c22" strokeWidth="9" />
+                <circle
+                  cx="80" cy="80" r={RING_R}
+                  fill="none"
+                  stroke="#5a6b35"
+                  strokeWidth="9"
+                  strokeLinecap="round"
+                  strokeDasharray={RING_CIRC}
+                  strokeDashoffset={stopwatchOffset}
+                  style={isDragging ? undefined : { transition: "stroke-dashoffset 0.95s linear" }}
+                />
+                {/* Handle at the arc's tip — purely visual, the whole area above is draggable */}
+                <circle
+                  cx={80 + RING_R * Math.cos(stopwatchRatio * 2 * Math.PI)}
+                  cy={80 + RING_R * Math.sin(stopwatchRatio * 2 * Math.PI)}
+                  r={isDragging ? 11 : 8}
+                  fill="#5a6b35"
+                  style={{ transition: isDragging ? "none" : "r 0.15s ease" }}
+                />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="font-mono text-3xl font-semibold leading-none text-text">
+                  {fmtMins(elapsed)}
+                </span>
+                <span className="font-mono text-[10px] text-dim mt-1">elapsed</span>
+              </div>
+            </div>
+          </div>
         )}
       </div>
 
@@ -374,60 +652,6 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
             <span className="text-4xl text-olive">✓</span>
             <span className="font-body text-sm text-olive font-medium">Done</span>
           </button>
-        </div>
-      )}
-
-      {/* ── Countdown ring ── */}
-      {isCountdown && (
-        <div className="flex justify-center flex-shrink-0 pb-3">
-          <div className="relative w-44 h-44">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
-              <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#2e2c22" strokeWidth="9" />
-              <circle
-                cx="80" cy="80" r={RING_R}
-                fill="none"
-                stroke={countdownColor}
-                strokeWidth="9"
-                strokeLinecap="round"
-                strokeDasharray={RING_CIRC}
-                strokeDashoffset={countdownOffset}
-                style={{ transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-mono text-3xl font-semibold leading-none" style={{ color: isOver ? "#a03a3a" : "#e8e0cc" }}>
-                {countdownDisplay}
-              </span>
-              <span className="font-mono text-[10px] text-dim mt-1">{isOver ? "over" : "remaining"}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* ── Stopwatch ring ── */}
-      {isStopwatch && (
-        <div className="flex justify-center flex-shrink-0 pb-3">
-          <div className="relative w-44 h-44">
-            <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
-              <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#2e2c22" strokeWidth="9" />
-              <circle
-                cx="80" cy="80" r={RING_R}
-                fill="none"
-                stroke="#5a6b35"
-                strokeWidth="9"
-                strokeLinecap="round"
-                strokeDasharray={RING_CIRC}
-                strokeDashoffset={stopwatchOffset}
-                style={{ transition: "stroke-dashoffset 0.95s linear" }}
-              />
-            </svg>
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="font-mono text-3xl font-semibold leading-none text-text">
-                {fmtMins(elapsed)}
-              </span>
-              <span className="font-mono text-[10px] text-dim mt-1">elapsed</span>
-            </div>
-          </div>
         </div>
       )}
 
@@ -471,32 +695,59 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
 
       {/* Habit list */}
       <div className="flex-1 overflow-y-auto px-4 pt-3 pb-4">
+        {jumpNotice && (
+          <p className="font-mono text-[10px] text-burgundy-light text-center mb-2">{jumpNotice}</p>
+        )}
         <div className="space-y-1">
           {items.map((item, i) => {
             const isCurrent = i === currentIndex;
             const sessionLog = sessionLogs.find((l) => l.itemId === item._id);
+            const live = !isCurrent ? latestLogs[item._id] : undefined;
             const ext = !isCurrent ? externalLogs?.[item._id] : undefined;
             const log: SessionLog | undefined =
               sessionLog ??
-              (ext && (ext.state === "done" || ext.state === "missed" || ext.state === "rest")
-                ? { itemId: item._id, state: ext.state, actualMinutes: ext.actualMinutes ?? 0 }
-                : undefined);
+              (live && (live.state === "done" || live.state === "missed" || live.state === "rest")
+                ? { itemId: item._id, state: live.state, actualMinutes: live.actualMinutes }
+                : ext && (ext.state === "done" || ext.state === "missed" || ext.state === "rest")
+                  ? { itemId: item._id, state: ext.state, actualMinutes: ext.actualMinutes ?? 0 }
+                  : undefined);
             const isDone = loggedIds.has(item._id);
-            const isUpcoming = !isDone && !isCurrent;
+            // Paused: started earlier in this session, left when you jumped
+            // away — its elapsed time is banked, not lost, and resumes when
+            // you jump back. Distinct from "upcoming" (never started): it
+            // shouldn't render dimmed the way a never-started item does.
+            const isPausedElsewhere = !isCurrent && !isDone && live?.state === "paused";
+            // Rare: genuinely still ticking from another tab/device.
+            const isRunningElsewhere = !isCurrent && !isDone && live?.state === "in_progress";
+            const isUpcoming = !isDone && !isCurrent && !isPausedElsewhere && !isRunningElsewhere;
             const isItemCheckbox = item.itemType === "checkbox";
             const isItemStopwatch = item.itemType === "stopwatch";
+            // Anything not current and not finished can be jumped to —
+            // pending items start fresh, paused/in_progress items resume.
+            const canJump = (isUpcoming || isPausedElsewhere || isRunningElsewhere) && phase === "running";
+            const isActiveElsewhere = isPausedElsewhere || isRunningElsewhere;
 
             return (
               <div
                 key={item._id}
+                role={canJump ? "button" : undefined}
+                onClick={canJump ? () => handleJumpTo(i) : undefined}
                 className={`flex items-center gap-3 px-3 py-2.5 rounded-card transition-colors ${
-                  isCurrent ? "bg-olive/10 border border-olive/20" : isDone ? "opacity-60" : isUpcoming ? "opacity-40" : ""
-                }`}
+                  isCurrent
+                    ? "bg-olive/10 border border-olive/20"
+                    : isActiveElsewhere
+                      ? "bg-amber/10 border border-amber/20"
+                      : isDone
+                        ? "opacity-60"
+                        : isUpcoming
+                          ? "opacity-40"
+                          : ""
+                } ${canJump ? "cursor-pointer active:opacity-70 active:bg-card-hover" : ""}`}
               >
                 <div className="w-6 flex items-center justify-center flex-shrink-0">
-                  <HabitIcon name={item.icon} size={15} strokeWidth={1.75} className={isCurrent ? "text-olive" : "text-dim"} />
+                  <HabitIcon name={item.icon} size={15} strokeWidth={1.75} className={isCurrent ? "text-olive" : isActiveElsewhere ? "text-amber" : "text-dim"} />
                 </div>
-                <span className={`flex-1 font-body text-sm ${isCurrent ? "text-text font-medium" : "text-muted"} ${log ? "line-through" : ""}`}>
+                <span className={`flex-1 font-body text-sm ${isCurrent ? "text-text font-medium" : isActiveElsewhere ? "text-text" : "text-muted"} ${log ? "line-through" : ""}`}>
                   {item.name}
                 </span>
                 <span className="font-mono text-dim text-xs flex-shrink-0">
@@ -507,7 +758,14 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
                     {log.state === "done" ? "✓" : log.state === "missed" ? "✗" : "~"}
                   </span>
                 )}
+                {isPausedElsewhere && (
+                  <span className="font-mono text-amber text-[9px] flex-shrink-0">paused</span>
+                )}
+                {isRunningElsewhere && (
+                  <span className="font-mono text-amber text-[9px] flex-shrink-0">running</span>
+                )}
                 {isCurrent && !log && <ChevronRight size={14} className="text-olive flex-shrink-0" />}
+                {canJump && <span className="font-mono text-dim text-[9px] flex-shrink-0">jump</span>}
               </div>
             );
           })}
