@@ -304,6 +304,7 @@ export default function RoutineGroupCard({
                   weekLogs={weekLogs[item._id] ?? []}
                   weekDates={weekDates}
                   today={today}
+                  selectedDate={selectedDate}
                   isBackEntry={isBackEntry}
                   onStartTimer={() => onStartTimer(item)}
                   onStateChange={(s, opts) => onStateChange(item._id, s, opts)}

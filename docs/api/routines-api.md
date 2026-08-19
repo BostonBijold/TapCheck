@@ -93,4 +93,4 @@ Request body: `{ routineItemId, date }`. Deletes the matching log (this is how "
 
 ## Consumed by
 
-[`features/routines.md`](../features/routines.md), [`features/habits.md`](../features/habits.md), [`features/timer.md`](../features/timer.md).
+[`features/routines.md`](../features/routines.md), [`features/habits.md`](../features/habits.md), [`features/timer.md`](../features/timer.md), [`features/analytics.md`](../features/analytics.md) (`RoutineLog` states and the `RoutineItem` schedule/threshold fields it aggregates over).

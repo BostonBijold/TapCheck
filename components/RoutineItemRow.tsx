@@ -215,6 +215,7 @@ export default function RoutineItemRow({
               logs={weekLogs}
               dates={weekDates}
               today={today}
+              viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
             />

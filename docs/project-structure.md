@@ -28,10 +28,10 @@
 
 | Doc | Covers |
 |---|---|
-| [`features/routines.md`](features/routines.md) | Time-of-day routine groups (Morning/Afternoon/Evening/Custom), item states, back-entry, streaks, and the "Start Routine" sequential session. |
-| [`features/habits.md`](features/habits.md) | The standalone (never-collapsing) Habits group, quick-log flow, and the habit-template catalog. |
-| [`features/timer.md`](features/timer.md) | Both timer UIs (single-habit and sequential-session), how elapsed time is tracked, and the resume-on-reload behavior. |
-| [`features/analytics.md`](features/analytics.md) | The 7-day fixed-calendar-week / 30-day rolling dashboard, `/api/analytics`'s aggregation, and the pending/today rendering in its charts. |
+| [`features/routines.md`](features/routines.md) | Time-of-day routine groups (Morning/Afternoon/Evening/Custom), item states, back-entry, streaks, the per-item weekly schedule/success-threshold model, and the "Start Routine" sequential session. |
+| [`features/habits.md`](features/habits.md) | The standalone (never-collapsing) Habits group, quick-log flow, the habit-template catalog, and where a habit item's schedule/threshold gets edited. |
+| [`features/timer.md`](features/timer.md) | Both timer UIs (single-habit and sequential-session), how elapsed time is tracked, the drag-to-set-time ring gesture, the pause/resume-on-jump single-active-timer model, and the resume-on-reload behavior. |
+| [`features/analytics.md`](features/analytics.md) | The 7-day fixed-calendar-week / 30-day rolling dashboard, `/api/analytics`'s aggregation, the schedule-aware Habit Breakdown (segmented bar + pacing verdict), and the pending/today rendering in its charts. |
 
 *More feature docs (todos, goals, virtues) will be added over time following this same structure.*
 
@@ -39,7 +39,7 @@
 
 | Doc | Covers |
 |---|---|
-| [`api/routines-api.md`](api/routines-api.md) | Routine groups, routine items, and routine logs — `/api/routines*`, `/api/routine-items*`, `/api/routine-logs`. |
+| [`api/routines-api.md`](api/routines-api.md) | Routine groups, routine items (including the `scheduledDays`/`successThreshold` schedule model), and routine logs (including the `paused` state and `pausedSeconds`) — `/api/routines*`, `/api/routine-items*`, `/api/routine-logs`. |
 | [`api/habits-api.md`](api/habits-api.md) | The habits list and the habit-template catalog — `/api/habits`, `/api/habit-templates`. |
 | [`api/external-api.md`](api/external-api.md) | API-key-authenticated (no session) endpoint for triggering a timer from outside the app, e.g. an iPhone Shortcut — `/api/external/start-timer`, `/api/user/api-key`. |
 

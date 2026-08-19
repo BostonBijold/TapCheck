@@ -97,7 +97,7 @@ function completionBarColor(pct: number): string {
 // Same day-state palette as StreakDots — a segment here should read as the
 // same thing a dot there does.
 const DAY_SEGMENT_COLOR: Record<DayState, string> = {
-  done: "#c4a84a",
+  done: "#5a6b35",
   rest: "#4a7a9a",
   missed: "#7a2e2e",
   pending: "transparent", // outlined instead, see the segment's border below

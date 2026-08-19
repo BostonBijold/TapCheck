@@ -16,10 +16,11 @@ The Today/Routines page groups a user's daily habits into time-of-day `RoutineGr
 
 ## Log states
 
-A `RoutineLog` (see [routines-api.md](../api/routines-api.md)) has `state: "in_progress" | "done" | "missed" | "rest"`, or simply has no log yet ("pending"). `in_progress` does **not** count as complete for a group's completion check — it means the item is actively being timed.
+A `RoutineLog` (see [routines-api.md](../api/routines-api.md)) has `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, or simply has no log yet ("pending"). Neither `in_progress` nor `paused` counts as complete for a group's completion check.
 
 - **pending** → tap opens the row and shows: Start Timer/Start Stopwatch (standard/stopwatch), a plain Done button (checkbox), or Missed/Rest buttons. If the group's scheduled window has passed ("back-entry" mode, see below), the timer button is replaced by a Done button plus a manual minutes input.
-- **in_progress** → shows "▶ Resume Timer" (reopens the timer, seeded with elapsed time from the server's `startedAt`) plus Missed/Undo. The API enforces that **at most one log can be `in_progress` at a time per user** — starting a timer elsewhere auto-completes whatever was left running instead of leaving two things active at once (see [timer.md](timer.md)).
+- **in_progress** → shows "▶ Resume Timer" (reopens the timer, seeded with elapsed time from the server's `startedAt`) plus Missed/Undo. The API enforces that **at most one log can be `in_progress` at a time per user** — starting a timer elsewhere auto-*completes* whatever was left running instead of leaving two things active at once (see [timer.md](timer.md)).
+- **paused** → same row treatment as `in_progress` ("▶ Resume Timer", reopening wherever it was left) — this state only ever arises from jumping to a different item inside an open Routine Session, never from anything on this row itself. Tapping "Resume Timer" on a paused item reopens the session at that item rather than a standalone timer, since a paused log always carries its session anchor. See [timer.md](timer.md) for the full pause/resume mechanics.
 - **done** → shows an "Edit time" button (standard/stopwatch items) that opens a manual start/end time editor, plus Missed/Rest/Undo.
 - **missed** / **rest** → shows a retry action (Start Timer, or Done+minutes if in back-entry mode) plus the other skip state and Undo.
 - **Undo** (any logged state) calls `onStateChange(null)`, which `DELETE`s the log entirely — the item returns to pending.
@@ -41,7 +42,7 @@ Custom groups without a `startTime` never derive a collapse window and simply st
 
 ## Streaks & variance
 
-Each row shows `StreakDots` (`components/StreakDots.tsx`) — a dot strip built from `weekLogs`, one dot per day of the **fixed Sunday–Saturday calendar week** containing `today` (`lib/week-dates.ts`'s `calendarWeekDates`, computed once server-side in `app/(app)/routines/page.tsx` and passed down as `weekDates`/`weekLogs`). This is a fixed frame, not a trailing "last 7 days" window — the dot for a given weekday always sits in the same position regardless of what day it currently is. `StreakDots` has no day-letter labels at all, unlike the Analytics chart (see `analytics.md`) — deliberately a lighter-weight treatment since this strip repeats on every row — but today's dot still gets a small gold ring around it so it's identifiable without one. For timed items marked done, the row also shows the variance between `actualMinutes` and `projectedMinutes` (e.g. `+8m` in an "over" color, `-3m` in an "under" color).
+Each row shows `StreakDots` (`components/StreakDots.tsx`) — a dot strip built from `weekLogs`, one dot per day of the **fixed Sunday–Saturday calendar week** containing `today` (`lib/week-dates.ts`'s `calendarWeekDates`, computed once server-side in `app/(app)/routines/page.tsx` and passed down as `weekDates`/`weekLogs`). This is a fixed frame, not a trailing "last 7 days" window — the dot for a given weekday always sits in the same position regardless of what day it currently is. `StreakDots` has no day-letter labels at all, unlike the Analytics chart (see `analytics.md`) — deliberately a lighter-weight treatment since this strip repeats on every row — but the dot for whichever date is currently being viewed (`viewingDate` — `selectedDate` from the date nav, `today` when nothing's been navigated) still gets a small gold ring around it so it's identifiable without one. Browsing to a past date via the date nav moves this ring to that date's dot instead of leaving it on today's — e.g. viewing a Sunday highlights the first (leftmost) dot in the strip. `viewingDate` is deliberately a separate prop from `today`: which days are `pending` in the weekly-progress math (below) always stays anchored to the real date, never to whatever's being browsed. For timed items marked done, the row also shows the variance between `actualMinutes` and `projectedMinutes` (e.g. `+8m` in an "over" color, `-3m` in an "under" color).
 
 Note this is a different week convention than virtue rotation/weekly review, which is Monday-anchored (ISO week, see `lib/virtue-dates.ts`) — "this week" is Sunday-Saturday here specifically, by design.
 
@@ -51,7 +52,7 @@ Every `RoutineItem` carries `scheduledDays` (0=Sun..6=Sat, which days it's expec
 
 The shared math lives in `lib/routine-progress.ts`'s `computeWeeklyProgress` (imported by both `StreakDots` and the Analytics Habit Breakdown, see `analytics.md`, so the two never diverge). Each of the week's 7 days classifies into one of five states:
 
-- **`done`** — logged done that day (gold dot)
+- **`done`** — logged done that day (olive/green dot — progress toward the threshold)
 - **`rest`** — an intentional skip (blue-muted dot) — counts toward `successCount` exactly like `done`, never rendered as a fail state
 - **`missed`** — an explicit Missed tap, *or* a strictly-past scheduled day with no log at all (burgundy dot) — unlogged-past reads as missed for this calculation only; nothing is ever written to the database to represent it
 - **`pending`** — a scheduled day that's today (and not yet resolved) or later this week (hollow/dashed outline)

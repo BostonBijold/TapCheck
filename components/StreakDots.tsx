@@ -4,7 +4,13 @@ import { computeWeeklyProgress, type DayState } from "@/lib/routine-progress";
 interface Props {
   logs: Array<{ date: string; state: LogState }>;
   dates: string[]; // Sunday→Saturday, fixed calendar week (see lib/week-dates.ts)
-  today: string;   // YYYY-MM-DD — marks today's dot and what counts as "future"
+  today: string;   // YYYY-MM-DD, real — what counts as "future" for the weekly math
+  viewingDate: string; // YYYY-MM-DD — which dot gets the ring; the date the
+                        // user is currently browsing via DateNav, which may
+                        // differ from `today` when looking at a past day.
+                        // Deliberately kept separate from `today`: which
+                        // days are "pending" must stay anchored to the real
+                        // date regardless of what's being viewed.
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number; // unused by StreakDots' own rendering, but keeps
                              // the call signature symmetric with computeWeeklyProgress
@@ -18,14 +24,14 @@ function toLoggedState(state: LogState): "done" | "missed" | "rest" | undefined 
 }
 
 const DOT: Record<DayState, string> = {
-  done: "bg-gold",
+  done: "bg-olive",
   rest: "bg-blue-muted",
   missed: "bg-burgundy",
   pending: "border border-dim",
   not_scheduled: "bg-border/40",
 };
 
-export default function StreakDots({ logs, dates, today, scheduledDays, successThreshold }: Props) {
+export default function StreakDots({ logs, dates, today, viewingDate, scheduledDays, successThreshold }: Props) {
   const logsByDate = Object.fromEntries(
     logs.map((l) => [l.date, toLoggedState(l.state)])
   );
@@ -34,12 +40,12 @@ export default function StreakDots({ logs, dates, today, scheduledDays, successT
   return (
     <div className="flex items-center gap-[3px]">
       {days.map(({ date, state }) => {
-        const isToday = date === today;
+        const isViewing = date === viewingDate;
         return (
           <div
             key={date}
             className={`w-[5px] h-[5px] rounded-full flex-shrink-0 ${DOT[state]}`}
-            style={isToday ? { boxShadow: "0 0 0 1.5px #c4a84a" } : undefined}
+            style={isViewing ? { boxShadow: "0 0 0 1.5px #c4a84a" } : undefined}
           />
         );
       })}

@@ -12,7 +12,8 @@ interface Props {
   log?: RoutineLogEntry;
   weekLogs: Array<{ date: string; state: LogState }>;
   weekDates: string[]; // Sunday→Saturday, fixed calendar week
-  today: string; // YYYY-MM-DD — marks today's dot and what counts as "future" in StreakDots
+  today: string; // YYYY-MM-DD, real — what counts as "future" in StreakDots
+  selectedDate: string; // YYYY-MM-DD — the date being browsed; gets the StreakDots ring
   isBackEntry: boolean;
   onStartTimer: () => void;
   onStateChange: (state: LogState | null, opts?: { actualMinutes?: number; isBackEntry?: boolean }) => void;
@@ -26,7 +27,7 @@ function fmtMins(mins: number) {
 }
 
 export default function HabitItemCard({
-  item, log, weekLogs, weekDates, today, isBackEntry,
+  item, log, weekLogs, weekDates, today, selectedDate, isBackEntry,
   onStartTimer, onStateChange,
 }: Props) {
   const state = log?.state ?? null;
@@ -59,6 +60,7 @@ export default function HabitItemCard({
               logs={weekLogs}
               dates={weekDates}
               today={today}
+              viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
             />
@@ -109,6 +111,7 @@ export default function HabitItemCard({
               logs={weekLogs}
               dates={weekDates}
               today={today}
+              viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
             />
@@ -143,6 +146,7 @@ export default function HabitItemCard({
               logs={weekLogs}
               dates={weekDates}
               today={today}
+              viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
             />
@@ -177,6 +181,7 @@ export default function HabitItemCard({
               logs={weekLogs}
               dates={weekDates}
               today={today}
+              viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
             />

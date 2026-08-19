@@ -26,7 +26,7 @@ Response: array of
   logId: string | null, // the RoutineLog _id, if one exists
 }
 ```
-Note `done` collapses `"missed"`, `"rest"`, and `"in_progress"` all down to `false` — this endpoint has no way to represent those states, which is why `FABHabitSheet` only ever offers a one-way "mark done" action.
+Note `done` collapses `"missed"`, `"rest"`, `"in_progress"`, and `"paused"` all down to `false` — this endpoint has no way to represent those states, which is why `FABHabitSheet` only ever offers a one-way "mark done" action.
 
 ## `GET /api/habit-templates?groupId=…`
 

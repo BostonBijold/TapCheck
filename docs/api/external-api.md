@@ -23,7 +23,7 @@ Displayed on the Profile page (`components/ProfileView.tsx`) with a copy-to-clip
 
 ## `POST /api/external/start-timer`
 
-Starts a timer exactly like the in-app standalone "Start Timer" action, by delegating to the same `startInProgressLog` helper described in [routines-api.md](routines-api.md#routine-logs) — the single-active-timer invariant (auto-completing whatever else was running) applies identically here, not as a separate reimplementation.
+Starts a timer exactly like the in-app standalone "Start Timer" action, by delegating to the same `startInProgressLog` helper described in [routines-api.md](routines-api.md#routine-logs) — the single-active-timer invariant (auto-**completing** whatever else was running, not pausing it — that softer behavior is specific to navigating inside an already-open `RoutineSession`, see below) applies identically here, not as a separate reimplementation. If this same item was left `paused` by an in-app session earlier, starting it here resumes it — its banked `pausedSeconds` carry forward rather than resetting to zero.
 
 Params (accepted via JSON body or query string, body takes precedence when both are present):
 
@@ -41,11 +41,13 @@ Effect:
 - **`routineItemId` only** — starts that item's timer, `sessionGroupId: null`. Identical outcome to tapping "Start Timer" in the app.
 - **`routineItemId` + `routineGroupId`** — same timer start, plus `sessionGroupId` is set on the log. The next time the app is opened (or the FAB's resume indicator is tapped — see [timer.md](../features/timer.md)), `RoutinesView.openInProgressTimer` sees the `sessionGroupId`, resolves the group and the item's index within it, and opens `RoutineSession` directly at that item — mid-timer — instead of the plain Routines home or the standalone timer screen.
 
-Response: `{ ok: true, log: <serialized RoutineLog> }` (same `serializeLog` shape used throughout routines-api.md, including `sessionGroupId`).
+Response: `{ ok: true, log: <serialized RoutineLog> }` (same `serializeLog` shape used throughout routines-api.md, including `sessionGroupId` and `pausedSeconds`).
 
-### Skip logic inside a resumed session
+### Interaction with a resumed session's own navigation
 
-Once inside a session opened this way, tapping the session's own "next" action (Done/Missed/Rest, via `RoutineSession.advance()`) re-fetches the day's logs from the server and skips forward past any item that already has *any* log for today — done, missed, rest, or in-progress-then-superseded — regardless of whether that log came from this session, a manual tap elsewhere in the app, or another external call made while the session was open. This is a live server check on every advance, not a snapshot taken when the session opened, specifically so a concurrent external trigger for a different item in the same group is picked up correctly.
+Once inside a session opened this way, moving between items *inside that session* (advancing via Done/Missed/Rest, or tapping another row to jump) no longer goes through this endpoint's sweep-to-done behavior — it uses `switchActiveLog` instead (see [timer.md](../features/timer.md#single-active-timer-pause-instead-of-complete-or-run-concurrently)), which **pauses** whatever was running rather than completing it. Only a genuinely external event completes something out from under the session: if a *second* call to this endpoint starts a different item (with or without `routineGroupId`) while the session is open, that still goes through `startInProgressLog`'s full sweep and auto-completes whatever the session currently has active — the session's foreground-revalidation effect (timer.md) detects this and adopts the real server result rather than fighting it. An item the session itself navigated away from, with no external call involved, is only ever `paused`, not completed, and stays resumable — either by jumping back to it in the same session, or by hitting this endpoint again for that exact `routineItemId`.
+
+`RoutineSession.advance()` re-fetches the day's logs from the server on every step and only treats `done`/`missed`/`rest` as "handled" — an `in_progress` or `paused` item (from any source) becomes current instead of being skipped, and the search wraps back to the start of the item list rather than ending the session just because it reached the end, so a paused or never-visited item is never silently left behind. This is a live server check every time, not a snapshot taken when the session opened, specifically so a concurrent external trigger for a different item in the same group is picked up correctly.
 
 ## Consumed by
 
