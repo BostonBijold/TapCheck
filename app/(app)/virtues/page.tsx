@@ -6,6 +6,8 @@ import VirtueModel from "@/models/Virtue";
 import VirtueCheckIn from "@/models/VirtueCheckIn";
 import User from "@/models/User";
 import { currentVirtueOrder } from "@/lib/seed-virtues";
+import { resolveSelectedPhilosophyId } from "@/lib/philosophy";
+import { isAdmin as checkIsAdmin } from "@/lib/admin";
 import ReviewView from "@/components/ReviewView";
 
 export const dynamic = "force-dynamic";
@@ -28,10 +30,19 @@ export default async function VirtuesPage({
 
   await connectDB();
 
-  const virtueOrder = currentVirtueOrder(new Date());
+  const philosophyId = await resolveSelectedPhilosophyId(userId);
+  const virtueCount = philosophyId
+    ? await VirtueModel.countDocuments({ philosophyId, isActive: true })
+    : 0;
 
   const [virtueDoc, checkinItem, weeklyReviewItem, todayCheckIn, userDoc] = await Promise.all([
-    VirtueModel.findOne({ order: virtueOrder, isActive: true }).lean(),
+    philosophyId
+      ? VirtueModel.findOne({
+          philosophyId,
+          order: currentVirtueOrder(new Date(), virtueCount),
+          isActive: true,
+        }).lean()
+      : null,
     RoutineItem.findOne({ userId, itemType: "virtue_checkin" }).lean(),
     RoutineItem.findOne({ userId, itemType: "weekly_review" }).lean(),
     VirtueCheckIn.findOne({ userId, date: today }).lean(),
@@ -64,6 +75,8 @@ export default async function VirtuesPage({
       today={today}
       skipAuth={skipAuth ?? false}
       currentVirtue={currentVirtue}
+      virtueCount={virtueCount}
+      currentPhilosophyId={philosophyId}
       checkinItemId={checkinItem ? checkinItem._id.toString() : null}
       weeklyReviewItemId={weeklyReviewItem ? weeklyReviewItem._id.toString() : null}
       initialMode={mode}
@@ -71,6 +84,8 @@ export default async function VirtuesPage({
       returnTo={searchParams?.return ?? null}
       hasCheckedInToday={!!todayCheckIn}
       virtueWalkthroughSeen={virtueWalkthroughSeen}
+      needsPhilosophy={!philosophyId}
+      isAdmin={checkIsAdmin(session?.user?.email) || skipAuth}
     />
   );
 }

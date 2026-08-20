@@ -18,10 +18,11 @@ interface Virtue {
 interface Props {
   virtue: Virtue;
   isAdmin: boolean;
-  thisWeekOrder: number;
+  isCurrent: boolean;
+  virtueCount: number;
 }
 
-export default function VirtueDetailView({ virtue: initial, isAdmin, thisWeekOrder }: Props) {
+export default function VirtueDetailView({ virtue: initial, isAdmin, isCurrent, virtueCount }: Props) {
   const router = useRouter();
   const [virtue, setVirtue] = useState(initial);
 
@@ -36,8 +37,6 @@ export default function VirtueDetailView({ virtue: initial, isAdmin, thisWeekOrd
   const [etymDraft, setEtymDraft] = useState(virtue.etymology);
   const [savingEtym, setSavingEtym] = useState(false);
   const etymRef = useRef<HTMLTextAreaElement>(null);
-
-  const isCurrent = virtue.order === thisWeekOrder;
 
   // Auto-resize textarea
   function autoResize(el: HTMLTextAreaElement | null) {
@@ -125,7 +124,7 @@ export default function VirtueDetailView({ virtue: initial, isAdmin, thisWeekOrd
         <div className="pt-4 pb-8">
           <div className="flex items-start gap-3 mb-2">
             <span className="font-mono text-[10px] text-dim mt-1">
-              {String(virtue.order).padStart(2, "0")} / 12
+              {String(virtue.order).padStart(2, "0")} / {virtueCount}
             </span>
             {isCurrent && (
               <span className="font-mono text-[9px] text-gold bg-gold/10 border border-gold/30 px-2 py-0.5 rounded-pill">

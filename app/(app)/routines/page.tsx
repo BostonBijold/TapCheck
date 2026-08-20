@@ -8,11 +8,11 @@ import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import VirtueModel from "@/models/Virtue";
 import { seedDefaultRoutines, ensureAfternoonGroup, ensureHabitsGroup, ensureVirtueCheckInItems } from "@/lib/seed";
 import { currentVirtueOrder } from "@/lib/seed-virtues";
+import { resolveSelectedPhilosophyId } from "@/lib/philosophy";
 import { calendarWeekDates } from "@/lib/week-dates";
+import { isAdmin as checkIsAdmin } from "@/lib/admin";
 import RoutinesView from "@/components/RoutinesView";
 import type { LogState } from "@/models/RoutineLog";
-
-const ADMIN_EMAIL = "bostonrbijold@gmail.com";
 
 export const dynamic = "force-dynamic";
 
@@ -56,9 +56,17 @@ export default async function RoutinesPage({
     { $set: { startTime: "12:00" } }
   );
 
-  // Current virtue
-  const virtueOrder = currentVirtueOrder(new Date());
-  const virtueDoc = await VirtueModel.findOne({ order: virtueOrder, isActive: true }).lean();
+  // Current virtue — scoped to whichever philosophy the user has selected.
+  // No selection yet → no virtue banner (marketplace lives on the Virtues
+  // page, not here).
+  const philosophyId = await resolveSelectedPhilosophyId(userId);
+  let virtueCount = 0;
+  let virtueDoc = null;
+  if (philosophyId) {
+    virtueCount = await VirtueModel.countDocuments({ philosophyId, isActive: true });
+    const virtueOrder = currentVirtueOrder(new Date(), virtueCount);
+    virtueDoc = await VirtueModel.findOne({ philosophyId, order: virtueOrder, isActive: true }).lean();
+  }
   const currentVirtue = virtueDoc
     ? {
         _id: virtueDoc._id.toString(),
@@ -69,10 +77,11 @@ export default async function RoutinesPage({
         order: virtueDoc.order,
         essay: virtueDoc.essay ?? "",
         etymology: virtueDoc.etymology ?? "",
+        virtueCount,
       }
     : null;
 
-  const isAdmin = skipAuth || session?.user?.email === ADMIN_EMAIL;
+  const isAdmin = skipAuth || checkIsAdmin(session?.user?.email);
 
   // Always trust the client-supplied date (local timezone).
   // Never fall back to server UTC — the server doesn't know the user's timezone.

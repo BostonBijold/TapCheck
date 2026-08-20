@@ -10,9 +10,10 @@
 |---|---|
 | `app/` | Next.js App Router: pages/layouts under `app/(app)/` and the top-level routes, plus every API route handler under `app/api/**/route.ts`. |
 | `components/` | Shared React client components — page-level views (`RoutinesView.tsx`, `GoalsView.tsx`, …), bottom-sheet/modal flows (`AddHabitSheet.tsx`, `FABTaskSheet.tsx`, …), and smaller presentational pieces (`HabitIcon.tsx`, `StreakDots.tsx`, …). |
-| `lib/` | DB connection utilities (`mongoose.ts`, `mongodb-client.ts`), auth config (`auth.ts`, `auth.config.ts`), idempotent seed/bootstrap logic (`seed.ts`, `seed-templates.ts`, `seed-virtues.ts`), and small shared helpers (`routine-visibility.ts` — despite the name, just one hardcoded rule, not a general recurrence system, see routines.md — `routine-progress.ts`, `week-dates.ts`, `useTodoActions.ts`, `virtue-dates.ts`). |
-| `models/` | Mongoose schema/model definitions, one per MongoDB collection (`Goal.ts`, `HabitTemplate.ts`, `RoutineGroup.ts`, `RoutineItem.ts`, `RoutineLog.ts`, `Todo.ts`, `User.ts`, `Virtue.ts`, `VirtueCheckIn.ts`). |
+| `lib/` | DB connection utilities (`mongoose.ts`, `mongodb-client.ts`), auth config (`auth.ts`, `auth.config.ts`), idempotent seed/bootstrap logic (`seed.ts`, `seed-templates.ts`, `seed-virtues.ts`), and small shared helpers (`routine-visibility.ts` — despite the name, just one hardcoded rule, not a general recurrence system, see routines.md — `routine-progress.ts`, `week-dates.ts`, `useTodoActions.ts`, `virtue-dates.ts`, `philosophy.ts` — resolves a user's selected `Philosophy`, works for `dev-local-user` too, see virtues.md — `admin.ts` — shared `isAdmin(email)` check). |
+| `models/` | Mongoose schema/model definitions, one per MongoDB collection (`Goal.ts`, `HabitTemplate.ts`, `Philosophy.ts`, `RoutineGroup.ts`, `RoutineItem.ts`, `RoutineLog.ts`, `Todo.ts`, `User.ts`, `Virtue.ts`, `VirtueCheckIn.ts`). |
 | `public/` | Static assets served at the web root — app icons, the PWA `manifest.json`, and the service worker `sw.js`. |
+| `scripts/` | One-off, manually-run migration scripts — not wired into app boot. Currently `migrate-philosophies.mjs` (see virtues.md). |
 | `types/` | Shared/ambient TypeScript declarations (currently `next-auth.d.ts`, extending the NextAuth session/user types). |
 
 ### `app/` subfolders
@@ -32,8 +33,9 @@
 | [`features/habits.md`](features/habits.md) | The standalone (never-collapsing) Habits group, quick-log flow, the habit-template catalog, and where a habit item's schedule/threshold gets edited. |
 | [`features/timer.md`](features/timer.md) | Both timer UIs (single-habit and sequential-session), how elapsed time is tracked, the drag-to-set-time ring gesture, the pause/resume-on-jump single-active-timer model, and the resume-on-reload behavior. |
 | [`features/analytics.md`](features/analytics.md) | The 7-day fixed-calendar-week / 30-day rolling dashboard, `/api/analytics`'s aggregation, the schedule-aware Habit Breakdown (segmented bar + pacing verdict), and the pending/today rendering in its charts. |
-
-*More feature docs (todos, goals, virtues) will be added over time following this same structure.*
+| [`features/goals.md`](features/goals.md) | Goals, milestones, and tasks; the lowest-unit-wins progress rule; why habit-goal linking and outcome logging are schema-only today; the goal-task/standalone-todo split. |
+| [`features/todos.md`](features/todos.md) | The standalone `Todo` list — no separate API doc, folded in here — overdue carry-forward on the Routines page vs. the future-only backlog on the Goals page, and the shared `FABTaskSheet` creation flow. |
+| [`features/virtues.md`](features/virtues.md) | The 4th nav tab: admin-created `Philosophy` virtue sets and the selection marketplace, the per-philosophy weekly rotation (Monday-anchored, purely date-computed), the daily check-in, the Sunday weekly review, the admin virtue/philosophy management sheet, and the `/review` redirect shim. |
 
 ## API Docs
 
@@ -42,8 +44,10 @@
 | [`api/routines-api.md`](api/routines-api.md) | Routine groups, routine items (including the `scheduledDays`/`successThreshold` schedule model), and routine logs (including the `paused` state and `pausedSeconds`) — `/api/routines*`, `/api/routine-items*`, `/api/routine-logs`. |
 | [`api/habits-api.md`](api/habits-api.md) | The habits list and the habit-template catalog — `/api/habits`, `/api/habit-templates`. |
 | [`api/external-api.md`](api/external-api.md) | API-key-authenticated (no session) endpoint for triggering a timer from outside the app, e.g. an iPhone Shortcut — `/api/external/start-timer`, `/api/user/api-key`. |
+| [`api/goals-api.md`](api/goals-api.md) | Goals, milestones, and tasks — `/api/goals*`, including the `quick-task` shortcut. |
+| [`api/virtues-api.md`](api/virtues-api.md) | Philosophies (virtue sets), the virtue reference collection, daily check-ins, and philosophy selection — `/api/philosophies*`, `/api/virtues*`, `/api/virtue-checkins`, `/api/user/profile`. |
 
-*More API docs will be added as their corresponding feature docs are written.*
+Todos has no separate API doc — its small surface (`/api/todos*`) is documented inline in [`features/todos.md`](features/todos.md), the same way `/api/analytics` is folded into `features/analytics.md` rather than split out.
 
 ## Secrets Policy
 

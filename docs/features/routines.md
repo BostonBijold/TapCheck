@@ -68,7 +68,7 @@ A `done` day is also colored by how close `actualMinutes` came to the item's tar
 
 **Red is reserved exclusively for `missed`** — no other day state, solid or hollow, ever renders red. Overtime, no matter how extreme, stays amber; severity within "overtime" is deliberately not surfaced as a separate color.
 
-Only applies to `standard` (countdown) items, which are the only ones with a real time target — `checkbox` and `stopwatch` items always render `done` as green, since there's nothing to be "over" against. Red here means "done, but way over time" — a solid fill, structurally different from `missed`'s hollow red outline, so the two never get confused for each other even though they're both "red."
+Only applies to `standard` (countdown) items, which are the only ones with a real time target — `checkbox` and `stopwatch` items always render `done` as green, since there's nothing to be "over" against.
 
 The resulting percentage (`successCount / successThreshold * 100`) is **uncapped** — hitting the threshold with days to spare stays a win past 100%, it doesn't clamp back down. A three-state, non-gradient **pacing** verdict — `green` (threshold already reached), `red` (mathematically out of reach even with a perfect rest of the week: `successCount + remainingScheduled < successThreshold`), `amber` (still achievable, everything else) — drives the Analytics Habit Breakdown's bar/badge (`StreakDots` itself doesn't surface pacing, only the per-day dots).
 

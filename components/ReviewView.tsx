@@ -7,6 +7,7 @@ import Header from "@/components/Header";
 import VirtueCheckInModal from "@/components/VirtueCheckInModal";
 import WeeklyReviewModal from "@/components/WeeklyReviewModal";
 import VirtuesHowItWorks from "@/components/VirtuesHowItWorks";
+import PhilosophyManageSheet, { PhilosophyMarketplaceInline } from "@/components/PhilosophyManageSheet";
 
 interface VirtueRow {
   virtueId: string;
@@ -44,6 +45,8 @@ interface Props {
   today: string;
   skipAuth: boolean;
   currentVirtue: CurrentVirtue | null;
+  virtueCount: number;
+  currentPhilosophyId: string | null;
   checkinItemId: string | null;
   weeklyReviewItemId: string | null;
   initialMode: "checkin" | "weekly" | null;
@@ -51,6 +54,8 @@ interface Props {
   returnTo: string | null;
   hasCheckedInToday: boolean;
   virtueWalkthroughSeen: boolean;
+  needsPhilosophy: boolean;
+  isAdmin: boolean;
 }
 
 function fmtDateRange(dates: string[]) {
@@ -62,9 +67,9 @@ function fmtDateRange(dates: string[]) {
 
 export default function ReviewView({
   userName, today, skipAuth,
-  currentVirtue, checkinItemId, weeklyReviewItemId,
+  currentVirtue, virtueCount, currentPhilosophyId, checkinItemId, weeklyReviewItemId,
   initialMode, initialDate, returnTo, hasCheckedInToday,
-  virtueWalkthroughSeen,
+  virtueWalkthroughSeen, needsPhilosophy, isAdmin,
 }: Props) {
   const router = useRouter();
   const [days, setDays] = useState<7 | 30>(7);
@@ -72,6 +77,7 @@ export default function ReviewView({
   const [loading, setLoading] = useState(true);
   const [mode, setMode] = useState<"history" | "checkin" | "weekly">(initialMode ?? "history");
   const [checkedInToday, setCheckedInToday] = useState(hasCheckedInToday);
+  const [manageOpen, setManageOpen] = useState(false);
 
   const activeDate = initialDate ?? today;
   const isSunday = new Date(today + "T12:00:00").getDay() === 0;
@@ -86,7 +92,17 @@ export default function ReviewView({
       });
   }, [today]);
 
-  useEffect(() => { loadSummary(days); }, [days, loadSummary]);
+  // The fetch above is scoped server-side to whichever philosophy is
+  // currently selected — router.refresh() (from switching philosophies)
+  // re-renders this component with fresh props but doesn't remount it, so
+  // currentPhilosophyId has to be an explicit dependency here or the old
+  // philosophy's summary (and virtue count) would just stick around.
+  useEffect(() => { loadSummary(days); }, [days, loadSummary, currentPhilosophyId]);
+
+  // Same staleness issue for the "already checked in today" flag — it's
+  // seeded once from the hasCheckedInToday prop via useState, which won't
+  // pick up the freshly-resolved value a philosophy switch sends down.
+  useEffect(() => { setCheckedInToday(hasCheckedInToday); }, [hasCheckedInToday]);
 
   const markDone = useCallback(
     async (itemId: string | null, date: string, actualMinutes: number) => {
@@ -107,6 +123,16 @@ export default function ReviewView({
     else router.replace("/virtues");
   }, [returnTo, router, loadSummary, days]);
 
+  const selectPhilosophy = useCallback(async (philosophyId: string) => {
+    await fetch("/api/user/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ selectedPhilosophyId: philosophyId }),
+    });
+    setManageOpen(false);
+    router.refresh();
+  }, [router]);
+
   return (
     <div className="min-h-dvh bg-bg">
       {mode === "checkin" && (
@@ -126,6 +152,7 @@ export default function ReviewView({
         <WeeklyReviewModal
           date={activeDate}
           currentVirtue={currentVirtue}
+          virtueCount={virtueCount}
           onDone={async (mins) => {
             await markDone(weeklyReviewItemId, activeDate, mins);
             exitFlow();
@@ -134,27 +161,62 @@ export default function ReviewView({
         />
       )}
 
+      {manageOpen && (
+        <PhilosophyManageSheet
+          isAdmin={isAdmin}
+          currentPhilosophyId={currentPhilosophyId}
+          onSelect={selectPhilosophy}
+          onClose={() => setManageOpen(false)}
+        />
+      )}
+
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
         {/* This week's virtue — same focus banner as Routines */}
         {currentVirtue && (
-          <Link
-            href={`/virtues/${currentVirtue.slug}`}
-            className="w-full text-left bg-card border border-gold/25 rounded-card px-4 py-3 mt-6 mb-4 hover:bg-card-hover active:opacity-90 transition-colors flex items-center gap-3"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="font-mono text-[9px] uppercase tracking-widest text-gold mb-0.5">
-                This Week&apos;s Virtue
-              </p>
-              <p className="font-heading text-base italic text-text leading-tight truncate">
-                {currentVirtue.displayName}
-              </p>
-            </div>
-            <span className="text-gold/60 text-sm flex-shrink-0">›</span>
-          </Link>
+          <div className="flex items-center gap-2 mt-6 mb-4">
+            <Link
+              href={`/virtues/${currentVirtue.slug}`}
+              className="flex-1 min-w-0 text-left bg-card border border-gold/25 rounded-card px-4 py-3 hover:bg-card-hover active:opacity-90 transition-colors flex items-center gap-3"
+            >
+              <div className="flex-1 min-w-0">
+                <p className="font-mono text-[9px] uppercase tracking-widest text-gold mb-0.5">
+                  This Week&apos;s Virtue
+                </p>
+                <p className="font-heading text-base italic text-text leading-tight truncate">
+                  {currentVirtue.displayName}
+                </p>
+              </div>
+              <span className="text-gold/60 text-sm flex-shrink-0">›</span>
+            </Link>
+            <button
+              onClick={() => setManageOpen(true)}
+              className="font-mono text-[10px] text-dim hover:text-text px-3 py-3 rounded-card border border-border flex-shrink-0"
+            >
+              Manage
+            </button>
+          </div>
+        )}
+        {!currentVirtue && !needsPhilosophy && (
+          <div className="flex justify-end mt-6 mb-4">
+            <button
+              onClick={() => setManageOpen(true)}
+              className="font-mono text-[10px] text-dim hover:text-text px-3 py-2 rounded-card border border-border"
+            >
+              Manage
+            </button>
+          </div>
         )}
 
+        {needsPhilosophy ? (
+          <PhilosophyMarketplaceInline
+            isAdmin={isAdmin}
+            currentPhilosophyId={currentPhilosophyId}
+            onSelect={selectPhilosophy}
+          />
+        ) : (
+        <>
         {/* Page title */}
         <div className="mb-4">
           <div className="flex items-center justify-between">
@@ -286,6 +348,8 @@ export default function ReviewView({
               ))}
             </div>
           </>
+        )}
+        </>
         )}
       </div>
     </div>

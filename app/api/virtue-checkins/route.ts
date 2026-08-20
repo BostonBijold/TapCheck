@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import VirtueCheckIn from "@/models/VirtueCheckIn";
 import VirtueModel from "@/models/Virtue";
 import { weekStartDate } from "@/lib/seed-virtues";
+import { resolveSelectedPhilosophyId } from "@/lib/philosophy";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +39,32 @@ export async function GET(req: NextRequest) {
   const weekStart = searchParams.get("weekStart");
   const daysParam = searchParams.get("days");
 
+  // Every mode is scoped to the caller's currently-selected philosophy, so
+  // switching philosophies never mixes one philosophy's history into
+  // another's summary. Resolved server-side, never a client-sent param.
+  const philosophyId = await resolveSelectedPhilosophyId(userId);
+  if (!philosophyId) {
+    // No philosophy selected — nothing to report yet.
+    if (date) return NextResponse.json(null);
+    if (weekStart) return NextResponse.json([]);
+    if (daysParam) {
+      const days = Math.min(30, Math.max(7, parseInt(daysParam) || 7));
+      const localDate = searchParams.get("localDate") ?? new Date().toISOString().split("T")[0];
+      return NextResponse.json({
+        days, dates: getDates(days, localDate), checkInDays: 0, overallPct: 0,
+        strongest: null, needsWork: null, virtues: [],
+      });
+    }
+    return NextResponse.json({ error: "Missing query param" }, { status: 400 });
+  }
+
   if (date) {
-    const doc = await VirtueCheckIn.findOne({ userId, date }).lean();
+    const doc = await VirtueCheckIn.findOne({ userId, date, philosophyId }).lean();
     return NextResponse.json(doc ?? null);
   }
 
   if (weekStart) {
-    const docs = await VirtueCheckIn.find({ userId, weekStartDate: weekStart })
+    const docs = await VirtueCheckIn.find({ userId, weekStartDate: weekStart, philosophyId })
       .sort({ date: 1 })
       .lean();
     return NextResponse.json(docs);
@@ -56,11 +76,11 @@ export async function GET(req: NextRequest) {
     const localDate = searchParams.get("localDate") ?? new Date().toISOString().split("T")[0];
     const dates = getDates(days, localDate);
 
-    const docs = await VirtueCheckIn.find({ userId, date: { $in: dates } }).lean();
+    const docs = await VirtueCheckIn.find({ userId, date: { $in: dates }, philosophyId }).lean();
     const byDate: Record<string, (typeof docs)[0]> = {};
     for (const d of docs) byDate[d.date] = d;
 
-    const virtues = await VirtueModel.find({ isActive: true }).sort({ order: 1 }).lean();
+    const virtues = await VirtueModel.find({ philosophyId, isActive: true }).sort({ order: 1 }).lean();
 
     const virtueRows = virtues.map((v) => {
       const vId = v._id.toString();
@@ -126,6 +146,14 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
+  // Defense-in-depth — the UI shouldn't be able to reach this state (the
+  // marketplace replaces the check-in flow until a philosophy is picked),
+  // but the route shouldn't trust that.
+  const philosophyId = await resolveSelectedPhilosophyId(userId);
+  if (!philosophyId) {
+    return NextResponse.json({ error: "No philosophy selected" }, { status: 400 });
+  }
+
   const ws = weekStartDate(new Date(body.date + "T12:00:00"));
 
   const doc = await VirtueCheckIn.findOneAndUpdate(
@@ -133,6 +161,7 @@ export async function POST(req: NextRequest) {
     {
       $set: {
         weekStartDate: ws,
+        philosophyId,
         answers: body.answers,
       },
     },

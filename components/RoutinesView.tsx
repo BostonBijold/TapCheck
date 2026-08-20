@@ -553,7 +553,6 @@ export default function RoutinesView({
         <VirtueSheet
           virtue={virtue}
           isAdmin={isAdmin}
-          thisWeekOrder={virtue.order}
           onClose={() => setVirtueOpen(false)}
           onEssayChange={(essay) => setVirtue((v) => v ? { ...v, essay } : v)}
         />

@@ -15,11 +15,12 @@ interface Score {
 interface Props {
   date: string; // selectedDate (must be Sunday)
   currentVirtue: { name: string; displayName: string; order: number } | null;
+  virtueCount: number;
   onDone: (actualMinutes: number) => void;
   onClose: () => void;
 }
 
-export default function WeeklyReviewModal({ date, currentVirtue, onDone, onClose }: Props) {
+export default function WeeklyReviewModal({ date, currentVirtue, virtueCount, onDone, onClose }: Props) {
   const [scores, setScores] = useState<Score[]>([]);
   const [checkInDays, setCheckInDays] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -28,7 +29,7 @@ export default function WeeklyReviewModal({ date, currentVirtue, onDone, onClose
 
   // Next week's virtue
   const nextWeekNum = isoWeekNumber(new Date(date + "T12:00:00")) + 1;
-  const nextVirtueOrder = ((nextWeekNum - 1) % 13) + 1;
+  const nextVirtueOrder = virtueCount > 0 ? ((nextWeekNum - 1) % virtueCount) + 1 : 1;
 
   useEffect(() => {
     fetch(`/api/virtue-checkins?weekStart=${ws}`)

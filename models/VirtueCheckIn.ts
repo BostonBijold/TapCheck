@@ -8,6 +8,9 @@ export interface IVirtueAnswer {
 
 export interface IVirtueCheckIn extends Document {
   userId: string;
+  philosophyId: mongoose.Types.ObjectId; // the user's selected philosophy at write
+                                          // time — stamped server-side, never
+                                          // retroactively changed if they later switch
   date: string;           // YYYY-MM-DD
   weekStartDate: string;  // YYYY-MM-DD (Monday of that week)
   answers: IVirtueAnswer[];
@@ -17,6 +20,7 @@ export interface IVirtueCheckIn extends Document {
 const VirtueCheckInSchema = new Schema<IVirtueCheckIn>(
   {
     userId: { type: String, required: true, index: true },
+    philosophyId: { type: Schema.Types.ObjectId, ref: "Philosophy", required: true },
     date: { type: String, required: true },
     weekStartDate: { type: String, required: true, index: true },
     answers: [

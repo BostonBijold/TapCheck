@@ -12,12 +12,12 @@ export interface VirtueData {
   order: number;
   essay: string;
   etymology: string;
+  virtueCount: number;
 }
 
 interface Props {
   virtue: VirtueData;
   isAdmin: boolean;
-  thisWeekOrder: number;
   onClose: () => void;
   onEssayChange: (essay: string) => void;
 }
@@ -87,7 +87,7 @@ export default function VirtueSheet({ virtue, isAdmin, onClose, onEssayChange }:
           {/* Virtue name */}
           <div className="mb-1">
             <span className="font-mono text-[10px] text-gold uppercase tracking-widest">
-              Week {virtue.order} of 13
+              Week {virtue.order} of {virtue.virtueCount}
             </span>
           </div>
           <h2 className="font-heading text-2xl italic text-text leading-tight mb-2">

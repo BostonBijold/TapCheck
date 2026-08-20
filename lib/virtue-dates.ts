@@ -27,7 +27,13 @@ export function weekStartDate(date: Date = new Date()): string {
   return d.toISOString().split("T")[0];
 }
 
-// Returns the virtue order (1-13) for the given date
-export function currentVirtueOrder(date: Date = new Date()): number {
-  return ((isoWeekNumber(date) - 1) % 13) + 1;
+// Returns the virtue order (1..virtueCount) for the given date, within
+// whichever philosophy virtueCount belongs to. Fully stateless — nothing in
+// the database tracks "which week we're on"; every call recomputes fresh
+// from the calendar date and the caller-supplied count. Switching
+// philosophies mid-cycle just means the next call passes a different count;
+// no special-casing needed.
+export function currentVirtueOrder(date: Date, virtueCount: number): number {
+  if (virtueCount <= 0) return 1;
+  return ((isoWeekNumber(date) - 1) % virtueCount) + 1;
 }
