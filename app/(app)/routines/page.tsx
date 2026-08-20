@@ -147,6 +147,7 @@ export default async function RoutinesPage({
     routineItemId: l.routineItemId.toString(),
     date: l.date,
     state: l.state as "done" | "missed" | "rest",
+    actualMinutes: l.actualMinutes ?? null,
   }));
 
   // Today's standalone to-dos, plus any earlier undone ones carried forward as overdue

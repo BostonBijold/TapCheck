@@ -10,7 +10,7 @@ import type { LogState } from "@/models/RoutineLog";
 interface Props {
   item: RowItem;
   log?: RoutineLogEntry;
-  weekLogs: Array<{ date: string; state: LogState }>;
+  weekLogs: Array<{ date: string; state: LogState; actualMinutes: number | null }>;
   weekDates: string[]; // Sunday→Saturday, fixed calendar week
   today: string; // YYYY-MM-DD, real — what counts as "future" in StreakDots
   selectedDate: string; // YYYY-MM-DD — the date being browsed; gets the StreakDots ring
@@ -63,6 +63,7 @@ export default function HabitItemCard({
               viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
+              targetMinutes={isTimed ? item.projectedMinutes : null}
             />
             </div>
           </div>
@@ -114,6 +115,7 @@ export default function HabitItemCard({
               viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
+              targetMinutes={isTimed ? item.projectedMinutes : null}
             />
             </div>
           </div>
@@ -149,6 +151,7 @@ export default function HabitItemCard({
               viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
+              targetMinutes={isTimed ? item.projectedMinutes : null}
             />
             </div>
           </div>
@@ -184,6 +187,7 @@ export default function HabitItemCard({
               viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
+              targetMinutes={isTimed ? item.projectedMinutes : null}
             />
           </div>
         </div>

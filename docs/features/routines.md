@@ -50,13 +50,25 @@ Note this is a different week convention than virtue rotation/weekly review, whi
 
 Every `RoutineItem` carries `scheduledDays` (0=Sun..6=Sat, which days it's expected — default every day) and `successThreshold` (how many of this week's *scheduled* days need to be `done`/`rest` to read as 100%, default = the number of scheduled days). Both are set/edited via the schedule row and threshold input in the item's inline edit form (`components/RoutineEditView.tsx`'s `SortableRow`, reached through "⚙ Manage" — see "Reordering & editing groups" below) or at creation time in `AddHabitSheet`'s custom-habit form. **This is purely a weekly-analytics/streak concept** — it never hides an item from the Today view on a non-scheduled day, and never changes whether a `RoutineGroupCard` reads as complete for the day; an item still shows and still needs an explicit Done/Missed/Rest every day regardless of its schedule.
 
-The shared math lives in `lib/routine-progress.ts`'s `computeWeeklyProgress` (imported by both `StreakDots` and the Analytics Habit Breakdown, see `analytics.md`, so the two never diverge). Each of the week's 7 days classifies into one of five states:
+The shared math lives in `lib/routine-progress.ts`'s `computeWeeklyProgress` (imported by both `StreakDots` and the Analytics Habit Breakdown, see `analytics.md`, so the two never diverge). Each of the week's 7 days classifies into one of six states — the first two are solid fills ("something happened"), the rest are hollow, no-fill outlines distinguished by border color/style ("needs a look"), deliberately so a close-but-different fill color is never the only thing telling two states apart:
 
-- **`done`** — logged done that day (olive/green dot — progress toward the threshold)
-- **`rest`** — an intentional skip (blue-muted dot) — counts toward `successCount` exactly like `done`, never rendered as a fail state
-- **`missed`** — an explicit Missed tap, *or* a strictly-past scheduled day with no log at all (burgundy dot) — unlogged-past reads as missed for this calculation only; nothing is ever written to the database to represent it
-- **`pending`** — a scheduled day that's today (and not yet resolved) or later this week (hollow/dashed outline)
-- **`not_scheduled`** — a day outside `scheduledDays` entirely (dim, flatter fill than `pending`) — excluded from every count above; a log that happens to exist on a non-scheduled day (e.g. logged anyway) is invisible to this math, not a bonus
+- **`done`** — logged done that day (solid fill); counts toward `successCount` regardless of how the color reads — going over time is still a win against the threshold, it just renders differently, see "Timing color" below
+- **`rest`** — an intentional skip (solid blue-muted fill) — counts toward `successCount` exactly like `done`, never rendered as a fail state
+- **`missed`** — an explicit Missed tap (hollow, solid red/burgundy-light border, ✕ mark where there's room) — deliberately distinct from `unlogged` below even though both are equally "not a success" for the math
+- **`unlogged`** — a strictly-past scheduled day with no log at all (hollow, solid grey/dim border, no mark) — a read-time interpretation only, nothing is ever written to the database to represent it
+- **`pending`** — a scheduled day that's today (and not yet resolved) or later this week (hollow, **dashed** grey/dim border — the dash is what separates it from `unlogged`'s solid border)
+- **`not_scheduled`** — a day outside `scheduledDays` entirely (very faint solid fill, no border) — excluded from every count above; a log that happens to exist on a non-scheduled day (e.g. logged anyway) is invisible to this math, not a bonus
+
+### Timing color (done days only)
+
+A `done` day is also colored by how close `actualMinutes` came to the item's target (`projectedMinutes`) — a display-only tier, computed by the same `computeWeeklyProgress` (its `timing` field), that never affects `successCount`/`percentage`/pacing above. Only two tiers, deliberately:
+
+- **green** (olive) — at or under target (`actualMinutes / projectedMinutes <= 1`)
+- **amber** — over target by any amount, however severe — there's no third "way over" tier
+
+**Red is reserved exclusively for `missed`** — no other day state, solid or hollow, ever renders red. Overtime, no matter how extreme, stays amber; severity within "overtime" is deliberately not surfaced as a separate color.
+
+Only applies to `standard` (countdown) items, which are the only ones with a real time target — `checkbox` and `stopwatch` items always render `done` as green, since there's nothing to be "over" against. Red here means "done, but way over time" — a solid fill, structurally different from `missed`'s hollow red outline, so the two never get confused for each other even though they're both "red."
 
 The resulting percentage (`successCount / successThreshold * 100`) is **uncapped** — hitting the threshold with days to spare stays a win past 100%, it doesn't clamp back down. A three-state, non-gradient **pacing** verdict — `green` (threshold already reached), `red` (mathematically out of reach even with a perfect rest of the week: `successCount + remainingScheduled < successThreshold`), `amber` (still achievable, everything else) — drives the Analytics Habit Breakdown's bar/badge (`StreakDots` itself doesn't surface pacing, only the per-day dots).
 

@@ -187,18 +187,18 @@ export async function GET(req: NextRequest) {
     // anchor when days === 7 (see getDates above).
     const scheduledDays = item.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
     const successThreshold = item.successThreshold ?? scheduledDays.length;
+    // No real time target for checkbox/stopwatch items — timing color is
+    // always null for those regardless of actualMinutes (see routine-progress.ts).
+    const targetMinutes = !isCheckbox && !isStopwatch ? item.projectedMinutes : null;
+    const weeklyLogsByDate: Record<string, { state: "done" | "missed" | "rest"; actualMinutes: number | null }> = {};
+    for (const date of dates) {
+      const log = logMap[itemId]?.[date];
+      if (log?.state === "done" || log?.state === "missed" || log?.state === "rest") {
+        weeklyLogsByDate[date] = { state: log.state, actualMinutes: log.actualMinutes ?? null };
+      }
+    }
     const weeklyProgress = days === 7
-      ? computeWeeklyProgress(
-          scheduledDays,
-          successThreshold,
-          Object.fromEntries(
-            dates
-              .map((date) => [date, logMap[itemId]?.[date]?.state])
-              .filter(([, s]) => s === "done" || s === "missed" || s === "rest")
-          ) as Record<string, "done" | "missed" | "rest">,
-          dates,
-          localDate
-        )
+      ? computeWeeklyProgress(scheduledDays, successThreshold, weeklyLogsByDate, dates, localDate, targetMinutes)
       : undefined;
 
     return {

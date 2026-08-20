@@ -21,7 +21,7 @@ export interface RowItem {
 interface Props {
   item: RowItem;
   log?: RoutineLogEntry;
-  weekLogs: Array<{ date: string; state: LogState }>;
+  weekLogs: Array<{ date: string; state: LogState; actualMinutes: number | null }>;
   weekDates: string[]; // Sunday→Saturday, fixed calendar week
   isExpanded: boolean;
   isBackEntry: boolean;
@@ -218,6 +218,7 @@ export default function RoutineItemRow({
               viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
+              targetMinutes={!isCheckbox && !isStopwatch && !isSpecial ? item.projectedMinutes : null}
             />
           </div>
         </div>

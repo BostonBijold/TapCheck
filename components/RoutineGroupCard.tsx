@@ -21,7 +21,7 @@ export interface GroupCardGroup {
 interface Props {
   group: GroupCardGroup;
   logs: Record<string, RoutineLogEntry>;
-  weekLogs: Record<string, Array<{ date: string; state: LogState }>>;
+  weekLogs: Record<string, Array<{ date: string; state: LogState; actualMinutes: number | null }>>;
   weekDates: string[]; // Sunday→Saturday, fixed calendar week (see lib/week-dates.ts)
   isPastDate?: boolean;
   selectedDate: string;

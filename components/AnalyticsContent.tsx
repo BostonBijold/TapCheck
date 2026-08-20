@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import HabitIcon from "@/components/HabitIcon";
-import type { WeeklyProgress, DayState } from "@/lib/routine-progress";
+import type { WeeklyProgress, DayBreakdown } from "@/lib/routine-progress";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -95,14 +95,27 @@ function completionBarColor(pct: number): string {
 }
 
 // Same day-state palette as StreakDots — a segment here should read as the
-// same thing a dot there does.
-const DAY_SEGMENT_COLOR: Record<DayState, string> = {
-  done: "#5a6b35",
-  rest: "#4a7a9a",
-  missed: "#7a2e2e",
-  pending: "transparent", // outlined instead, see the segment's border below
-  not_scheduled: "#2e2c2233",
-};
+// same thing a dot there does. Done is colored by timing (how close to the
+// target), not a flat color — amber covers "overtime" at any severity, red
+// is reserved exclusively for `missed` below, no other state ever renders
+// red. Everything that isn't a solid-fill success (done or rest) is a
+// hollow, no-fill box instead — border style/color carries the meaning,
+// since a close-but-different fill color (the old tobacco-vs-amber problem)
+// is hard to tell apart at a glance: dashed grey border = still open
+// (pending), solid grey border = past and simply never logged, solid red
+// border = explicitly marked missed.
+function daySegmentStyle(day: DayBreakdown): { background: string; border?: string } {
+  if (day.state === "done") {
+    return { background: day.timing === "amber" ? "#c47a2a" : "#5a6b35" };
+  }
+  switch (day.state) {
+    case "rest": return { background: "#4a7a9a" };
+    case "missed": return { background: "transparent", border: "1px solid #a03a3a" };
+    case "unlogged": return { background: "transparent", border: "1px solid #5a5548" };
+    case "pending": return { background: "transparent", border: "1px dashed #5a5548" };
+    case "not_scheduled": return { background: "#2e2c2233" };
+  }
+}
 
 const PACING: Record<WeeklyProgress["pacing"], { color: string; label: string }> = {
   green: { color: "#7a9248", label: "on track" },
@@ -186,11 +199,18 @@ function HabitRow({ habit }: { habit: HabitStats }) {
 
   // 7-day view: counts come from the schedule-aware weekly breakdown (a
   // stray log on a not_scheduled day, or a not_scheduled day itself, never
-  // shows up as done/missed/unlogged here) rather than the unscoped fields
-  // used by the 30-day fallback below.
+  // shows up here) rather than the unscoped fields used by the 30-day
+  // fallback below. Every chip on the count line gets its own label so the
+  // numbers are self-describing without needing the day-strip's colors —
+  // overtimeCount is a subset of doneCount (a done day that ran over
+  // target), shown as its own chip rather than silently folded in; missed
+  // and unlogged are kept as separate chips too, matching how the strip
+  // already tells them apart visually.
   const weekDoneCount = wp?.days.filter((d) => d.state === "done").length ?? habit.doneCount;
-  const weekMissedCount = wp?.days.filter((d) => d.state === "missed").length ?? habit.missedCount;
+  const weekOvertimeCount = wp?.days.filter((d) => d.state === "done" && d.timing === "amber").length ?? 0;
   const weekRestCount = wp?.days.filter((d) => d.state === "rest").length ?? habit.restCount;
+  const weekMissedCount = wp?.days.filter((d) => d.state === "missed").length ?? habit.missedCount;
+  const weekUnloggedCount = wp?.days.filter((d) => d.state === "unlogged").length ?? habit.unloggedCount;
 
   return (
     <div className="py-3.5 border-b border-border last:border-0">
@@ -207,16 +227,19 @@ function HabitRow({ habit }: { habit: HabitStats }) {
         )}
       </div>
 
-      <div className="flex items-center gap-3 pl-7 mb-2">
+      <div className="flex items-center gap-3 pl-7 mb-2 flex-wrap">
         <span className="font-mono text-xs text-olive">{weekDoneCount} done</span>
-        {weekMissedCount > 0 && (
-          <span className="font-mono text-xs text-burgundy-light">{weekMissedCount} missed</span>
+        {weekOvertimeCount > 0 && (
+          <span className="font-mono text-xs text-amber">{weekOvertimeCount} overtime</span>
         )}
         {weekRestCount > 0 && (
           <span className="font-mono text-xs text-blue-muted">{weekRestCount} rest</span>
         )}
-        {!wp && habit.unloggedCount > 0 && (
-          <span className="font-mono text-xs text-dim">{habit.unloggedCount} unlogged</span>
+        {weekMissedCount > 0 && (
+          <span className="font-mono text-xs text-burgundy-light">{weekMissedCount} missed</span>
+        )}
+        {weekUnloggedCount > 0 && (
+          <span className="font-mono text-xs text-dim">{weekUnloggedCount} unlogged</span>
         )}
         {!isCheckbox && !isStopwatch && habit.avgActualMins !== null && (
           <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
@@ -233,16 +256,20 @@ function HabitRow({ habit }: { habit: HabitStats }) {
       {wp ? (
         <div className="pl-7">
           <div className="flex items-center gap-2 mb-1">
-            {wp.days.map((d) => (
-              <div
-                key={d.date}
-                className="flex-1 h-2.5 rounded-sm"
-                style={{
-                  backgroundColor: DAY_SEGMENT_COLOR[d.state],
-                  border: d.state === "pending" ? "1px dashed #5a5548" : undefined,
-                }}
-              />
-            ))}
+            {wp.days.map((d) => {
+              const { background, border } = daySegmentStyle(d);
+              return (
+                <div
+                  key={d.date}
+                  className="flex-1 h-2.5 rounded-sm flex items-center justify-center leading-none"
+                  style={{ backgroundColor: background, border }}
+                >
+                  {d.state === "missed" && (
+                    <span className="font-mono text-[7px] text-burgundy-light">✕</span>
+                  )}
+                </div>
+              );
+            })}
           </div>
           <div className="flex items-center gap-2">
             <span className="font-mono text-[10px] font-medium" style={{ color: PACING[wp.pacing].color }}>

@@ -35,7 +35,7 @@ export interface RoutineLogEntry {
   sessionGroupId?: string | null; // set when this in_progress timer is anchored inside a Routine Session
 }
 
-export type WeekLog = { routineItemId: string; date: string; state: LogState };
+export type WeekLog = { routineItemId: string; date: string; state: LogState; actualMinutes: number | null };
 
 interface Props {
   groups: RoutineGroup[];
@@ -258,11 +258,11 @@ export default function RoutinesView({
   const { toggle: handleToggleTodo, remove: handleDeleteTodo, update: handleUpdateTodo } =
     useTodoActions(todos, setTodos, isTodoVisibleToday);
 
-  // weekLogs keyed by itemId → array of {date, state}
-  const weekLogsByItem: Record<string, Array<{ date: string; state: LogState }>> = {};
+  // weekLogs keyed by itemId → array of {date, state, actualMinutes}
+  const weekLogsByItem: Record<string, Array<{ date: string; state: LogState; actualMinutes: number | null }>> = {};
   for (const wl of liveWeekLogs) {
     if (!weekLogsByItem[wl.routineItemId]) weekLogsByItem[wl.routineItemId] = [];
-    weekLogsByItem[wl.routineItemId].push({ date: wl.date, state: wl.state });
+    weekLogsByItem[wl.routineItemId].push({ date: wl.date, state: wl.state, actualMinutes: wl.actualMinutes });
   }
 
   const handleStateChange = useCallback(
@@ -274,13 +274,13 @@ export default function RoutinesView({
       const prev = logs[routineItemId];
 
       // Keep streak dots in sync without a full refresh
-      const patchWeekLog = (state: LogState | null) => {
+      const patchWeekLog = (state: LogState | null, actualMinutes: number | null = null) => {
         setLiveWeekLogs((prev) => {
           const next = prev.filter(
             (w) => !(w.routineItemId === routineItemId && w.date === selectedDate)
           );
           if (state && state !== "in_progress") {
-            next.push({ routineItemId, date: selectedDate, state });
+            next.push({ routineItemId, date: selectedDate, state, actualMinutes });
           }
           return next;
         });
@@ -300,10 +300,10 @@ export default function RoutinesView({
         });
       } else if (opts?.startedAt && opts?.completedAt) {
         // Manual time edit — use PATCH with explicit timestamps
-        patchWeekLog(newState);
         const mins = Math.max(1, Math.round(
           (new Date(opts.completedAt).getTime() - new Date(opts.startedAt).getTime()) / 60000
         ));
+        patchWeekLog(newState, mins);
         const optimistic: RoutineLogEntry = {
           _id: prev?._id ?? "",
           routineItemId,
@@ -330,7 +330,7 @@ export default function RoutinesView({
           setLogs((l) => ({ ...l, [routineItemId]: saved }));
         }
       } else {
-        patchWeekLog(newState);
+        patchWeekLog(newState, opts?.actualMinutes ?? prev?.actualMinutes ?? null);
         const optimistic: RoutineLogEntry = {
           _id: prev?._id ?? "",
           routineItemId,
