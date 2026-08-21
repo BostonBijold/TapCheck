@@ -540,6 +540,7 @@ export default function RoutinesView({
         <RoutineSession
           groupId={sessionGroup._id}
           groupName={sessionGroup.name}
+          groupStartTime={sessionGroup.startTime}
           items={sessionItems}
           logs={logs}
           today={selectedDate}

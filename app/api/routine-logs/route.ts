@@ -3,7 +3,8 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineLog from "@/models/RoutineLog";
 import type { LogState } from "@/models/RoutineLog";
-import { minutesSince, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/routine-log-actions";
+import { completeInProgressLog, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/routine-log-actions";
+import { recordSessionCompletion } from "@/lib/routine-session-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -68,11 +69,23 @@ export async function POST(req: NextRequest) {
 
   // A terminal state (done/missed/rest) is never session-anchored, regardless
   // of which state this log was in before — same rule PATCH enforces.
+  // Read the prior sessionGroupId before the write below clears it — that's
+  // the only record of which RoutineSession (if any) this completion
+  // belongs to (see lib/routine-session-actions.ts). Covers RoutineSession's
+  // own advance()/handleMissed/handleRest (via saveLog), which write terminal
+  // states through this route rather than PATCH.
+  const priorLog = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
+  const priorSessionGroupId = priorLog?.sessionGroupId ? priorLog.sessionGroupId.toString() : null;
+
   const log = await RoutineLog.findOneAndUpdate(
     { userId, routineItemId, date },
     { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false, sessionGroupId: null, pausedSeconds: 0 } },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
+
+  if (priorSessionGroupId && (state === "done" || state === "missed" || state === "rest")) {
+    await recordSessionCompletion(userId, priorSessionGroupId, date, routineItemId, state, actualMinutes ?? 0);
+  }
 
   return NextResponse.json(serializeLog(log));
 }
@@ -101,10 +114,23 @@ export async function PATCH(req: NextRequest) {
 
   await connectDB();
 
-  const now = new Date();
+  if (state === "done" && !(startOverride && endOverride)) {
+    // Timer completion: derive duration from server-recorded startedAt, plus
+    // any time banked from earlier paused segments of this same log — shared
+    // with the external trigger-habit endpoint's complete-the-active-item half.
+    const log = await completeInProgressLog(userId, routineItemId, date, fallbackMins ?? 1);
+    return NextResponse.json(serializeLog(log));
+  }
+
   // Leaving a session anchor behind on the log's next state doesn't help anyone —
   // once it's no longer in_progress it should behave like any other completed log.
   // pausedSeconds only means anything while running/paused — always cleared here.
+  // Read the prior sessionGroupId before it's cleared, same as POST's terminal
+  // branch — this path is reached by the standalone timer's "Missed" button
+  // and by a manual time-edit "done", both of which can still be session-anchored.
+  const priorLog = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
+  const priorSessionGroupId = priorLog?.sessionGroupId ? priorLog.sessionGroupId.toString() : null;
+
   const setData: Record<string, unknown> = { state, sessionGroupId: null, pausedSeconds: 0 };
 
   if (startOverride && endOverride) {
@@ -114,18 +140,6 @@ export async function PATCH(req: NextRequest) {
     setData.startedAt = start;
     setData.completedAt = end;
     setData.actualMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
-  } else if (state === "done") {
-    // Timer completion: derive duration from server-recorded startedAt, plus
-    // any time banked from earlier paused segments of this same log.
-    setData.completedAt = now;
-    const existing = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
-    const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
-    const banked = existing?.pausedSeconds ?? 0;
-    setData.actualMinutes = startedAt
-      ? minutesSince(startedAt, banked)
-      : banked > 0
-        ? Math.max(1, Math.round(banked / 60))
-        : (fallbackMins ?? 1);
   }
 
   const log = await RoutineLog.findOneAndUpdate(
@@ -133,6 +147,10 @@ export async function PATCH(req: NextRequest) {
     { $set: setData },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
+
+  if (priorSessionGroupId) {
+    await recordSessionCompletion(userId, priorSessionGroupId, date, routineItemId, state, (setData.actualMinutes as number | undefined) ?? 0);
+  }
 
   return NextResponse.json(serializeLog(log));
 }

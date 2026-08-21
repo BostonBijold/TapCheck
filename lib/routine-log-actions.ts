@@ -1,5 +1,6 @@
 import RoutineLog from "@/models/RoutineLog";
 import type { LogState } from "@/models/RoutineLog";
+import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/routine-session-actions";
 
 // Shared by app/api/routine-logs (internal, session-authenticated) and
 // app/api/external/start-timer (API-key-authenticated) so both paths behave
@@ -37,27 +38,18 @@ export function serializeLog(l: {
   };
 }
 
-// Starts (or restarts) a timer for routineItemId on date, enforcing a single
-// active timer per user: any other in_progress log for this user — on any
-// item, any date — is auto-completed first, crediting it with the elapsed
-// time since its own startedAt, rather than being left dangling. Used by the
-// external API and by starting a habit's standalone timer — both mean "I've
-// actually moved on to doing something else," unlike navigating inside an
-// already-open Routine Session (see switchActiveLog below). Callers must
-// have already called connectDB().
-//
-// sessionGroupId, when set, marks this timer as anchored inside a Routine
-// Session for that group — see models/RoutineLog.ts.
-export async function startInProgressLog(
-  userId: string,
-  routineItemId: string,
-  date: string,
-  sessionGroupId: string | null = null
-) {
+// Auto-completes any dangling in_progress log for this user other than
+// exceptRoutineItemId — on any date, any item — crediting elapsed time +
+// banked pausedSeconds, minimum 1 minute. Extracted out of
+// startInProgressLog so the external trigger-habit endpoint's immediate-done
+// path (checkbox/virtue_checkin/weekly_review items, which never go through
+// startInProgressLog at all) still enforces the same single-active-timer
+// invariant before writing its own log.
+export async function completeStrayInProgressLogs(userId: string, exceptRoutineItemId: string) {
   const stray = await RoutineLog.find({
     userId,
     state: "in_progress",
-    routineItemId: { $ne: routineItemId },
+    routineItemId: { $ne: exceptRoutineItemId },
   }).lean();
 
   for (const s of stray) {
@@ -75,6 +67,31 @@ export async function startInProgressLog(
       }
     );
   }
+}
+
+// Starts (or restarts) a timer for routineItemId on date, enforcing a single
+// active timer per user: any other in_progress log for this user — on any
+// item, any date — is auto-completed first, crediting it with the elapsed
+// time since its own startedAt, rather than being left dangling. Used by the
+// external API and by starting a habit's standalone timer — both mean "I've
+// actually moved on to doing something else," unlike navigating inside an
+// already-open Routine Session (see switchActiveLog below). Callers must
+// have already called connectDB().
+//
+// sessionGroupId, when set, marks this timer as anchored inside a Routine
+// Session for that group — see models/RoutineLog.ts.
+export async function startInProgressLog(
+  userId: string,
+  routineItemId: string,
+  date: string,
+  sessionGroupId: string | null = null
+) {
+  await completeStrayInProgressLogs(userId, routineItemId);
+  // A RoutineSession exists per group/date the moment its first item
+  // actually starts running — see lib/routine-session-actions.ts. No-op
+  // when sessionGroupId is null (a bare standalone-timer start, not
+  // anchored to any group/session).
+  if (sessionGroupId) await ensureOpenSession(userId, sessionGroupId, date);
 
   const existing = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
 
@@ -121,11 +138,24 @@ export async function switchActiveLog(
   date: string,
   sessionGroupId: string | null
 ) {
+  // Same creation rule as startInProgressLog: the first call for a group/
+  // date (nothing to pause yet, see below) is what actually opens the
+  // RoutineSession; every later call for the same group/date just reuses it.
+  if (sessionGroupId) await ensureOpenSession(userId, sessionGroupId, date);
+
   const others = await RoutineLog.find({
     userId,
     state: "in_progress",
     routineItemId: { $ne: routineItemId },
   }).lean();
+
+  // Only counts as a "jump" if something was actually running and got
+  // pushed aside — the very first item of a session has nothing to switch
+  // away from, so that opening move isn't attention moving away from
+  // anything and shouldn't inflate the count.
+  if (sessionGroupId && others.length > 0) {
+    await incrementSessionPauseOrJump(userId, sessionGroupId, date);
+  }
 
   for (const o of others) {
     const startedAt = o.startedAt ? new Date(o.startedAt) : null;
@@ -162,6 +192,89 @@ export async function switchActiveLog(
     },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
+
+  return log;
+}
+
+// Writes a terminal `done` log immediately, actualMinutes: 0, no
+// intermediate in_progress state — for item types with no timer (checkbox,
+// virtue_checkin, weekly_review). Used by the external trigger-habit
+// endpoint's start half when the tapped item isn't a standard/stopwatch
+// item. Still enforces the single-active-timer invariant via
+// completeStrayInProgressLogs, exactly like startInProgressLog does.
+//
+// groupId, when given, records this immediate completion against that
+// group's open RoutineSession (if one exists) — see
+// lib/routine-session-actions.ts. Note this never *creates* a session: an
+// immediate-done item skips the in_progress step entirely, which is the
+// only thing that opens one (see startInProgressLog/switchActiveLog), so a
+// routine whose very first tapped item is a checkbox won't get a session
+// until a later, real-timer item starts one.
+export async function startImmediateLog(userId: string, routineItemId: string, date: string, groupId: string | null = null) {
+  await completeStrayInProgressLogs(userId, routineItemId);
+
+  const log = await RoutineLog.findOneAndUpdate(
+    { userId, routineItemId, date },
+    {
+      $set: {
+        state: "done",
+        startedAt: null,
+        completedAt: new Date(),
+        actualMinutes: 0,
+        pausedSeconds: 0,
+        isBackEntry: false,
+        sessionGroupId: null,
+      },
+    },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  ).lean();
+
+  if (groupId) await recordSessionCompletion(userId, groupId, date, routineItemId, "done", 0);
+
+  return log;
+}
+
+// Completes an in_progress timer log, deriving actualMinutes from startedAt
+// + banked pausedSeconds (minimum 1 minute) — the same math
+// PATCH /api/routine-logs's timer-completion branch uses, factored out here
+// so it isn't duplicated by the external trigger-habit endpoint's
+// complete-the-active-item half. fallbackMinutes only applies if the log
+// somehow has neither a startedAt nor banked time (shouldn't happen for a
+// genuinely in_progress log, but mirrors the PATCH route's existing
+// defensiveness).
+export async function completeInProgressLog(
+  userId: string,
+  routineItemId: string,
+  date: string,
+  fallbackMinutes = 1
+) {
+  const existing = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
+  const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
+  const banked = existing?.pausedSeconds ?? 0;
+  const actualMinutes = startedAt
+    ? minutesSince(startedAt, banked)
+    : banked > 0
+      ? Math.max(1, Math.round(banked / 60))
+      : fallbackMinutes;
+  // Captured before the update below clears it — this is the only place
+  // that still knows which session (if any) this completion belongs to.
+  const sessionGroupId = existing?.sessionGroupId ? existing.sessionGroupId.toString() : null;
+
+  const log = await RoutineLog.findOneAndUpdate(
+    { userId, routineItemId, date },
+    {
+      $set: {
+        state: "done",
+        completedAt: new Date(),
+        actualMinutes,
+        pausedSeconds: 0,
+        sessionGroupId: null,
+      },
+    },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  ).lean();
+
+  if (sessionGroupId) await recordSessionCompletion(userId, sessionGroupId, date, routineItemId, "done", actualMinutes);
 
   return log;
 }

@@ -7,6 +7,8 @@ import type { RowItem } from "@/components/RoutineItemRow";
 import type { LogState } from "@/models/RoutineLog";
 import { emitRoutineLogChanged } from "@/lib/routine-log-events";
 import { useRingDrag } from "@/lib/useRingDrag";
+import { projectedFinishTime, staticBaselineFinish, type ItemProjection } from "@/lib/projected-finish";
+import { computeTimeline, type TimelineColorState } from "@/lib/routine-timeline";
 
 interface SessionLog {
   itemId: string;
@@ -36,6 +38,7 @@ export interface ExternalLog {
 interface Props {
   groupId: string;
   groupName: string;
+  groupStartTime?: string | null; // 'HH:MM' — only used for the optional on-track/behind indicator (see lib/projected-finish.ts)
   items: RowItem[];
   logs?: Record<string, ExternalLog>;
   today: string;
@@ -74,7 +77,19 @@ const RING_R = 70;
 const RING_CIRC = 2 * Math.PI * RING_R;
 const STOPWATCH_SOFT_CAP = 30 * 60;
 
-export default function RoutineSession({ groupId, groupName, items, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
+// Timeline segment fill colors — done and on-track-active both read as
+// olive (success/in-hand, same convention RoutineItemRow uses for the done
+// badge regardless of variance), pending as a dim neutral fill (not yet
+// decided), and only a running-over active segment shifts to amber — the
+// one state this bar is actually meant to draw the eye to.
+const TIMELINE_COLOR: Record<TimelineColorState, string> = {
+  done: "#5a6b35",        // olive
+  active: "#5a6b35",      // olive
+  "active-over": "#c47a2a", // amber
+  pending: "#3d3b2e",     // border-light
+};
+
+export default function RoutineSession({ groupId, groupName, groupStartTime = null, items, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
@@ -524,6 +539,89 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
     ...Array.from(liveDoneIds),
   ]);
 
+  // Live projected finish time — see lib/projected-finish.ts. The active
+  // item's targetInstant is derived from the stable baseElapsedRef/
+  // runStartRef pair (only mutated on pause/resume/switch/drag), not from
+  // `elapsed` + a fresh Date.now() — so it stays bit-exact across ticks
+  // instead of merely canceling out algebraically each render. While
+  // actually running: effective start = runStartRef - bankedSeconds, same
+  // math the ring's own elapsed display uses. While paused (no interval
+  // ticking, so no repeated renders to stay in sync across anyway), falls
+  // back to deriving it from the frozen `elapsed` state.
+  const activeTargetInstant =
+    (runStartRef.current != null
+      ? runStartRef.current - baseElapsedRef.current * 1000
+      : Date.now() - elapsed * 1000) + (currentItem?.projectedMinutes ?? 0) * 60000;
+
+  // Resolves each item to one of the four projection states using the same
+  // sessionLogs > latestLogs > externalLogs > pending precedence the habit
+  // list below uses for its own per-row log lookup, generalized to include
+  // the current item (always "active", never looked up from a log) and to
+  // return the exact terminal state (missed vs. rest) rather than a single
+  // boolean, since only "done" and "active" carry a nonzero contribution.
+  // Recomputed on every render — including the once-a-second tick that
+  // updates `elapsed` — so it's live without a second interval.
+  const projectionItems: ItemProjection[] = items.map((item, i) => {
+    if (i === currentIndex) {
+      return { projectedMinutes: item.projectedMinutes, state: "active", targetInstant: activeTargetInstant };
+    }
+    const sessionLog = sessionLogs.find((l) => l.itemId === item._id);
+    if (sessionLog && (sessionLog.state === "done" || sessionLog.state === "missed" || sessionLog.state === "rest")) {
+      return {
+        projectedMinutes: item.projectedMinutes,
+        state: sessionLog.state,
+        actualMinutes: sessionLog.state === "done" ? sessionLog.actualMinutes : undefined,
+      };
+    }
+    const live = latestLogs[item._id];
+    if (live && (live.state === "done" || live.state === "missed" || live.state === "rest")) {
+      return {
+        projectedMinutes: item.projectedMinutes,
+        state: live.state,
+        actualMinutes: live.state === "done" ? live.actualMinutes : undefined,
+      };
+    }
+    const ext = externalLogs?.[item._id];
+    if (ext && (ext.state === "done" || ext.state === "missed" || ext.state === "rest")) {
+      return {
+        projectedMinutes: item.projectedMinutes,
+        state: ext.state,
+        actualMinutes: ext.state === "done" ? (ext.actualMinutes ?? 0) : undefined,
+      };
+    }
+    return { projectedMinutes: item.projectedMinutes, state: "pending" };
+  });
+  // Single "now" sample shared by both the projected-finish label and the
+  // timeline below, so the two never disagree by even the few ms between
+  // two separately-read Date.now() calls in the same render.
+  const nowMs = Date.now();
+  const projectedFinish = projectedFinishTime(projectionItems, new Date(nowMs));
+  const projectedFinishLabel = projectedFinish.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+
+  // Live routine timeline — see lib/routine-timeline.ts. Same per-item data
+  // as the projection above, just turned into proportional segment widths
+  // instead of a single remaining-minutes total.
+  const timeline = computeTimeline(
+    items.map((item, i) => ({ id: item._id, ...projectionItems[i] })),
+    nowMs
+  );
+  const timelineStartLabel = new Date(timeline.startInstant).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+
+  // Optional on-track/behind indicator — compares the live projection above
+  // against a static baseline (startTime + total projected minutes across
+  // the group's timed items, same "checkbox excluded" convention
+  // RoutineGroupCard already uses for a group's collapse time). null when
+  // the group has no startTime (custom groups), in which case no color/
+  // verdict is shown, just the plain projected time.
+  const timedItems = items.filter((i) => i.itemType !== "checkbox");
+  const totalProjectedForBaseline = timedItems.reduce((s, i) => s + i.projectedMinutes, 0);
+  const baselineFinish = staticBaselineFinish(today, groupStartTime, totalProjectedForBaseline);
+  const isBehindSchedule = baselineFinish ? projectedFinish.getTime() > baselineFinish.getTime() : null;
+
   // Countdown ring values
   const countdownRatio = isCountdown && target > 0 ? Math.min(elapsed / target, 1) : 0;
   const countdownColor = isOver ? "#7a2e2e" : countdownRatio >= 0.75 ? "#c47a2a" : "#5a6b35";
@@ -542,6 +640,47 @@ export default function RoutineSession({ groupId, groupName, items, logs: extern
           <X size={16} />
         </button>
         <span className="font-mono text-muted text-sm">{currentIndex + 1} of {items.length}</span>
+      </div>
+
+      {/* Live projected finish time — see lib/projected-finish.ts. Amber
+          once the live projection is later than the static startTime +
+          total-projected-minutes baseline — same "running behind" color the
+          timeline bar below uses for an over-target active segment, so the
+          two stay one consistent signal instead of two different colors
+          meaning the same thing. */}
+      <div className="px-4 pb-1 flex-shrink-0 text-center">
+        <span
+          className={`font-mono text-xs ${
+            isBehindSchedule === true ? "text-amber" : isBehindSchedule === false ? "text-olive-light" : "text-dim"
+          }`}
+        >
+          Projected finish: {projectedFinishLabel}
+        </span>
+      </div>
+
+      {/* Live routine timeline — see lib/routine-timeline.ts. One segment
+          per item, left to right in routine order, width = that item's
+          current share of the group's running total (not a fixed original
+          total) — so the active item visibly eats into the others' share of
+          the bar as it runs over, instead of just growing off the end. */}
+      <div className="px-4 pb-3 flex-shrink-0">
+        <div className="flex h-2 rounded-full overflow-hidden bg-border">
+          {timeline.segments.map((seg, i) => (
+            <div
+              key={seg.id}
+              style={{
+                flex: `0 0 ${seg.pct}%`,
+                backgroundColor: TIMELINE_COLOR[seg.colorState],
+                borderRight: i < timeline.segments.length - 1 ? "2px solid #18160f" : undefined,
+                transition: "flex-basis 0.6s ease, background-color 0.4s ease",
+              }}
+            />
+          ))}
+        </div>
+        <div className="flex items-center justify-between mt-1">
+          <span className="font-mono text-[9px] text-dim">{timelineStartLabel}</span>
+          <span className="font-mono text-[9px] text-dim">{projectedFinishLabel}</span>
+        </div>
       </div>
 
       {/* Item info + ring together are one big drag surface for setting
