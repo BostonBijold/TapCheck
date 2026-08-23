@@ -36,9 +36,16 @@ export interface EditItem {
   successThreshold: number; // how many of this week's scheduled days = 100%
 }
 
+export interface NfcTagInfo {
+  _id: string;
+  tagUID: string;
+  label: string | null;
+}
+
 interface Props {
   group: { _id: string; name: string; startTime: string | null };
   items: EditItem[];
+  tagsByItemId?: Record<string, NfcTagInfo>;
 }
 
 const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // Sun..Sat, matches calendarWeekDates order
@@ -51,6 +58,9 @@ function SortableRow({
   onToggleEdit,
   onSave,
   onRemove,
+  tag,
+  onLinkTag,
+  onUnlinkTag,
 }: {
   item: EditItem;
   isEditing: boolean;
@@ -64,6 +74,9 @@ function SortableRow({
     successThreshold: number
   ) => Promise<void>;
   onRemove: () => Promise<void>;
+  tag: NfcTagInfo | null;
+  onLinkTag: (tagUID: string) => Promise<void>;
+  onUnlinkTag: () => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item._id });
@@ -82,6 +95,9 @@ function SortableRow({
   const [editScheduledDays, setEditScheduledDays] = useState<number[]>(item.scheduledDays);
   const [editThreshold, setEditThreshold] = useState(item.successThreshold);
   const [saving, setSaving] = useState(false);
+  const [tagUidInput, setTagUidInput] = useState("");
+  const [linking, setLinking] = useState(false);
+  const [unlinking, setUnlinking] = useState(false);
 
   function toggleEditDay(day: number) {
     setEditScheduledDays((prev) => {
@@ -263,12 +279,55 @@ function SortableRow({
             {saving ? "Saving…" : "Save changes"}
           </button>
 
-          {/* For the external API (see Profile > External API Key) */}
+          {/* NFC tag — tap a physical tag written to this UID to start/close
+              this habit's timer. See app/(app)/nfc/t/[tagUID]/page.tsx and
+              docs/features/nfc.md. */}
           <div className="pt-2 border-t border-border">
-            <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
-              Item ID
+            <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1.5">
+              NFC Tag
             </p>
-            <p className="font-mono text-[10px] text-dim break-all select-all">{item._id}</p>
+            {tag ? (
+              <div className="flex items-center gap-2 bg-bg border border-border rounded-card px-3 py-2">
+                <span className="font-mono text-[11px] text-text break-all flex-1">
+                  {tag.label ?? tag.tagUID}
+                </span>
+                <button
+                  onClick={async () => {
+                    setUnlinking(true);
+                    await onUnlinkTag();
+                    setUnlinking(false);
+                  }}
+                  disabled={unlinking}
+                  className="flex-shrink-0 font-mono text-[10px] text-burgundy-light hover:text-burgundy transition-colors disabled:opacity-50"
+                >
+                  {unlinking ? "Unlinking…" : "Unlink"}
+                </button>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={tagUidInput}
+                  onChange={(e) => setTagUidInput(e.target.value)}
+                  placeholder="e.g. desk-01"
+                  className="flex-1 min-w-0 bg-bg border border-border rounded-card px-3 py-2 font-mono text-xs text-text outline-none focus:border-olive"
+                />
+                <button
+                  onClick={async () => {
+                    const uid = tagUidInput.trim();
+                    if (!uid) return;
+                    setLinking(true);
+                    await onLinkTag(uid);
+                    setTagUidInput("");
+                    setLinking(false);
+                  }}
+                  disabled={linking || !tagUidInput.trim()}
+                  className="flex-shrink-0 font-mono text-xs text-olive px-3 py-2 rounded-card border border-olive/30 bg-olive/15 disabled:opacity-50"
+                >
+                  {linking ? "Linking…" : "Link NFC tag"}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -278,11 +337,12 @@ function SortableRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function RoutineEditView({ group, items: initialItems }: Props) {
+export default function RoutineEditView({ group, items: initialItems, tagsByItemId: initialTagsByItemId = {} }: Props) {
   const router = useRouter();
   const [items, setItems] = useState<EditItem[]>(initialItems);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [tagsByItemId, setTagsByItemId] = useState<Record<string, NfcTagInfo>>(initialTagsByItemId);
 
   // Group schedule state
   const [startTime, setStartTime] = useState(group.startTime ?? "");
@@ -350,6 +410,28 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     setItems((prev) => prev.filter((it) => it._id !== id));
     await fetch(`/api/routine-items/${id}`, { method: "DELETE" });
     router.refresh();
+  };
+
+  const handleLinkTag = async (itemId: string, tagUID: string) => {
+    const res = await fetch("/api/nfc-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ tagUID, routineItemId: itemId, groupId: group._id }),
+    });
+    if (!res.ok) return;
+    const tag = await res.json();
+    setTagsByItemId((prev) => ({ ...prev, [itemId]: { _id: tag._id, tagUID: tag.tagUID, label: tag.label } }));
+  };
+
+  const handleUnlinkTag = async (itemId: string) => {
+    const tag = tagsByItemId[itemId];
+    if (!tag) return;
+    setTagsByItemId((prev) => {
+      const next = { ...prev };
+      delete next[itemId];
+      return next;
+    });
+    await fetch(`/api/nfc-tags/${tag._id}`, { method: "DELETE" });
   };
 
   const handleAdd = async (
@@ -474,6 +556,9 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
                     }
                     onSave={(name, icon, mins, type, days, threshold) => handleSaveItem(item._id, name, icon, mins, type, days, threshold)}
                     onRemove={() => handleRemove(item._id)}
+                    tag={tagsByItemId[item._id] ?? null}
+                    onLinkTag={(tagUID) => handleLinkTag(item._id, tagUID)}
+                    onUnlinkTag={() => handleUnlinkTag(item._id)}
                   />
                 ))}
               </div>
