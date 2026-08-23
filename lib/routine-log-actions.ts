@@ -1,6 +1,12 @@
 import RoutineLog from "@/models/RoutineLog";
 import type { LogState } from "@/models/RoutineLog";
-import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/routine-session-actions";
+import type { ItemType } from "@/models/RoutineItem";
+import {
+  ensureOpenSession,
+  findNextItemInGroup,
+  incrementSessionPauseOrJump,
+  recordSessionCompletion,
+} from "@/lib/routine-session-actions";
 
 // Shared by app/api/routine-logs (internal, session-authenticated) and
 // app/api/external/start-timer (API-key-authenticated) so both paths behave
@@ -277,4 +283,96 @@ export async function completeInProgressLog(
   if (sessionGroupId) await recordSessionCompletion(userId, sessionGroupId, date, routineItemId, "done", actualMinutes);
 
   return log;
+}
+
+export function isTimerItem(itemType: ItemType): boolean {
+  return itemType === "standard" || itemType === "stopwatch";
+}
+
+// Starts routineItemId per the "nothing active" case's rules: standard/
+// stopwatch → in_progress timer (sessionGroupId anchored if groupId given),
+// anything else → immediate zero-minute done log. Both halves enforce the
+// single-active-timer sweep internally.
+async function startItem(
+  userId: string,
+  itemType: ItemType,
+  routineItemId: string,
+  date: string,
+  groupId: string | null
+) {
+  return isTimerItem(itemType)
+    ? startInProgressLog(userId, routineItemId, date, groupId)
+    : startImmediateLog(userId, routineItemId, date, groupId);
+}
+
+// The single start/close toggle decision, shared by the external
+// trigger-habit endpoint (API-key auth, iPhone Shortcut/NFC-via-Shortcut)
+// and the session-authenticated NFC resolve page
+// (app/(app)/nfc/t/[tagUID]/page.tsx) — one tap, and whether it starts or
+// completes the tapped item is decided entirely by current server state,
+// never by a param the caller sends. See docs/api/nfc-api.md and
+// docs/api/external-api.md for the full case breakdown.
+//
+// item/group ownership validation is the caller's job (the two callers use
+// different auth mechanisms and error shapes) — this only takes an
+// already-validated item.
+export async function toggleRoutineItemLog(
+  userId: string,
+  item: { _id: { toString(): string }; itemType: ItemType; groupId: { toString(): string } },
+  date: string,
+  groupId: string | null
+) {
+  const routineItemId = item._id.toString();
+
+  // Already done today — a no-op, not a restart. Tapping a completed item's
+  // tag again isn't meant to reopen it; that's what the app's own Undo
+  // button is for.
+  const todayLog = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
+  if (todayLog?.state === "done") {
+    return { completed: null, started: null, alreadyDone: true };
+  }
+
+  // Only one log is ever in_progress at a time by invariant, but sort
+  // defensively in case more than one ever exists transiently — same
+  // defensiveness as GET /api/routine-logs/active.
+  const activeLog = await RoutineLog.findOne({ userId, state: "in_progress" })
+    .sort({ startedAt: -1 })
+    .lean();
+
+  let completed = null;
+  let started = null;
+
+  if (activeLog && activeLog.routineItemId.toString() === routineItemId) {
+    // The tapped item is the currently active one: complete it, then
+    // auto-advance to the next unlogged item in its group, if any.
+    const completedLog = await completeInProgressLog(userId, routineItemId, activeLog.date);
+    completed = serializeLog(completedLog);
+
+    if (groupId) {
+      const next = await findNextItemInGroup(userId, groupId, activeLog.date);
+      if (next) {
+        const startedLog = await startItem(userId, next.itemType, next._id.toString(), activeLog.date, groupId);
+        started = serializeLog(startedLog);
+      }
+    }
+  } else if (activeLog) {
+    // A different item is active: complete it, then start the tapped item
+    // (jump case — lands wherever was tapped, not the next in sequence).
+    const otherItemId = activeLog.routineItemId.toString();
+    const otherSessionGroupId = activeLog.sessionGroupId ? activeLog.sessionGroupId.toString() : null;
+    const completedLog = await completeInProgressLog(userId, otherItemId, activeLog.date);
+    completed = serializeLog(completedLog);
+    if (otherSessionGroupId) await incrementSessionPauseOrJump(userId, otherSessionGroupId, activeLog.date);
+
+    const startedLog = await startItem(userId, item.itemType, routineItemId, date, groupId);
+    started = serializeLog(startedLog);
+  } else {
+    // Nothing active anywhere: start the tapped item. startInProgressLog
+    // already resumes a paused log correctly (banked pausedSeconds carries
+    // forward) — no separate "resume" branch needed here.
+    const startedLog = await startItem(userId, item.itemType, routineItemId, date, groupId);
+    started = serializeLog(startedLog);
+  }
+
+  return { completed, started, alreadyDone: false };
 }
