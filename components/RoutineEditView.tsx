@@ -34,6 +34,7 @@ export interface EditItem {
   itemType: "standard" | "stopwatch" | "checkbox";
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
+  nfcTagCode: string | null; // tag currently linked to start this item, if any
 }
 
 interface Props {
@@ -51,6 +52,8 @@ function SortableRow({
   onToggleEdit,
   onSave,
   onRemove,
+  onArmNfc,
+  onUnlinkNfc,
 }: {
   item: EditItem;
   isEditing: boolean;
@@ -64,6 +67,8 @@ function SortableRow({
     successThreshold: number
   ) => Promise<void>;
   onRemove: () => Promise<void>;
+  onArmNfc: () => Promise<void>;
+  onUnlinkNfc: () => Promise<void>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item._id });
@@ -82,6 +87,8 @@ function SortableRow({
   const [editScheduledDays, setEditScheduledDays] = useState<number[]>(item.scheduledDays);
   const [editThreshold, setEditThreshold] = useState(item.successThreshold);
   const [saving, setSaving] = useState(false);
+  const [nfcArmed, setNfcArmed] = useState(false);
+  const [nfcBusy, setNfcBusy] = useState(false);
 
   function toggleEditDay(day: number) {
     setEditScheduledDays((prev) => {
@@ -263,6 +270,50 @@ function SortableRow({
             {saving ? "Saving…" : "Save changes"}
           </button>
 
+          {/* NFC tag link */}
+          <div className="pt-2 border-t border-border">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
+              NFC Tag
+            </p>
+            {item.nfcTagCode ? (
+              <div className="flex items-center gap-2">
+                <p className="font-mono text-[11px] text-olive flex-1">
+                  Linked · {item.nfcTagCode}
+                </p>
+                <button
+                  type="button"
+                  disabled={nfcBusy}
+                  onClick={async () => {
+                    setNfcBusy(true);
+                    await onUnlinkNfc();
+                    setNfcBusy(false);
+                  }}
+                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-burgundy/10 text-burgundy-light disabled:opacity-50"
+                >
+                  {nfcBusy ? "Unlinking…" : "Unlink"}
+                </button>
+              </div>
+            ) : nfcArmed ? (
+              <p className="font-mono text-[11px] text-gold">
+                Now tap the tag against your phone.
+              </p>
+            ) : (
+              <button
+                type="button"
+                disabled={nfcBusy}
+                onClick={async () => {
+                  setNfcBusy(true);
+                  await onArmNfc();
+                  setNfcBusy(false);
+                  setNfcArmed(true);
+                }}
+                className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-olive/15 border border-olive/30 text-olive disabled:opacity-50"
+              >
+                {nfcBusy ? "Preparing…" : "Link NFC Tag"}
+              </button>
+            )}
+          </div>
+
           {/* For the external API (see Profile > External API Key) */}
           <div className="pt-2 border-t border-border">
             <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
@@ -352,6 +403,21 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     router.refresh();
   };
 
+  const handleArmNfc = async (routineItemId: string) => {
+    await fetch("/api/nfc-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routineItemId }),
+    });
+  };
+
+  const handleUnlinkNfc = async (tagCode: string, routineItemId: string) => {
+    await fetch(`/api/nfc-tags/${tagCode}`, { method: "DELETE" });
+    setItems((prev) =>
+      prev.map((it) => (it._id === routineItemId ? { ...it, nfcTagCode: null } : it))
+    );
+  };
+
   const handleAdd = async (
     templateId: string | null,
     name: string,
@@ -379,6 +445,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
         order: prev.length,
         scheduledDays: newItem.scheduledDays ?? scheduledDays,
         successThreshold: newItem.successThreshold ?? successThreshold,
+        nfcTagCode: null,
       },
     ]);
     setShowAddSheet(false);
@@ -474,6 +541,8 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
                     }
                     onSave={(name, icon, mins, type, days, threshold) => handleSaveItem(item._id, name, icon, mins, type, days, threshold)}
                     onRemove={() => handleRemove(item._id)}
+                    onArmNfc={() => handleArmNfc(item._id)}
+                    onUnlinkNfc={() => handleUnlinkNfc(item.nfcTagCode!, item._id)}
                   />
                 ))}
               </div>

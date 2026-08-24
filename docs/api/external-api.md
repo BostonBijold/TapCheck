@@ -53,6 +53,8 @@ Once inside a session opened this way, moving between items *inside that session
 
 A single, bidirectional endpoint for a Shortcut fired by an NFC tap: the same call either **starts** or **completes** a habit, decided entirely by current server state (is there an active timer, and does it match the tapped item) — never by a param the caller sends. This is what makes one NFC tag workable for a whole routine: tap it once to start the first item, tap the next tag to both finish that item and start the next, and so on.
 
+The three-case dispatch below lives in `triggerHabit()` (`lib/nfc-actions.ts`), not inline in this route — it's shared with `app/nfc/[tagCode]`, the session-authenticated, Universal-Links-driven version of the same tap that needs no Shortcuts setup. See [`features/nfc.md`](../features/nfc.md). This route stays a thin wrapper: auth + param parsing + ownership checks, then a call into the shared function. Behavior and response shape here are unchanged by that refactor.
+
 Same auth as `start-timer` (see [Auth](#auth) above). Params, also accepted via JSON body or query string (body takes precedence):
 
 | Param | Required | Meaning |

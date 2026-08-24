@@ -26,17 +26,21 @@ export default auth((req) => {
     if (isApiRoute) {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
-    return Response.redirect(new URL("/login", req.nextUrl.origin));
+    const loginUrl = new URL("/login", req.nextUrl.origin);
+    loginUrl.searchParams.set("callbackUrl", pathname);
+    return Response.redirect(loginUrl);
   }
 });
 
 export const config = {
   // Run on everything except static assets, images, PWA files, NextAuth's own
-  // callback/session endpoints, and the external API (those must stay reachable
+  // callback/session endpoints, the external API (those must stay reachable
   // without a session — api/auth to establish one, api/external because it's
   // authenticated by its own API key instead and is called by things like an
-  // iPhone Shortcut that never has a session cookie to send).
+  // iPhone Shortcut that never has a session cookie to send), and the
+  // Universal Links association file (fetched directly by Apple's servers,
+  // which never have a session cookie either — see docs/features/nfc.md).
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/external|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/external|manifest\\.json|sw\\.js|\\.well-known/apple-app-site-association|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };

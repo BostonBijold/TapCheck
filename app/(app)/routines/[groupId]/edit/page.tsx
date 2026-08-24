@@ -3,6 +3,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
+import NfcTag from "@/models/NfcTag";
 import RoutineEditView from "@/components/RoutineEditView";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,12 @@ export default async function EditRoutinePage({
     .sort({ order: 1 })
     .lean();
 
+  const tags = await NfcTag.find({
+    userId,
+    routineItemId: { $in: items.map((i) => i._id) },
+  }).lean();
+  const tagByItemId = new Map(tags.map((t) => [t.routineItemId!.toString(), t.tagCode]));
+
   return (
     <RoutineEditView
       group={{
@@ -52,6 +59,7 @@ export default async function EditRoutinePage({
         // apply on create, so a .lean() read can come back undefined.
         scheduledDays: i.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         successThreshold: i.successThreshold ?? (i.scheduledDays?.length ?? 7),
+        nfcTagCode: tagByItemId.get(i._id.toString()) ?? null,
       }))}
     />
   );

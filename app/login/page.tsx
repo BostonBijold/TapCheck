@@ -1,9 +1,14 @@
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/lib/auth";
 
-export default async function LoginPage() {
+export default async function LoginPage({
+  searchParams,
+}: {
+  searchParams: { callbackUrl?: string };
+}) {
   const session = await auth();
-  if (session) redirect("/routines");
+  const destination = searchParams.callbackUrl || "/welcome";
+  if (session) redirect(searchParams.callbackUrl || "/routines");
 
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">
@@ -20,7 +25,7 @@ export default async function LoginPage() {
         <form
           action={async () => {
             "use server";
-            await signIn("google", { redirectTo: "/welcome" });
+            await signIn("google", { redirectTo: destination });
           }}
         >
           <button
