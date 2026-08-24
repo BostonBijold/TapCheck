@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineLog from "@/models/RoutineLog";
-import type { LogState } from "@/models/RoutineLog";
+import type { LogState, IReviewMetadata } from "@/models/RoutineLog";
 import { completeInProgressLog, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/routine-log-actions";
 import { recordSessionCompletion } from "@/lib/routine-session-actions";
 
@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   const userId = resolveUserId(session?.user?.id);
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId, sessionNav } = (await req.json()) as {
+  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId, sessionNav, reviewMetadata } = (await req.json()) as {
     routineItemId: string;
     date: string;
     actualMinutes?: number;
@@ -52,6 +52,9 @@ export async function POST(req: NextRequest) {
     // since navigating within an already-open session isn't "I've started
     // doing something else." See switchActiveLog in lib/routine-log-actions.ts.
     sessionNav?: boolean;
+    // Set only by RoutineReviewFlow when completing/declining the
+    // routine_review item's log for the day — see models/RoutineLog.ts.
+    reviewMetadata?: IReviewMetadata;
   };
 
   if (!routineItemId || !date || !state) {
@@ -79,7 +82,16 @@ export async function POST(req: NextRequest) {
 
   const log = await RoutineLog.findOneAndUpdate(
     { userId, routineItemId, date },
-    { $set: { state, actualMinutes: actualMinutes ?? null, isBackEntry: isBackEntry ?? false, sessionGroupId: null, pausedSeconds: 0 } },
+    {
+      $set: {
+        state,
+        actualMinutes: actualMinutes ?? null,
+        isBackEntry: isBackEntry ?? false,
+        sessionGroupId: null,
+        pausedSeconds: 0,
+        reviewMetadata: reviewMetadata ?? null,
+      },
+    },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 

@@ -2,6 +2,20 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 
 export type LogState = "in_progress" | "paused" | "done" | "missed" | "rest";
 
+// Where a routine_review session was triggered from — see docs/features/routine-review.md.
+// "notification" isn't wired up to anything yet (a future "it's been a month" nudge),
+// but the value exists now so that work doesn't need another schema change.
+export type ReviewEntryPoint = "sunday_prompt" | "analytics_button" | "notification";
+
+export interface IReviewMetadata {
+  entryPoint: ReviewEntryPoint;
+  groupId: mongoose.Types.ObjectId; // which routine group this session reviewed
+  changesMade: boolean;
+  itemGoalChanges?: Array<{ routineItemId: mongoose.Types.ObjectId; oldMinutes: number; newMinutes: number }>;
+  startTimeChange?: { old: string | null; new: string | null };
+  reorder?: { old: mongoose.Types.ObjectId[]; new: mongoose.Types.ObjectId[] };
+}
+
 export interface IRoutineLog extends Document {
   userId: string;
   routineItemId: mongoose.Types.ObjectId;
@@ -23,8 +37,44 @@ export interface IRoutineLog extends Document {
   // a RoutineSession for that group on resume, instead of the standalone
   // timer. Cleared whenever the log leaves in_progress.
   sessionGroupId?: mongoose.Types.ObjectId | null;
+  // Only set on the terminal log for a routine_review item (see
+  // components/RoutineReviewFlow.tsx) — every other log leaves this undefined.
+  reviewMetadata?: IReviewMetadata | null;
   createdAt: Date;
 }
+
+const ReviewMetadataSchema = new Schema<IReviewMetadata>(
+  {
+    entryPoint: { type: String, enum: ["sunday_prompt", "analytics_button", "notification"], required: true },
+    groupId: { type: Schema.Types.ObjectId, ref: "RoutineGroup", required: true },
+    changesMade: { type: Boolean, required: true },
+    itemGoalChanges: {
+      type: [
+        {
+          routineItemId: { type: Schema.Types.ObjectId, ref: "RoutineItem", required: true },
+          oldMinutes: { type: Number, required: true },
+          newMinutes: { type: Number, required: true },
+        },
+      ],
+      default: undefined,
+    },
+    startTimeChange: {
+      type: new Schema({ old: { type: String, default: null }, new: { type: String, default: null } }, { _id: false }),
+      default: undefined,
+    },
+    reorder: {
+      type: new Schema(
+        {
+          old: { type: [Schema.Types.ObjectId], default: undefined },
+          new: { type: [Schema.Types.ObjectId], default: undefined },
+        },
+        { _id: false }
+      ),
+      default: undefined,
+    },
+  },
+  { _id: false }
+);
 
 const RoutineLogSchema = new Schema<IRoutineLog>(
   {
@@ -39,6 +89,7 @@ const RoutineLogSchema = new Schema<IRoutineLog>(
     note: { type: String, default: null },
     isBackEntry: { type: Boolean, default: false },
     sessionGroupId: { type: Schema.Types.ObjectId, ref: "RoutineGroup", default: null },
+    reviewMetadata: { type: ReviewMetadataSchema, default: null },
   },
   { timestamps: true }
 );

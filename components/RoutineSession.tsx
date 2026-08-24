@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronRight } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
+import TimelineBar from "@/components/TimelineBar";
 import type { RowItem } from "@/components/RoutineItemRow";
 import type { LogState } from "@/models/RoutineLog";
 import { emitRoutineLogChanged } from "@/lib/routine-log-events";
@@ -664,23 +665,11 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
           total) — so the active item visibly eats into the others' share of
           the bar as it runs over, instead of just growing off the end. */}
       <div className="px-4 pb-3 flex-shrink-0">
-        <div className="flex h-2 rounded-full overflow-hidden bg-border">
-          {timeline.segments.map((seg, i) => (
-            <div
-              key={seg.id}
-              style={{
-                flex: `0 0 ${seg.pct}%`,
-                backgroundColor: TIMELINE_COLOR[seg.colorState],
-                borderRight: i < timeline.segments.length - 1 ? "2px solid #18160f" : undefined,
-                transition: "flex-basis 0.6s ease, background-color 0.4s ease",
-              }}
-            />
-          ))}
-        </div>
-        <div className="flex items-center justify-between mt-1">
-          <span className="font-mono text-[9px] text-dim">{timelineStartLabel}</span>
-          <span className="font-mono text-[9px] text-dim">{projectedFinishLabel}</span>
-        </div>
+        <TimelineBar
+          segments={timeline.segments.map((seg) => ({ id: seg.id, pct: seg.pct, color: TIMELINE_COLOR[seg.colorState] }))}
+          startLabel={timelineStartLabel}
+          endLabel={projectedFinishLabel}
+        />
       </div>
 
       {/* Item info + ring together are one big drag surface for setting

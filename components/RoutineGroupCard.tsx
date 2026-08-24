@@ -35,6 +35,7 @@ interface Props {
   onStartRoutine: (group: GroupCardGroup, startIndex: number) => void;
   onOpenCheckIn: (item: RowItem) => void;
   onOpenReview: (item: RowItem) => void;
+  onOpenRoutineReview: (item: RowItem) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -105,7 +106,7 @@ export default function RoutineGroupCard({
   group, logs, weekLogs, weekDates,
   isPastDate = false, selectedDate, today,
   onStateChange, onStartTimer, onStartRoutine,
-  onOpenCheckIn, onOpenReview,
+  onOpenCheckIn, onOpenReview, onOpenRoutineReview,
 }: Props) {
   // Derive end time once we know what items are in this group
   const timedItemsAll = group.items.filter((i) => i.itemType !== "checkbox");
@@ -331,6 +332,7 @@ export default function RoutineGroupCard({
                   onStateChange={(s, opts) => onStateChange(item._id, s, opts)}
                   onOpenCheckIn={() => onOpenCheckIn(item)}
                   onOpenReview={() => onOpenReview(item)}
+                  onOpenRoutineReview={() => onOpenRoutineReview(item)}
                 />
               ))}
             </div>

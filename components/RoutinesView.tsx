@@ -677,6 +677,7 @@ export default function RoutinesView({
                   onStartRoutine={(g, startIndex) => setActiveSession({ group: g, startIndex })}
                   onOpenCheckIn={(item) => setCheckInItem(item)}
                   onOpenReview={() => router.push(`/virtues?mode=weekly&date=${selectedDate}&return=routines`)}
+                  onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
                 />
               ))}
             </div>
@@ -726,6 +727,7 @@ export default function RoutinesView({
                       onStartRoutine={() => {}}
                       onOpenCheckIn={(item) => setCheckInItem(item)}
                       onOpenReview={() => router.push(`/virtues?mode=weekly&date=${selectedDate}&return=routines`)}
+                      onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
                     />
                   ))}
                 </div>

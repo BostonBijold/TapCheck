@@ -30,7 +30,7 @@ Response: `{ hasNext: boolean, hasLogs: boolean }` — `hasLogs` is true if *any
 
 ## Routine Items
 
-Collection: `routineitems`. Schema (`models/RoutineItem.ts`): `groupId` (ref), `userId`, `templateId: ObjectId | null` (ref `HabitTemplate`), `name`, `icon` (default `"✓"`), `projectedMinutes` (default `0`), `order`, `isActive` (default `true`), `linkedGoalId: ObjectId | null`, `itemType: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review"` (default `"standard"`), `scheduledDays: number[]` (0=Sun..6=Sat, default `[0,1,2,3,4,5,6]`), `successThreshold: number` (how many of this week's *scheduled* days count as a win, default `7`).
+Collection: `routineitems`. Schema (`models/RoutineItem.ts`): `groupId` (ref), `userId`, `templateId: ObjectId | null` (ref `HabitTemplate`), `name`, `icon` (default `"✓"`), `projectedMinutes` (default `0`), `order`, `isActive` (default `true`), `linkedGoalId: ObjectId | null`, `itemType: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review" | "routine_review"` (default `"standard"`), `scheduledDays: number[]` (0=Sun..6=Sat, default `[0,1,2,3,4,5,6]`), `successThreshold: number` (how many of this week's *scheduled* days count as a win, default `7`).
 
 `scheduledDays`/`successThreshold` are purely a weekly analytics/streak concept (see [`features/routines.md`](../features/routines.md#streaks--variance) and [`features/analytics.md`](../features/analytics.md)) — they never affect whether an item appears in the Today view or whether a `RoutineGroup` reads as complete for the day; an item still shows and still needs an explicit Done/Missed/Rest every day regardless of its schedule.
 
@@ -58,7 +58,19 @@ Request body: `{ items: Array<{ _id: string; order: number }> }` — `400` if mi
 
 ## Routine Logs
 
-Collection: `routinelogs`. Schema (`models/RoutineLog.ts`): `userId`, `routineItemId` (ref), `date` (`YYYY-MM-DD`), `actualMinutes?`, `startedAt?: Date` (null while `paused`), `completedAt?: Date`, `pausedSeconds` (default `0`), `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, `note?`, `isBackEntry` (default `false`), `sessionGroupId?: ObjectId | null` (ref `RoutineGroup`, see below), plus timestamps. A **unique** compound index on `{ userId, routineItemId, date }` means there is always exactly one log per item per day — every write below is an upsert against that key, never a duplicate insert.
+Collection: `routinelogs`. Schema (`models/RoutineLog.ts`): `userId`, `routineItemId` (ref), `date` (`YYYY-MM-DD`), `actualMinutes?`, `startedAt?: Date` (null while `paused`), `completedAt?: Date`, `pausedSeconds` (default `0`), `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, `note?`, `isBackEntry` (default `false`), `sessionGroupId?: ObjectId | null` (ref `RoutineGroup`, see below), `reviewMetadata?` (see below), plus timestamps. A **unique** compound index on `{ userId, routineItemId, date }` means there is always exactly one log per item per day — every write below is an upsert against that key, never a duplicate insert.
+
+`reviewMetadata` is set only on the terminal log for a `routine_review` item (see [routine-review.md](../features/routine-review.md)) — every other log leaves it `null`. Shape:
+```ts
+{
+  entryPoint: "sunday_prompt" | "analytics_button" | "notification";
+  groupId: ObjectId;       // which routine group this session actually reviewed
+  changesMade: boolean;
+  itemGoalChanges?: Array<{ routineItemId: ObjectId; oldMinutes: number; newMinutes: number }>;
+  startTimeChange?: { old: string | null; new: string | null };
+  reorder?: { old: ObjectId[]; new: ObjectId[] };
+}
+```
 
 `pausedSeconds` banks elapsed time accumulated in an earlier running segment of the same log — total elapsed while `in_progress` is `pausedSeconds + (now - startedAt)`. It's only meaningful while `in_progress` or `paused`; every write below that transitions a log to a terminal state (`done`/`missed`/`rest`) resets it to `0` after folding it into `actualMinutes`.
 
@@ -68,7 +80,7 @@ Collection: `routinelogs`. Schema (`models/RoutineLog.ts`): `userId`, `routineIt
 Returns all logs for the user on that date (defaults to today, computed **server-side in UTC** via `toISOString()` — not the client's local date).
 
 ### `POST /api/routine-logs`
-Request body: `{ routineItemId, date, state, actualMinutes?, isBackEntry?, sessionGroupId?, sessionNav? }`.
+Request body: `{ routineItemId, date, state, actualMinutes?, isBackEntry?, sessionGroupId?, sessionNav?, reviewMetadata? }`. `reviewMetadata` (see above) is passed straight into the upsert's `$set` when present — used only by the Routine Review flow's finish/decline write (see [routine-review.md](../features/routine-review.md)), never by any other caller of this route.
 
 - **`state: "in_progress"`** — branches on `sessionNav` in `lib/routine-log-actions.ts`:
   - `sessionNav` **not set** (the default — standalone timer, and this route's only mode when called from outside a Routine Session) — delegates to `startInProgressLog(userId, routineItemId, date, sessionGroupId)`. This enforces a **single-active-timer invariant** before writing anything: it queries for any other `RoutineLog` for this user with `state: "in_progress"` and a different `routineItemId` (any date), and for each one found, **auto-completes** it (`state: "done"`, `completedAt: now`, `actualMinutes` derived from its `startedAt` plus any `pausedSeconds` it had banked, minimum 1, `pausedSeconds` reset to `0`, `sessionGroupId` cleared) before proceeding. This is enforced server-side unconditionally — it does not trust the client to have closed out whatever it left running.
@@ -91,6 +103,14 @@ Every branch also sets `sessionGroupId: null` and `pausedSeconds: 0` — once a 
 ### `DELETE /api/routine-logs`
 Request body: `{ routineItemId, date }`. Deletes the matching log (this is how "Undo" works in the UI). Response: `{ ok: true }`.
 
+### `GET /api/routine-logs/active`
+Returns the user's single active (`in_progress`) timer, if any — used by the FAB (`components/BottomNav.tsx`) to render its resume pill and live clock without the client polling or holding the full day's logs. Queries `RoutineLog.findOne({ userId, state: "in_progress" })` sorted by `startedAt` descending (defensive only — the single-active-timer invariant means at most one should ever exist). Responds `{ active: false }` if there's no `startedAt`, or if the `RoutineItem` it points at can't be found — a dangling log, e.g. after the item was hard-deleted from the database; a merely soft-deleted (`isActive: false`) item still resolves fine, since this lookup doesn't filter on `isActive`.
+
+Response when active — a denormalized shape (item name/icon/type/target inlined) built for direct rendering, unlike the `serializeLog` shape used everywhere else on this page:
+```ts
+{ active: true, routineItemId, date, startedAt: <ISO>, pausedSeconds, itemName, itemIcon, itemType, projectedMinutes }
+```
+
 ## Routine Sessions
 
 Collection: `routinesessions`. Schema (`models/RoutineSession.ts`): `userId` (string, same convention as every other model here — **not** an `ObjectId`, since `SKIP_AUTH`'s dev user id isn't one), `groupId` (ref `RoutineGroup`), `date` (`YYYY-MM-DD`), `startedAt: Date`, `completedAt: Date | null`, `status: "in_progress" | "completed"`, `totalActualMinutes` (default `0`), `completionSequence: [{ routineItemId, completedAt, state: "done" | "missed" | "rest" }]`, `pauseOrJumpCount` (default `0`), plus timestamps. No unique index on `{ userId, groupId, date }` — a group can legitimately be started, finished, and started again the same day (redoing a routine), and each run gets its own record rather than colliding with the last one; a non-unique index on `{ userId, groupId, date, status }` just makes the "find the open session" lookup below cheap.
@@ -106,6 +126,23 @@ One known gap, inherent to the creation rule above rather than a bug: a routine 
 
 **Not yet exposed anywhere** — no `GET /api/routine-sessions`, and no UI reads these records. This story only lays the data foundation; surfacing `completionSequence`/`pauseOrJumpCount`/real start-to-finish duration in analytics (e.g. "you keep starting fifteen minutes late") is future work.
 
+## Routine Review
+
+### `GET /api/routine-review?groupId=X&localDate=YYYY-MM-DD`
+Backs the Routine Review flow's timeline/goal-editing screens (see [routine-review.md](../features/routine-review.md)) — a sibling to `GET /api/analytics`, not a parameter on it. Scoped to one group and a fixed 28-day trailing window (not the 7/30-day windows `/api/analytics` offers), long enough for a rolling average to be stable without outlier rejection or a trimmed mean.
+
+Only "timeable" items are included — `checkbox`, `virtue_checkin`, `weekly_review`, and `routine_review` items are filtered out, since none of them carry a real time goal to review.
+
+Response:
+```ts
+{
+  group: { _id, name, startTime: string | null };
+  items: Array<{ _id, name, icon, order, projectedMinutes, avgActualMins: number | null }>; // null = no done logs in the window yet
+  avgStartMinutesUtc: number | null; // earliest startedAt per day, averaged, same math as /api/analytics's groupAvgStart — null if no startedAt in the window
+  startTimeSampleSize: number;
+}
+```
+
 ## Consumed by
 
-[`features/routines.md`](../features/routines.md), [`features/habits.md`](../features/habits.md), [`features/timer.md`](../features/timer.md), [`features/analytics.md`](../features/analytics.md) (`RoutineLog` states and the `RoutineItem` schedule/threshold fields it aggregates over).
+[`features/routines.md`](../features/routines.md), [`features/habits.md`](../features/habits.md), [`features/timer.md`](../features/timer.md), [`features/analytics.md`](../features/analytics.md) (`RoutineLog` states and the `RoutineItem` schedule/threshold fields it aggregates over), [`features/routine-review.md`](../features/routine-review.md) (the `routine_review` item type, `reviewMetadata`, and `GET /api/routine-review`).

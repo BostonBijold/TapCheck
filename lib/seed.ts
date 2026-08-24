@@ -141,6 +141,34 @@ export async function ensureVirtueCheckInItems(userId: string) {
   ]);
 }
 
+// Idempotent — adds the Routine Review item to the evening routine. Kept
+// separate from ensureVirtueCheckInItems (rather than folded into it) since
+// this item type shipped later and the two are independently toggleable.
+export async function ensureRoutineReviewItem(userId: string) {
+  const alreadyDone = await RoutineItem.findOne({ userId, itemType: "routine_review" }).lean();
+  if (alreadyDone) return;
+
+  const eveningGroup = await RoutineGroup.findOne({ userId, timeOfDay: "evening" }).lean();
+  if (!eveningGroup) return;
+
+  const lastItem = await RoutineItem.findOne({ groupId: eveningGroup._id, userId })
+    .sort({ order: -1 }).lean();
+  const nextOrder = lastItem ? lastItem.order + 1 : 0;
+
+  await RoutineItem.create({
+    userId,
+    groupId: eveningGroup._id,
+    templateId: null,
+    name: "Routine Review",
+    icon: "list-checks",
+    projectedMinutes: 10,
+    order: nextOrder,
+    isActive: true,
+    itemType: "routine_review",
+    linkedGoalId: null,
+  });
+}
+
 // Idempotent — adds Afternoon Routine for users seeded before it existed.
 // Slots it between morning (order 0) and evening, shifting evening up if needed.
 export async function ensureAfternoonGroup(userId: string) {

@@ -13,6 +13,7 @@ The Today/Routines page groups a user's daily habits into time-of-day `RoutineGr
 - **`checkbox`** — no timer at all; a single tap marks it done.
 - **`virtue_checkin`** — opens the virtue check-in modal instead of a timer (not covered by this doc).
 - **`weekly_review`** — only actionable on Sundays; on other days it shows "Sunday habit — skip or rest for today" instead of its normal action panel.
+- **`routine_review`** — same Sunday-only gating as `weekly_review`, but opens the Routine Review flow instead — see [routine-review.md](routine-review.md).
 
 ## Log states
 
@@ -91,10 +92,10 @@ Tapping "Start Routine"/"Continue Routine" on a group (not shown for Habit group
 - `components/RoutineSession.tsx` — sequential multi-item session (see [timer.md](timer.md)).
 - `components/DateNav.tsx` — the `< Today >` date picker driving `selectedDate`.
 - `components/ManageRoutinesSheet.tsx`, `components/RoutineEditView.tsx` — group/item management (also the path for editing a Habit item — see [habits.md](habits.md)).
-- `lib/routine-visibility.ts` — **not** a general recurrence system despite the name suggesting one: today it's a single hardcoded rule (`weekly_review` items are visible only on Sundays). `scheduledDays`/`successThreshold` (above) are a separate, unrelated concept — they never affect this function or Today-view visibility at all.
+- `lib/routine-visibility.ts` — **not** a general recurrence system despite the name suggesting one: today it's a single hardcoded rule (`weekly_review` and `routine_review` items are visible only on Sundays). `scheduledDays`/`successThreshold` (above) are a separate, unrelated concept — they never affect this function or Today-view visibility at all.
 - `lib/routine-progress.ts` — the shared weekly-progress math (see "Weekly schedule + success threshold" above).
 - `lib/seed.ts` — idempotent seeding of default groups/items for new users.
 
 ## Depends on
 
-[`docs/api/routines-api.md`](../api/routines-api.md) — routine groups, routine items, and routine logs endpoints.
+[`docs/api/routines-api.md`](../api/routines-api.md) — routine groups, routine items, and routine logs endpoints. [`routine-review.md`](routine-review.md) for the `routine_review` item type's own flow.

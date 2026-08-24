@@ -55,9 +55,9 @@ The count line above the bar also switches source for the 7-day view — it read
 - `app/api/analytics/route.ts` — all aggregation; `getDates` (7-day fixed week vs. 30-day trailing), `elapsedDates` denominator handling, per-habit `weeklyProgress`.
 - `lib/week-dates.ts` — `calendarWeekDates`, shared with `StreakDots`'s date range.
 - `lib/routine-progress.ts` — `computeWeeklyProgress`, shared with `StreakDots` — see [routines.md](routines.md#weekly-schedule--success-threshold).
-- `components/AnalyticsContent.tsx` — `RoutineChart` (group bar charts, pending/today rendering, unaffected by the schedule/threshold work), `HabitRow` (per-habit bar — segmented + pacing for the 7-day view, the original single completion bar for 30-day).
+- `components/AnalyticsContent.tsx` — `RoutineChart` (group bar charts, pending/today rendering, unaffected by the schedule/threshold work), `HabitRow` (per-habit bar — segmented + pacing for the 7-day view, the original single completion bar for 30-day), and a per-group "Review" button next to the completion %, routing to `/routines/review?groupId=…&entryPoint=analytics_button` — see [routine-review.md](routine-review.md).
 - `components/AnalyticsView.tsx` — thin wrapper adding `Header`.
 
 ## Depends on
 
-[`api/routines-api.md`](../api/routines-api.md) for the `RoutineLog` states this all aggregates over, and the `scheduledDays`/`successThreshold` fields on `RoutineItem`.
+[`api/routines-api.md`](../api/routines-api.md) for the `RoutineLog` states this all aggregates over, and the `scheduledDays`/`successThreshold` fields on `RoutineItem`. [`routine-review.md`](routine-review.md) for the "Review" button's destination and the separate 28-day-window data it's backed by.

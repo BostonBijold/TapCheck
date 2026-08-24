@@ -4,7 +4,7 @@
 
 Covers `Philosophy` (virtue sets), the `Virtue` reference collection, daily `VirtueCheckIn` records, and philosophy selection — the data behind [features/virtues.md](../features/virtues.md). Completing the `virtue_checkin`/`weekly_review` special `RoutineItem`s still goes through the ordinary `POST /api/routine-logs` (documented in [routines-api.md](routines-api.md)) — not duplicated here.
 
-**Auth**: `GET /api/virtues` is the one route in this app with **no auth check at all** for the read itself, though the philosophy it resolves against is still the caller's own session-derived selection (see below) — virtues are otherwise global, read-only reference content. Every other route below follows the usual pattern: NextAuth session, with a `SKIP_AUTH`-gated dev fallback, `401` otherwise — except the admin-only routes, which check `isAdmin(email)` (`lib/admin.ts`: hardcoded email, or `SKIP_AUTH`) instead, `403` otherwise.
+**Auth**: every route below follows the usual pattern — NextAuth session, with a `SKIP_AUTH`-gated dev fallback, `401` otherwise — except the admin-only routes, which check `isAdmin(email)` (`lib/admin.ts`: hardcoded email, or `SKIP_AUTH`) instead, `403` otherwise. `GET /api/virtues` is session-authenticated the same as everything else (`401` if not); the philosophy it resolves against is the caller's own session-derived selection (see below) — virtues themselves are global, read-only reference content.
 
 ## `GET /api/philosophies`
 
@@ -30,7 +30,7 @@ Response: array of
 
 ## `GET /api/virtues`
 
-No auth check, but not fully public either: resolves which philosophy to read from server-side, via `lib/philosophy.ts`'s `resolveSelectedPhilosophyId(userId)` against the caller's own `User.selectedPhilosophyId` — a `?philosophyId=` override is accepted **only for admins** (`isAdmin(session?.user?.email)`), used by the management sheet to browse any philosophy's virtues including inactive ones (`activeOnly` becomes `false` in that case). A non-admin always gets their own selection, active virtues only, and `[]` if they haven't selected a philosophy yet.
+Session-authenticated (`401` if not, same as every other route here). Resolves which philosophy to read from server-side, via `lib/philosophy.ts`'s `resolveSelectedPhilosophyId(userId)` against the caller's own `User.selectedPhilosophyId` — a `?philosophyId=` override is accepted **only for admins** (`isAdmin(session?.user?.email)`), used by the management sheet to browse any philosophy's virtues including inactive ones (`activeOnly` becomes `false` in that case). A non-admin always gets their own selection, active virtues only, and `[]` if they haven't selected a philosophy yet.
 
 Response: array of
 ```ts
@@ -44,7 +44,7 @@ sorted by `order`.
 
 ## `PATCH /api/virtues/[id]`
 
-**Admin-only.** Body: any subset of `{ essay, etymology, displayName, tagline, order, isActive }` — extended from the original essay/etymology-only version; `name`/`slug`/`philosophyId` still have no update path (an admin who needs to change a virtue's core identity deletes and re-adds it). `isActive: false` is the soft-delete mechanism, same convention as elsewhere in this app. `404` if the id doesn't match an existing virtue.
+**Admin-only.** Body: any subset of `{ essay, etymology, displayName, tagline, order, isActive }` — extended from the original essay/etymology-only version; `name`/`slug`/`philosophyId` still have no update path. **Note:** the admin virtue editor (`PhilosophyManageSheet.tsx`'s `SortableVirtueRow`) actually submits `name` and `slug` too, alongside the fields above — those two are silently dropped by this route's allowlist, so edits to a virtue's word or slug appear to save in the UI (optimistic local state) but never persist; only `displayName`/`tagline`/`essay`/`etymology`/`order`/`isActive` actually reach the database. An admin who needs to change a virtue's word/slug has to deactivate it (`isActive: false`) and add a fresh replacement — there is no hard-delete route. `isActive: false` is the soft-delete mechanism, same convention as elsewhere in this app. `404` if the id doesn't match an existing virtue.
 
 Response: `{ _id, philosophyId, name, slug, tagline, displayName, order, essay, etymology, isActive }`.
 

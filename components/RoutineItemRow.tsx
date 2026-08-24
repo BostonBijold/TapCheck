@@ -13,7 +13,7 @@ export interface RowItem {
   icon: string;
   projectedMinutes: number;
   order: number;
-  itemType?: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review";
+  itemType?: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review" | "routine_review";
   scheduledDays: number[];   // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number;  // how many of this week's scheduled days = 100%
 }
@@ -32,6 +32,7 @@ interface Props {
   onStateChange: (state: LogState | null, opts?: { actualMinutes?: number; isBackEntry?: boolean; startedAt?: string; completedAt?: string }) => void;
   onOpenCheckIn?: () => void;
   onOpenReview?: () => void;
+  onOpenRoutineReview?: () => void;
 }
 
 function fmtMins(mins: number) {
@@ -85,7 +86,7 @@ export default function RoutineItemRow({
   item, log, weekLogs, weekDates,
   isExpanded, isBackEntry, selectedDate, today,
   onToggleExpand, onStartTimer, onStateChange,
-  onOpenCheckIn, onOpenReview,
+  onOpenCheckIn, onOpenReview, onOpenRoutineReview,
 }: Props) {
   const state = log?.state ?? null;
   const [backMins, setBackMins] = useState(
@@ -99,7 +100,7 @@ export default function RoutineItemRow({
   const isSunday = dow === 0;
   const isCheckbox = item.itemType === "checkbox";
   const isStopwatch = item.itemType === "stopwatch";
-  const isSpecial = item.itemType === "virtue_checkin" || item.itemType === "weekly_review";
+  const isSpecial = item.itemType === "virtue_checkin" || item.itemType === "weekly_review" || item.itemType === "routine_review";
   const isTimeable = !isCheckbox && !isSpecial;
 
   const variance =
@@ -296,6 +297,22 @@ export default function RoutineItemRow({
                     className="w-full flex items-center justify-between bg-gold/10 hover:bg-gold/20 border border-gold/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
                   >
                     <span className="font-body text-sm font-medium">☰ Weekly Review</span>
+                    <span className="font-mono text-gold text-xs">{fmtMins(item.projectedMinutes)}</span>
+                  </button>
+                ) : (
+                  <div className="px-4 py-3 rounded-card bg-bg border border-border">
+                    <p className="font-mono text-xs text-dim">Sunday habit — skip or rest for today</p>
+                  </div>
+                )
+              )}
+
+              {item.itemType === "routine_review" && (
+                isSunday ? (
+                  <button
+                    onClick={onOpenRoutineReview}
+                    className="w-full flex items-center justify-between bg-gold/10 hover:bg-gold/20 border border-gold/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
+                  >
+                    <span className="font-body text-sm font-medium">☰ Routine Review</span>
                     <span className="font-mono text-gold text-xs">{fmtMins(item.projectedMinutes)}</span>
                   </button>
                 ) : (

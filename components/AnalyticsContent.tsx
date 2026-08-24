@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import HabitIcon from "@/components/HabitIcon";
 import type { WeeklyProgress, DayBreakdown } from "@/lib/routine-progress";
 
@@ -312,6 +313,7 @@ function HabitRow({ habit }: { habit: HabitStats }) {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export default function AnalyticsContent() {
+  const router = useRouter();
   const [days, setDays] = useState<7 | 30>(7);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -395,12 +397,20 @@ export default function AnalyticsContent() {
                   <div key={group._id} className="bg-card rounded-card px-4 pt-4 pb-3">
                     <div className="flex items-start justify-between mb-1">
                       <h3 className="font-heading text-base text-text">{group.name}</h3>
-                      <span
-                        className="font-mono text-lg font-semibold flex-shrink-0 ml-3"
-                        style={{ color: completionBarColor(group.avgCompletionRate) }}
-                      >
-                        {completionPct}%
-                      </span>
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-3">
+                        <button
+                          onClick={() => router.push(`/routines/review?groupId=${group._id}&entryPoint=analytics_button&return=analytics`)}
+                          className="font-mono text-[10px] text-gold border border-gold/30 rounded-pill px-2.5 py-1 hover:bg-gold/10 transition-colors"
+                        >
+                          Review
+                        </button>
+                        <span
+                          className="font-mono text-lg font-semibold"
+                          style={{ color: completionBarColor(group.avgCompletionRate) }}
+                        >
+                          {completionPct}%
+                        </span>
+                      </div>
                     </div>
 
                     {group.avgStartMinutesUtc !== null && group.startTimeSampleSize >= 2 && (

@@ -6,7 +6,7 @@ import RoutineItem from "@/models/RoutineItem";
 import RoutineLog from "@/models/RoutineLog";
 import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import VirtueModel from "@/models/Virtue";
-import { seedDefaultRoutines, ensureAfternoonGroup, ensureHabitsGroup, ensureVirtueCheckInItems } from "@/lib/seed";
+import { seedDefaultRoutines, ensureAfternoonGroup, ensureHabitsGroup, ensureVirtueCheckInItems, ensureRoutineReviewItem } from "@/lib/seed";
 import { currentVirtueOrder } from "@/lib/seed-virtues";
 import { resolveSelectedPhilosophyId } from "@/lib/philosophy";
 import { calendarWeekDates } from "@/lib/week-dates";
@@ -41,6 +41,7 @@ export default async function RoutinesPage({
   else await ensureAfternoonGroup(userId); // backfill for existing users
   await ensureHabitsGroup(userId);
   await ensureVirtueCheckInItems(userId);
+  await ensureRoutineReviewItem(userId);
 
   // Backfill startTime for groups created before this field existed
   await RoutineGroup.updateOne(

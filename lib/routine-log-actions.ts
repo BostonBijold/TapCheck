@@ -1,5 +1,5 @@
 import RoutineLog from "@/models/RoutineLog";
-import type { LogState } from "@/models/RoutineLog";
+import type { LogState, IReviewMetadata } from "@/models/RoutineLog";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/routine-session-actions";
 
 // Shared by app/api/routine-logs (internal, session-authenticated) and
@@ -24,6 +24,7 @@ export function serializeLog(l: {
   pausedSeconds?: number | null;
   state: LogState;
   sessionGroupId?: { toString(): string } | null;
+  reviewMetadata?: IReviewMetadata | null;
 }) {
   return {
     _id: l._id.toString(),
@@ -35,6 +36,7 @@ export function serializeLog(l: {
     pausedSeconds: l.pausedSeconds ?? 0,
     state: l.state,
     sessionGroupId: l.sessionGroupId ? l.sessionGroupId.toString() : null,
+    reviewMetadata: l.reviewMetadata ?? null,
   };
 }
 

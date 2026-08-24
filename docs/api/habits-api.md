@@ -12,7 +12,7 @@ Powers `FABHabitSheet`'s quick-log list. Only `GET` is implemented on this route
 
 Query param: `date` (`YYYY-MM-DD`) — **defaults to the server's UTC date if omitted**, not the client's local date. Callers that need "today" in the user's timezone must pass `date` explicitly (as `FABHabitSheet` does).
 
-Logic: finds all of the user's `RoutineGroup`s with `timeOfDay: "habit"`; loads every active `RoutineItem` in those groups plus every `RoutineLog` for the user on that date; joins them client-side by `routineItemId`.
+Logic: finds all of the user's `RoutineGroup`s with `timeOfDay: "habit"`; loads every active `RoutineItem` in those groups plus every `RoutineLog` for the user on that date; joins them in the route handler by `routineItemId` (a plain JS `Map` lookup, not a Mongo-side `$lookup`).
 
 Response: array of
 ```ts
