@@ -6,6 +6,7 @@ import NfcTag from "@/models/NfcTag";
 import PendingNfcLink from "@/models/PendingNfcLink";
 import RoutineItem from "@/models/RoutineItem";
 import ClaimTagPicker from "@/components/ClaimTagPicker";
+import DoneScreen from "@/components/DoneScreen";
 
 const DEV_USER_ID = "dev-local-user";
 const PENDING_LINK_MAX_AGE_MS = 5 * 60 * 1000;
@@ -121,13 +122,33 @@ export default async function NfcTagPage({
     );
   }
 
-  await triggerHabit(
+  const routineGroupId = tag.routineGroupId ? tag.routineGroupId.toString() : null;
+  const { completed, started } = await triggerHabit(
     userId,
     item._id.toString(),
     item.itemType,
-    tag.routineGroupId ? tag.routineGroupId.toString() : null,
+    routineGroupId,
     todayString()
   );
+
+  // The tapped item itself just landed in a terminal `done` state — either
+  // it's a mark-and-done type (checkbox/virtue_checkin/weekly_review, which
+  // go straight to done via startImmediateLog, never in_progress at all) or
+  // it was the already-running timer this exact tap just completed. Either
+  // way, show the same static confirmation TimerScreen.tsx's own "Done"
+  // button leads to — no timer here, just "yes, that's logged."
+  //
+  // A timer that just *started* (or a different item that got completed as
+  // this tap's Case 3 side effect) isn't this tapped item being done, so
+  // that falls through to the plain redirect instead.
+  const tappedItemId = item._id.toString();
+  const tappedJustCompleted =
+    (started?.routineItemId === tappedItemId && started?.state === "done") ||
+    (completed?.routineItemId === tappedItemId && completed?.state === "done");
+
+  if (tappedJustCompleted) {
+    return <DoneScreen name={item.name} icon={item.icon} inRoutine={!!routineGroupId} />;
+  }
 
   redirect("/routines");
 }
