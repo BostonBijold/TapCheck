@@ -29,7 +29,7 @@ Params (accepted via JSON body or query string, body takes precedence when both 
 
 | Param | Required | Meaning |
 |---|---|---|
-| `routineItemId` | yes | Raw Mongo `_id` of the `RoutineItem` to start. No longer surfaced read-only in the UI — that block in `components/RoutineEditView.tsx`'s inline edit panel was replaced by the NFC tag link control (see [`nfc.md`](../features/nfc.md)). If you need the raw id for a manual Shortcut setup, `GET /api/nfc-tags` returns `routineItemId` for any item that already has a linked tag. |
+| `routineItemId` | yes | Raw Mongo `_id` of the `RoutineItem` to start. Displayed read-only (`select-all`, no copy button) on that item's inline edit panel in `components/RoutineEditView.tsx`. |
 | `routineGroupId` | no | Raw Mongo `_id` of the `RoutineGroup` the item belongs to. Displayed read-only the same way on the group's edit page. If given, the item must actually belong to that group (validated — see below). |
 | `date` | no | `YYYY-MM-DD`. Defaults to **server UTC date** (`new Date().toISOString().split("T")[0]`) — there's no client to supply a local timezone for an out-of-band caller. Same caveat as `GET /api/habits` in [habits-api.md](habits-api.md); can matter near midnight. |
 
@@ -51,9 +51,7 @@ Once inside a session opened this way, moving between items *inside that session
 
 ## `POST /api/external/trigger-habit`
 
-A single, bidirectional endpoint for a Shortcut fired by an NFC tap: the same call either **starts** or **completes** a habit, decided entirely by current server state (is there an active timer, does it match the tapped item, and is it already done today) — never by a param the caller sends. This is what makes one NFC tag workable for a whole routine: tap it once to start the first item, tap the next tag to both finish that item and start the next, and so on.
-
-The state-transition decision itself — everything in "Behavior" below — lives in `toggleRoutineItemLog` (`lib/routine-log-actions.ts`), not inline in this route. It's shared with the session-authenticated NFC resolve page (`app/(app)/nfc/t/[tagUID]/page.tsx`, see [`nfc-api.md`](nfc-api.md) and [`features/nfc.md`](../features/nfc.md)) — both callers do their own auth and item/group ownership validation, then hand an already-validated item to the same function so the toggle logic itself is never duplicated.
+A single, bidirectional endpoint for a Shortcut fired by an NFC tap: the same call either **starts** or **completes** a habit, decided entirely by current server state (is there an active timer, and does it match the tapped item) — never by a param the caller sends. This is what makes one NFC tag workable for a whole routine: tap it once to start the first item, tap the next tag to both finish that item and start the next, and so on.
 
 Same auth as `start-timer` (see [Auth](#auth) above). Params, also accepted via JSON body or query string (body takes precedence):
 
@@ -65,11 +63,9 @@ Same auth as `start-timer` (see [Auth](#auth) above). Params, also accepted via 
 
 Validation is identical to `start-timer`, in the same order: item must exist and belong to this user (`404`); if `routineGroupId` given, group must exist and belong to this user (`404`) and the item's `groupId` must match it (`400`); malformed ObjectId strings return `400`, not a 500.
 
-### Behavior — four cases
+### Behavior — three cases
 
-Which case applies is determined first by the tapped item's own log for today, then by looking up this user's single active (`in_progress`) log, if any, and comparing its `routineItemId` to the tapped one:
-
-**Case 0 — the tapped item is already `done` today.** A no-op — returns immediately with `alreadyDone: true`, `completed: null`, `started: null`. Tapping an already-completed item's tag again doesn't reopen it; that's what the app's own Undo button is for. (This case didn't exist before `toggleRoutineItemLog` was factored out — the endpoint used to fall through to Case 1 and silently restart an already-done item. Fixed as part of adding the NFC resolve page, which needed this same guard.)
+Which case applies is determined by looking up this user's single active (`in_progress`) log, if any, and comparing its `routineItemId` to the tapped one:
 
 **Case 1 — no active log exists anywhere for this user.** Starts the tapped item:
 - `standard`/`stopwatch` items → `startInProgressLog` (identical to `start-timer`'s own effect, including `sessionGroupId` anchoring if `routineGroupId` was passed).
@@ -90,11 +86,10 @@ All three cases use the sweep-to-**complete** pattern (`startInProgressLog` / `s
   ok: true,
   completed: SerializedRoutineLog | null,   // item just completed, if any (Case 2/3)
   started: SerializedRoutineLog | null,     // item just started, if any (Case 1, Case 2-with-next, Case 3)
-  alreadyDone: boolean,                     // true only for Case 0 — completed/started are both null when this is true
 }
 ```
 
-`completed`/`started` use the same `serializeLog` shape as `start-timer`'s response. Either (or, in Case 0, both) can be `null` — e.g. Case 2 with no next item in the group has `completed` populated and `started: null`.
+Both use the same `serializeLog` shape as `start-timer`'s response. Either can be `null` — e.g. Case 2 with no next item in the group has `completed` populated and `started: null`.
 
 ### Relationship to `start-timer`
 
@@ -103,5 +98,3 @@ All three cases use the sweep-to-**complete** pattern (`startInProgressLog` / `s
 ## Consumed by
 
 [`features/timer.md`](../features/timer.md) (the resume-into-session behavior) and, indirectly, [`features/routines.md`](../features/routines.md) (where the item/group IDs this endpoint needs are surfaced for copying).
-
-`trigger-habit`'s toggle logic (`toggleRoutineItemLog`) is also called directly by the NFC resolve page — see [`nfc-api.md`](nfc-api.md) and [`features/nfc.md`](../features/nfc.md).

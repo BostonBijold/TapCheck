@@ -11,7 +11,7 @@
 | `app/` | Next.js App Router: pages/layouts under `app/(app)/` and the top-level routes, plus every API route handler under `app/api/**/route.ts`. |
 | `components/` | Shared React client components — page-level views (`RoutinesView.tsx`, `GoalsView.tsx`, …), bottom-sheet/modal flows (`AddHabitSheet.tsx`, `FABTaskSheet.tsx`, …), and smaller presentational pieces (`HabitIcon.tsx`, `StreakDots.tsx`, …). |
 | `lib/` | DB connection utilities (`mongoose.ts`, `mongodb-client.ts`), auth config (`auth.ts`, `auth.config.ts`), idempotent seed/bootstrap logic (`seed.ts`, `seed-templates.ts`, `seed-virtues.ts`), and small shared helpers (`routine-visibility.ts` — despite the name, just one hardcoded rule, not a general recurrence system, see routines.md — `routine-progress.ts`, `week-dates.ts`, `useTodoActions.ts`, `virtue-dates.ts`, `philosophy.ts` — resolves a user's selected `Philosophy`, works for `dev-local-user` too, see virtues.md — `admin.ts` — shared `isAdmin(email)` check). |
-| `models/` | Mongoose schema/model definitions, one per MongoDB collection (`Goal.ts`, `HabitTemplate.ts`, `NfcTag.ts`, `Philosophy.ts`, `RoutineGroup.ts`, `RoutineItem.ts`, `RoutineLog.ts`, `RoutineSession.ts`, `Todo.ts`, `User.ts`, `Virtue.ts`, `VirtueCheckIn.ts`). |
+| `models/` | Mongoose schema/model definitions, one per MongoDB collection (`Goal.ts`, `HabitTemplate.ts`, `Philosophy.ts`, `RoutineGroup.ts`, `RoutineItem.ts`, `RoutineLog.ts`, `Todo.ts`, `User.ts`, `Virtue.ts`, `VirtueCheckIn.ts`). |
 | `public/` | Static assets served at the web root — app icons, the PWA `manifest.json`, and the service worker `sw.js`. |
 | `scripts/` | One-off, manually-run migration scripts — not wired into app boot. Currently `migrate-philosophies.mjs` (see virtues.md). |
 | `types/` | Shared/ambient TypeScript declarations (currently `next-auth.d.ts`, extending the NextAuth session/user types). |
@@ -20,8 +20,8 @@
 
 | Path | Purpose |
 |---|---|
-| `app/(app)/` | The authenticated app shell — layout with the bottom nav, plus the `routines`, `goals`, `analytics`, `review`, `virtues`, `profile`, `store`, `nfc` pages. `nfc/t/[tagUID]` is the NFC tag resolve-and-toggle page — see `docs/features/nfc.md`. |
-| `app/api/` | Every backend endpoint, grouped by domain (`routines`, `routine-items`, `routine-logs`, `habits`, `habit-templates`, `goals`, `todos`, `virtues`, `virtue-checkins`, `analytics`, `user`, `external`, `nfc-tags`, `auth`, `seed`, `dev`). `external` is API-key-authenticated (no session), for outside callers like an iPhone Shortcut — see `docs/api/external-api.md`. `nfc-tags` is session-authenticated — see `docs/api/nfc-api.md`. |
+| `app/(app)/` | The authenticated app shell — layout with the bottom nav, plus the `routines`, `goals`, `analytics`, `review`, `virtues`, `profile`, `store` pages. |
+| `app/api/` | Every backend endpoint, grouped by domain (`routines`, `routine-items`, `routine-logs`, `habits`, `habit-templates`, `goals`, `todos`, `virtues`, `virtue-checkins`, `analytics`, `user`, `external`, `auth`, `seed`, `dev`). `external` is API-key-authenticated (no session), for outside callers like an iPhone Shortcut — see `docs/api/external-api.md`. |
 | `app/login/` | The one public, unauthenticated page (per `middleware.ts`) — Google sign-in. |
 | `app/welcome/` | Post-login splash screen, shown once per sign-in before landing on `/routines`. |
 
@@ -36,7 +36,6 @@
 | [`features/goals.md`](features/goals.md) | Goals, milestones, and tasks; the lowest-unit-wins progress rule; why habit-goal linking and outcome logging are schema-only today; the goal-task/standalone-todo split. |
 | [`features/todos.md`](features/todos.md) | The standalone `Todo` list — no separate API doc, folded in here — overdue carry-forward on the Routines page vs. the future-only backlog on the Goals page, and the shared `FABTaskSheet` creation flow. |
 | [`features/virtues.md`](features/virtues.md) | The 4th nav tab: admin-created `Philosophy` virtue sets and the selection marketplace, the per-philosophy weekly rotation (Monday-anchored, purely date-computed), the daily check-in, the Sunday weekly review, the admin virtue/philosophy management sheet, and the `/review` redirect shim. |
-| [`features/nfc.md`](features/nfc.md) | Linking a physical NFC tag to a habit from its edit panel, and the tap-triggered start/close/no-op toggle. |
 
 ## API Docs
 
@@ -44,8 +43,7 @@
 |---|---|
 | [`api/routines-api.md`](api/routines-api.md) | Routine groups, routine items (including the `scheduledDays`/`successThreshold` schedule model), and routine logs (including the `paused` state and `pausedSeconds`) — `/api/routines*`, `/api/routine-items*`, `/api/routine-logs`. |
 | [`api/habits-api.md`](api/habits-api.md) | The habits list and the habit-template catalog — `/api/habits`, `/api/habit-templates`. |
-| [`api/external-api.md`](api/external-api.md) | API-key-authenticated (no session) endpoint for triggering a timer from outside the app, e.g. an iPhone Shortcut — `/api/external/start-timer`, `/api/external/trigger-habit`, `/api/user/api-key`. |
-| [`api/nfc-api.md`](api/nfc-api.md) | Session-authenticated NFC tag → habit mapping and the tap-triggered resolve page — `/api/nfc-tags*`. |
+| [`api/external-api.md`](api/external-api.md) | API-key-authenticated (no session) endpoint for triggering a timer from outside the app, e.g. an iPhone Shortcut — `/api/external/start-timer`, `/api/user/api-key`. |
 | [`api/goals-api.md`](api/goals-api.md) | Goals, milestones, and tasks — `/api/goals*`, including the `quick-task` shortcut. |
 | [`api/virtues-api.md`](api/virtues-api.md) | Philosophies (virtue sets), the virtue reference collection, daily check-ins, and philosophy selection — `/api/philosophies*`, `/api/virtues*`, `/api/virtue-checkins`, `/api/user/profile`. |
 
