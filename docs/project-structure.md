@@ -2,7 +2,7 @@
 
 # Project Structure
 
-**be-one** ("A Good Man") is a Next.js 14 App Router application written in TypeScript, styled with Tailwind CSS, and deployed on Vercel — Next.js API routes act as the backend (serverless functions), with MongoDB (via Mongoose) as the persistence layer. There is no separate backend service; `app/api/**/route.ts` files are the entire API surface.
+**be-one** ("A Good Man") is a Next.js 14 App Router application written in TypeScript, styled with Tailwind CSS, and deployed on Vercel — Next.js API routes act as the backend (serverless functions), with MongoDB (via Mongoose) as the persistence layer. There is no separate backend service; `app/api/**/route.ts` files are the entire API surface. A native iOS shell (Capacitor, server-URL mode — see "iOS Native Shell" below) wraps this same deployed web app; it does not change or duplicate any of the above.
 
 ## Folder Map
 
@@ -15,6 +15,17 @@
 | `public/` | Static assets served at the web root — app icons, the PWA `manifest.json`, and the service worker `sw.js`. |
 | `scripts/` | One-off, manually-run migration/seed scripts — not wired into app boot. `migrate-philosophies.mjs` (see virtues.md), `seed-stoicism-and-franklin-content.mjs` (seeds Stoic + Franklin virtue/philosophy content), and `_tmp-check-dev-user.mjs` (scratch debug script, not part of any workflow). |
 | `types/` | Shared/ambient TypeScript declarations (currently `next-auth.d.ts`, extending the NextAuth session/user types). |
+| `ios/` | Generated Xcode project for the native shell (Capacitor). `ios/App/App.xcodeproj` is the project to open — this Capacitor version uses Swift Package Manager, not CocoaPods, so there is no `.xcworkspace`. `ios/App/App/MainViewController.swift` is the one piece of custom native code (disables WebView scroll bounce); everything else is Capacitor-generated boilerplate. `ios/DerivedData/` is Xcode build cache, gitignored. |
+| `assets/` | Master 1024×1024 icon and splash source images (generated from the jackalope logo via `npx capacitor-assets generate`), consumed to produce `ios/App/App/Assets.xcassets/`. |
+| `capacitor.config.ts` | Capacitor config at repo root — `server.url` points the native WebView at the deployed Vercel URL (server-URL mode: no static export, the native shell just loads the live site). `server.allowNavigation` allowlists `accounts.google.com` so Google OAuth completes inside the app's own WebView instead of Capacitor bouncing it out to system Safari, which would break Auth.js's CSRF/session cookie continuity — see "iOS Native Shell" below. |
+
+## iOS Native Shell
+
+The iOS app is a Capacitor wrapper in **server-URL mode**: the native `WKWebView` loads the live production Next.js deployment directly (`capacitor.config.ts`'s `server.url`), the same as a browser tab, just without browser chrome and with its own icon/splash. There is no static export and no bundled frontend — the Next.js codebase requires zero changes for this to work, and any future edits to `app/`/`components/` ship to the iOS app automatically the next time production redeploys (no App Store review needed for content changes, only for native shell changes).
+
+**Google OAuth inside the WebView:** Capacitor's default behavior sends navigation to domains outside the app's own origin (like `accounts.google.com`) out to the system Safari app. That breaks Auth.js's sign-in flow, because the CSRF token and session cookies set when the flow starts live in the app's WebView cookie jar, not Safari's — the callback lands back in Safari's separate jar and Auth.js can't validate it, surfacing as a generic `/api/auth/error` "Server error" page. The fix was to allowlist `accounts.google.com` in `capacitor.config.ts`'s `server.allowNavigation`, keeping the whole OAuth round-trip inside the app's own WebView and its single cookie jar. This did **not** require routing through `@capacitor/browser`/`ASWebAuthenticationSession` or Universal Links — the simpler in-WebView allowlist was sufficient once tested against the real production OAuth flow in the iOS Simulator.
+
+**Branding:** `assets/icon.png` and `assets/splash.png`/`splash-dark.png` are generated once from the jackalope logo (parchment `#e8e0cc` background for the icon so the black line art is visible; the splash screen recolors the mark to parchment against the app's `#18160f` dark background) and then expanded into the full `Assets.xcassets` icon/splash set via `npx capacitor-assets generate --ios`. Re-run that command after editing the `assets/` masters, then `npx cap sync ios`.
 
 ### `app/` subfolders
 
