@@ -9,6 +9,9 @@ const config: CapacitorConfig = {
     cleartext: false,
     allowNavigation: ['accounts.google.com']
   },
+  ios: {
+    backgroundColor: '#18160f'
+  },
   plugins: {
     SplashScreen: {
       backgroundColor: '#18160f',
