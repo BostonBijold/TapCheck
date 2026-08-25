@@ -2,7 +2,10 @@
 
 # NFC Tap-to-Start Habits
 
-Physical NFC tags, pre-manufactured with a generic branded URL and sold/handed to a user, that a user then links to one of their own habits inside the app — tapping the tag afterward opens the native app directly (not a browser) and starts or completes that habit. Distinct from [`api/external-api.md`](../api/external-api.md)'s `trigger-habit` endpoint, which is the older Shortcuts-app-mediated path (NFC tag → iOS Automation → Shortcut → API-key POST with a hardcoded `routineItemId`); this feature needs no Shortcuts setup from the end user at all. Both paths share the same underlying start/complete logic — see [Relationship to the external API](#relationship-to-the-external-api) below.
+Physical NFC tags, pre-manufactured with a generic branded URL and sold/handed to a user, that a user then links to one of their own habits inside the app. Two supported paths turn a tap into the same start/complete/advance logic, sharing it via one underlying implementation — see [Relationship to the external API](#relationship-to-the-external-api) below:
+
+- **Universal Links** (this document, below) — tapping the tag opens `/nfc/<tagCode>` directly in the native app (not a browser). Zero setup beyond linking the tag once in-app, works for any tag, but a tap always surfaces iOS's own unskippable confirmation prompt (see [Native setup](#native-setup) below) and needs the phone unlocked with the app reachable.
+- **Shortcuts-driven silent triggers** (see [Setting up silent tap triggers](#setting-up-silent-tap-triggers) below) — a single generic Shortcut, imported once per user and paired with a per-tag NFC Automation, fires the identical logic with no confirmation card, no app-open requirement, and the phone locked. Needs a one-time Shortcuts import plus one Automation per physical tag, but is the faster everyday path once set up — an actively maintained fast path, not a legacy fallback.
 
 ## Why Universal Links, not a plain web link
 
@@ -28,6 +31,20 @@ If a tag is tapped cold (unclaimed, nothing armed), the page instead renders a p
 Tapping an already-claimed tag opens the same page; since `tag.userId` now matches the session, it calls `triggerHabit()` (`lib/nfc-actions.ts`) — the same bidirectional start/complete case logic `trigger-habit` uses (see below). If that call left the *tapped* item itself in a terminal `done` state — either it's a mark-and-done type (checkbox/virtue_checkin/weekly_review, always immediate) or it was the already-running timer this exact tap just completed — the page renders `components/DoneScreen.tsx`: the same full-screen layout as `TimerScreen.tsx`'s own completion state (icon, name, big centered circle), just static instead of a running countdown, with a checkmark instead of a timer. If instead the tap just *started* a timer (or completed a *different* item as a Case 3 jump side effect — see the case breakdown in [`api/external-api.md`](../api/external-api.md)), the tapped item isn't "done" yet, so the page falls through to a plain `redirect("/routines")` where the running timer is visible instead.
 
 If the tag belongs to a different user, the page shows a generic "already linked to another account" message without revealing which item/user.
+
+## Setting up silent tap triggers
+
+Universal Links' unskippable OS confirmation prompt is a hard platform constraint on any Universal-Link-driven NFC tap, not something this app's build can suppress — so the fast, silent, phone-locked everyday path instead goes through the Shortcuts app, which iOS lets an NFC Automation fire without asking.
+
+1. A single generic iPhone Shortcut is built once (see `components/TapTriggerSetupModal.tsx`, surfaced from the Profile page) and shared via an iCloud share link (`lib/tap-trigger-config.ts`). Each user imports it once; the Import Question step asks for their personal API key (from the Profile page's External API Key card — see [`api/external-api.md`](../api/external-api.md#auth)), baked into that user's copy of the Shortcut so no further per-tag configuration is needed.
+2. For each physical tag, the user creates one NFC Automation in the Shortcuts app (Automation → + → NFC → scan tag → Run Shortcut → select the personalized generic Shortcut → turn off "Ask Before Running" and "Notify When Run") pointed at `https://<domain>/api/external/nfc/<tagCode>`.
+3. Tapping the tag fires the Automation directly — no app-open, no OS confirmation card, works with the phone locked — which calls [`GET /api/external/nfc/[tagCode]`](../api/external-api.md) with that user's API key. The route resolves `tagCode` to whichever habit is currently linked (re-resolved at tap time, not at Automation-setup time) and calls the same `triggerHabit()` this page's own Universal Link flow uses.
+
+Because the URL only changes per physical tag (the `tagCode` segment), never per habit, and the habit a tag maps to is looked up fresh on every tap, relinking a tag to a different habit in the app (see [Manage Habit UI](#manage-habit-ui) below) takes effect on the very next tap — the per-tag Automation never needs to be touched again, and the one-time Shortcut import never needs repeating.
+
+### Why not an in-app NFC listener instead
+
+Reading the tag directly from within this app's own code (Core NFC) was considered and ruled out: a Core NFC reader session cannot survive the app backgrounding or the screen locking — it's torn down immediately — and even while the app stays foregrounded, iOS caps a single session at 60 seconds. There's no way to keep a listener armed silently the way a Shortcuts Automation can, so an in-app listener could only ever work with the app already open in the foreground at the moment of the tap — a materially worse experience than either path above, and not pursued further.
 
 ## Manage Habit UI
 
@@ -63,4 +80,4 @@ Boston writes each printed URL to a physical tag using his own NFC writer app �
 
 ## Relationship to the external API
 
-`lib/nfc-actions.ts`'s `triggerHabit()` is the same case-dispatch logic `POST /api/external/trigger-habit` (see [`api/external-api.md`](../api/external-api.md)) uses — extracted out so both the Shortcuts-authenticated route and this session-authenticated page share one implementation instead of two. The route stayed a thin wrapper around it (auth/param parsing + ownership checks, then `triggerHabit()`); its documented request/response shape and case behavior are unchanged.
+`lib/nfc-actions.ts`'s `triggerHabit()` is the same case-dispatch logic every API-key-authenticated external route uses — `POST /api/external/trigger-habit` (caller supplies `routineItemId` directly) and `GET /api/external/nfc/[tagCode]` (caller supplies a `tagCode`, resolved to a `routineItemId` server-side — see [Setting up silent tap triggers](#setting-up-silent-tap-triggers) above) — see [`api/external-api.md`](../api/external-api.md). Extracted out so every Shortcuts-authenticated route and this session-authenticated page share one implementation instead of three. Each route stays a thin wrapper around it (auth/param parsing + ownership checks, then `triggerHabit()`); documented request/response shapes and case behavior are unchanged by that sharing.

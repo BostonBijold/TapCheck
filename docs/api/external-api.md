@@ -97,6 +97,46 @@ Both use the same `serializeLog` shape as `start-timer`'s response. Either can b
 
 **`trigger-habit` supersedes `start-timer` for the tap-driven use case.** `start-timer` is a one-way "always start, never complete" primitive — fine for a Shortcut that means only "begin this," but wrong for an NFC tag meant to be tapped repeatedly through a routine, since it never completes the item you're walking away from on its own (that still relies on the general single-active-timer sweep completing it only once you start something *else*, not when you re-tap the same tag). A single NFC tag pointed at `trigger-habit` handles the full start → complete → advance cycle with one action, so **new Shortcuts should be built against `trigger-habit`, not `start-timer`**. `start-timer` isn't removed — it's kept as the lower-level "cold start" primitive `trigger-habit` builds on top of (both ultimately call `startInProgressLog`/`startImmediateLog`), and remains valid for a caller that genuinely only ever wants to start, never complete.
 
+## `GET /api/external/nfc/[tagCode]`
+
+A GET-based sibling to `trigger-habit`, built for a single **generic** iPhone Shortcut — imported once per user, no per-habit rebuilding — paired with a per-physical-tag NFC Automation in the Shortcuts app. An Automation can fire a Shortcut directly off an NFC tag with no OS confirmation card and no app-open requirement, phone locked included; this route is what that Automation calls. See [`features/nfc.md`](../features/nfc.md#setting-up-silent-tap-triggers) for the full setup story.
+
+Where `trigger-habit` takes an explicit `routineItemId` (one Shortcut per habit, hardcoded), this route takes a `tagCode` and resolves the linked habit **at tap time**, not at Shortcut/Automation-setup time — the same `NfcTag` lookup `app/nfc/[tagCode]` already does for the Universal Link path. That's what lets one generic Shortcut serve every tag a user owns: relinking a tag to a different habit in the app takes effect on the very next tap, with zero changes needed on the Shortcuts side. Once resolved, it calls the same `triggerHabit()` (`lib/nfc-actions.ts`) that `trigger-habit` and `app/nfc/[tagCode]` both call — three consumers of one shared implementation.
+
+Same auth as `start-timer`/`trigger-habit` (see [Auth](#auth) above), with one difference: a GET from Shortcuts' "Get Contents of URL" action carries no JSON body, so the API key here is only ever read from the query string or the `x-api-key` header — never a body field.
+
+| Param | Required | Meaning |
+|---|---|---|
+| `tagCode` | yes | Path segment — the tag's own code (`models/NfcTag.ts`), not a Mongo `_id`. |
+| `apiKey` | yes | Query string (`?apiKey=...`, what a Shortcut sends) or `x-api-key` header. |
+
+Tag resolution mirrors `app/nfc/[tagCode]/page.tsx`'s branch on `NfcTag.findOne({ tagCode })` exactly, translated to status codes instead of rendered screens:
+
+- **Tag doesn't exist** → `404 { error: "Tag not found" }`.
+- **Tag is claimed by a different user** → the same generic `404 { error: "Tag not found" }`, deliberately indistinguishable from "doesn't exist" — this endpoint never reveals that a tag exists or is owned by someone else, matching `app/nfc/[tagCode]/page.tsx`'s own anti-enumeration stance.
+- **Tag is unclaimed** — auto-claims exactly like the "arm, then tap" flow: if there's a `PendingNfcLink` for the caller armed within the last 5 minutes, and its `routineItemId` still resolves to an active `RoutineItem` for that user, the tag is claimed against it (`userId`/`routineItemId`/`routineGroupId`/`claimedAt` set, the `PendingNfcLink` deleted) and the trigger proceeds against the newly-claimed item in the same request. Otherwise the request fails with `422 { error: "Tag is not linked to a habit yet — link it in the app first" }` — an unattended Shortcut has no way to pick from a list the way the in-app `ClaimTagPicker` does, so a cold, never-armed tap here is a dead end by design.
+- **Tag is claimed by the caller** — the everyday case. Re-fetches the linked `RoutineItem` (`{ _id: tag.routineItemId, userId, isActive: true }`); if it no longer exists, `404 { error: "Habit not found" }`.
+
+No malformed-ObjectId `400` class exists here the way it does for `start-timer`/`trigger-habit`: `tagCode` is a plain unique string, never cast to an ObjectId, and every id used downstream (`tag.routineItemId`, `pending.routineItemId`) is internally-sourced, never raw caller input.
+
+On success, `routineGroupId` is read straight off the tag's own stored `routineGroupId` (or the just-claimed item's `groupId`) — never caller input, so unlike `trigger-habit`/`start-timer` there's no "does the item belong to that group" re-validation to do; `app/nfc/[tagCode]/page.tsx` skips this same check for the same reason. `date` defaults to server UTC date via the same pattern as the other two external routes.
+
+### Response
+
+```ts
+{
+  ok: true,
+  completed: SerializedRoutineLog | null,
+  started: SerializedRoutineLog | null,
+}
+```
+
+Identical shape and semantics to `trigger-habit`'s response — same underlying dispatch, just addressed by tag instead of by item.
+
+### Relationship to `trigger-habit`
+
+Same underlying dispatch, different addressing. `trigger-habit` requires knowing the target `routineItemId` up front, so a Shortcut built against it is scoped to one habit. This endpoint resolves the habit from the tag at request time, which is what lets **one generic Shortcut, imported once, serve every physical tag a user owns** — each tag's NFC Automation just points at a different URL segment (the `tagCode`), and relinking a tag in the app changes what that URL resolves to without touching the Shortcut or the Automation at all. `trigger-habit` remains the right choice for a caller that already knows the target `routineItemId` directly (e.g. a Shortcut built against one specific habit); this endpoint is for the multi-tag, tag-identifies-the-habit case.
+
 ## Consumed by
 
 [`features/timer.md`](../features/timer.md) (the resume-into-session behavior) and, indirectly, [`features/routines.md`](../features/routines.md) (where the item/group IDs this endpoint needs are surfaced for copying).
