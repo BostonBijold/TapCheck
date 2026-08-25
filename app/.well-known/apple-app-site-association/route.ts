@@ -6,18 +6,17 @@ import { NextResponse } from "next/server";
 // guaranteed regardless of static-file content-type quirks; Apple fetches
 // this over HTTPS with no redirect allowed.
 //
-// appID's team ID (T3NRTCA735) is the free Personal Team currently used for
-// local device testing — once the paid Developer Program enrollment clears
-// and TestFlight/App Store builds sign with that team instead, this must be
-// updated to match, or Universal Links will silently stop matching for any
-// build signed with the new team.
+// appID's team ID (X3DPK5Y29G) is the paid Developer Program team — update
+// this (and ios/App/App.xcodeproj's DEVELOPMENT_TEAM) together if the app
+// is ever re-signed under a different team, or Universal Links will
+// silently stop matching.
 export async function GET() {
   return NextResponse.json({
     applinks: {
       apps: [],
       details: [
         {
-          appID: "T3NRTCA735.com.bostonbijold.beone",
+          appID: "X3DPK5Y29G.com.bostonbijold.beone",
           paths: ["/nfc/*"],
         },
       ],
