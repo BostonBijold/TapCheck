@@ -24,6 +24,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import HabitIcon, { IconPicker } from "@/components/HabitIcon";
 import AddHabitSheet from "@/components/AddHabitSheet";
+import TagLinkedSetup from "@/components/TagLinkedSetup";
 
 export interface EditItem {
   _id: string;
@@ -54,6 +55,7 @@ function SortableRow({
   onRemove,
   onArmNfc,
   onUnlinkNfc,
+  onGenerateTrigger,
 }: {
   item: EditItem;
   isEditing: boolean;
@@ -69,6 +71,7 @@ function SortableRow({
   onRemove: () => Promise<void>;
   onArmNfc: () => Promise<void>;
   onUnlinkNfc: () => Promise<void>;
+  onGenerateTrigger: () => Promise<string | null>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item._id });
@@ -89,6 +92,7 @@ function SortableRow({
   const [saving, setSaving] = useState(false);
   const [nfcArmed, setNfcArmed] = useState(false);
   const [nfcBusy, setNfcBusy] = useState(false);
+  const [showTriggerSetup, setShowTriggerSetup] = useState<string | null>(null);
 
   function toggleEditDay(day: number) {
     setEditScheduledDays((prev) => {
@@ -275,11 +279,26 @@ function SortableRow({
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
               NFC Tag
             </p>
-            {item.nfcTagCode ? (
-              <div className="flex items-center gap-2">
+            {showTriggerSetup ? (
+              <TagLinkedSetup
+                tagCode={showTriggerSetup}
+                itemName={item.name}
+                itemIcon={item.icon}
+                onDone={() => setShowTriggerSetup(null)}
+                doneLabel="Close"
+              />
+            ) : item.nfcTagCode ? (
+              <div className="flex items-center gap-2 flex-wrap">
                 <p className="font-mono text-[11px] text-olive flex-1">
                   Linked · {item.nfcTagCode}
                 </p>
+                <button
+                  type="button"
+                  onClick={() => setShowTriggerSetup(item.nfcTagCode)}
+                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-gold/10 border border-gold/30 text-gold"
+                >
+                  Setup Info
+                </button>
                 <button
                   type="button"
                   disabled={nfcBusy}
@@ -298,19 +317,37 @@ function SortableRow({
                 Now tap the tag against your phone.
               </p>
             ) : (
-              <button
-                type="button"
-                disabled={nfcBusy}
-                onClick={async () => {
-                  setNfcBusy(true);
-                  await onArmNfc();
-                  setNfcBusy(false);
-                  setNfcArmed(true);
-                }}
-                className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-olive/15 border border-olive/30 text-olive disabled:opacity-50"
-              >
-                {nfcBusy ? "Preparing…" : "Link NFC Tag"}
-              </button>
+              <div className="flex flex-col gap-2 items-start">
+                <button
+                  type="button"
+                  disabled={nfcBusy}
+                  onClick={async () => {
+                    setNfcBusy(true);
+                    await onArmNfc();
+                    setNfcBusy(false);
+                    setNfcArmed(true);
+                  }}
+                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-olive/15 border border-olive/30 text-olive disabled:opacity-50"
+                >
+                  {nfcBusy ? "Preparing…" : "Link a Physical Tag"}
+                </button>
+                <button
+                  type="button"
+                  disabled={nfcBusy}
+                  onClick={async () => {
+                    setNfcBusy(true);
+                    const tagCode = await onGenerateTrigger();
+                    setNfcBusy(false);
+                    if (tagCode) setShowTriggerSetup(tagCode);
+                  }}
+                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-gold/10 border border-gold/30 text-gold disabled:opacity-50"
+                >
+                  {nfcBusy ? "Generating…" : "Generate Silent Trigger (no tag needed)"}
+                </button>
+                <p className="font-body text-[10px] text-dim leading-relaxed">
+                  A physical tag needs one tap to link. A generated trigger works with any blank NFC tag you bind later in Shortcuts — no branded card required.
+                </p>
+              </div>
             )}
           </div>
 
@@ -416,6 +453,20 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     setItems((prev) =>
       prev.map((it) => (it._id === routineItemId ? { ...it, nfcTagCode: null } : it))
     );
+  };
+
+  const handleGenerateTrigger = async (routineItemId: string): Promise<string | null> => {
+    const res = await fetch("/api/nfc-tags/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ routineItemId }),
+    });
+    if (!res.ok) return null;
+    const { tagCode } = await res.json();
+    setItems((prev) =>
+      prev.map((it) => (it._id === routineItemId ? { ...it, nfcTagCode: tagCode } : it))
+    );
+    return tagCode as string;
   };
 
   const handleAdd = async (
@@ -543,6 +594,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
                     onRemove={() => handleRemove(item._id)}
                     onArmNfc={() => handleArmNfc(item._id)}
                     onUnlinkNfc={() => handleUnlinkNfc(item.nfcTagCode!, item._id)}
+                    onGenerateTrigger={() => handleGenerateTrigger(item._id)}
                   />
                 ))}
               </div>
