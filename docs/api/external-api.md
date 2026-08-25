@@ -137,6 +137,35 @@ Identical shape and semantics to `trigger-habit`'s response — same underlying 
 
 Same underlying dispatch, different addressing. `trigger-habit` requires knowing the target `routineItemId` up front, so a Shortcut built against it is scoped to one habit permanently. This endpoint resolves the habit from the tag at request time instead, which is what makes **relinking a card to a different habit in the app take effect immediately, without rebuilding or touching that card's Shortcut or Automation at all** — the URL a card's Shortcut calls never changes, only what it resolves to server-side does. `trigger-habit` remains the right choice for a caller that already knows the target `routineItemId` directly and doesn't need that flexibility; this endpoint is for the tag-identifies-the-habit case, one small Shortcut per physical card (see [`features/nfc.md`](../features/nfc.md#setting-up-silent-tap-triggers)).
 
+## `GET /api/external/habits`
+
+A read-only sibling to the two trigger endpoints — lists the caller's active habits, with each habit carrying its own group context inline, rather than the nested-group-array shape `GET /api/routines` (the session-authenticated, in-app equivalent) uses. Built for the native App Intents `HabitEntityQuery` (`ios/App/App/AppIntents/HabitEntityQuery.swift`) to back a live Shortcuts/Siri picker — see [`features/app-intents.md`](../features/app-intents.md). No Shortcut or URL-based flow calls this directly.
+
+Same auth as the other GET route, `nfc/[tagCode]` (see [Auth](#auth) above) — header or query string only, no body.
+
+No params beyond the API key.
+
+### Response
+
+```ts
+{
+  ok: true,
+  habits: [
+    {
+      id: string,          // RoutineItem._id
+      name: string,
+      icon: string,
+      itemType: ItemType,
+      groupId: string,
+      groupName: string,
+    },
+    ...
+  ]
+}
+```
+
+Sorted by group order, then item order within each group — matching the order the item appears in-app. Not filtered by `scheduledDays`: this is a general "which habit" picker for voice/automation use at arbitrary times, not a "what's due today" view, consistent with `trigger-habit` itself never checking `scheduledDays` either. No rate limiting or caching, same as every other route on this surface.
+
 ## Consumed by
 
 [`features/timer.md`](../features/timer.md) (the resume-into-session behavior) and, indirectly, [`features/routines.md`](../features/routines.md) (where the item/group IDs this endpoint needs are surfaced for copying).

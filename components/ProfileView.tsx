@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
+import { Capacitor } from "@capacitor/core";
 import { Copy, Check } from "lucide-react";
 import Header from "@/components/Header";
+import { ApiKeyBridge } from "@/lib/native/api-key-bridge";
 
 interface Props {
   name: string;
@@ -19,7 +21,12 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
   useEffect(() => {
     fetch("/api/user/api-key")
       .then((r) => r.json())
-      .then((data: { apiKey?: string }) => setApiKey(data.apiKey ?? null))
+      .then((data: { apiKey?: string }) => {
+        setApiKey(data.apiKey ?? null);
+        if (data.apiKey && Capacitor.isNativePlatform()) {
+          ApiKeyBridge.setApiKey({ apiKey: data.apiKey }).catch(() => {});
+        }
+      })
       .catch(() => {});
   }, []);
 
