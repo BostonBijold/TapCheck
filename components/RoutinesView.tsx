@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import Header from "@/components/Header";
 import DateNav from "@/components/DateNav";
 import RoutineGroupCard, { type GroupCardGroup } from "@/components/RoutineGroupCard";
@@ -10,7 +11,6 @@ import RoutineSession from "@/components/RoutineSession";
 import VirtueSheet, { type VirtueData } from "@/components/VirtueSheet";
 import VirtueCheckInModal from "@/components/VirtueCheckInModal";
 import AddHabitSheet from "@/components/AddHabitSheet";
-import ManageRoutinesSheet from "@/components/ManageRoutinesSheet";
 import TodoSection, { type TodoEntry } from "@/components/TodoSection";
 import EditTodoSheet from "@/components/EditTodoSheet";
 import FABTaskSheet from "@/components/FABTaskSheet";
@@ -81,7 +81,6 @@ export default function RoutinesView({
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [addHabitGroup, setAddHabitGroup] = useState<{ id: string; name: string } | null>(null);
   const [checkInItem, setCheckInItem] = useState<RowItem | null>(null);
-  const [manageOpen, setManageOpen] = useState(false);
   const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
   const [addTodoOpen, setAddTodoOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
@@ -568,13 +567,6 @@ export default function RoutinesView({
         />
       )}
 
-      {manageOpen && (
-        <ManageRoutinesSheet
-          groups={groups}
-          onClose={() => setManageOpen(false)}
-        />
-      )}
-
       {checkInItem && (
         <VirtueCheckInModal
           thisWeekVirtue={virtue}
@@ -646,17 +638,6 @@ export default function RoutinesView({
                     style={{ width: totalItems > 0 ? `${(totalDone / totalItems) * 100}%` : "0%" }}
                   />
                 </div>
-                <button
-                  onClick={() => setManageOpen(true)}
-                  className="flex-shrink-0 min-h-[44px] flex items-center"
-                >
-                  <span
-                    className="font-mono text-[10px] tracking-[0.08em] px-[10px] py-[4px] rounded-pill border"
-                    style={{ background: "#2a2820", borderColor: "#3d3b2e", color: "#9a9280" }}
-                  >
-                    ⚙ Manage
-                  </span>
-                </button>
               </div>
             </div>
 
@@ -680,6 +661,13 @@ export default function RoutinesView({
                   onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
                 />
               ))}
+
+              <Link
+                href="/routines/new"
+                className="flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+              >
+                + Add New Routine
+              </Link>
             </div>
 
             {/* To-dos for the day */}

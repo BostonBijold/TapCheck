@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import { Play } from "lucide-react";
+import Link from "next/link";
+import { Play, Settings } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
 import RoutineItemRow, { type RowItem } from "@/components/RoutineItemRow";
 import HabitItemCard from "@/components/HabitItemCard";
@@ -204,6 +205,13 @@ export default function RoutineGroupCard({
               <span className="text-dim"> · {fmtMins(projectedMins)}</span>
             </span>
           )}
+          <Link
+            href={`/routines/${group._id}/edit`}
+            aria-label={`Manage ${group.name}`}
+            className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-dim hover:text-olive transition-colors"
+          >
+            <Settings size={15} strokeWidth={1.75} />
+          </Link>
         </div>
       </div>
 
