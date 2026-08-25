@@ -2,7 +2,6 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import Header from "@/components/Header";
 import DateNav from "@/components/DateNav";
 import RoutineGroupCard, { type GroupCardGroup } from "@/components/RoutineGroupCard";
@@ -661,13 +660,6 @@ export default function RoutinesView({
                   onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
                 />
               ))}
-
-              <Link
-                href="/routines/new"
-                className="flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
-              >
-                + Add New Routine
-              </Link>
             </div>
 
             {/* To-dos for the day */}
