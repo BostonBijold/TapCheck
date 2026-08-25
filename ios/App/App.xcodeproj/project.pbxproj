@@ -17,6 +17,12 @@
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		F1C4D8F2F6194CB115EF6EF1 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 589FC9ECDCB68AA23B353864 /* MainViewController.swift */; };
+		D9FFB5487F97B6B99F0256FD /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759F4251D226A83E45523A97 /* KeychainHelper.swift */; };
+		30CF41078AC6C63AF04338E4 /* ApiKeyBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */; };
+		C615BE245A32A985ACB0910F /* HabitEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */; };
+		D4E7B32E715C132C2F3066A1 /* HabitEntityQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */; };
+		303E5691EEB919AA7EEACAB6 /* TriggerHabitIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */; };
+		1592F30D62789D1F610E3CB6 /* BeOneShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BD5617E197AEE38F5575E9 /* BeOneShortcuts.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -33,6 +39,12 @@
 		7F56C32234441094199A01A3 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
+		759F4251D226A83E45523A97 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
+		327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiKeyBridgePlugin.swift; sourceTree = "<group>"; };
+		2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitEntity.swift; sourceTree = "<group>"; };
+		3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitEntityQuery.swift; sourceTree = "<group>"; };
+		8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerHabitIntent.swift; sourceTree = "<group>"; };
+		70BD5617E197AEE38F5575E9 /* BeOneShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeOneShortcuts.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -78,8 +90,22 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				589FC9ECDCB68AA23B353864 /* MainViewController.swift */,
 				7F56C32234441094199A01A3 /* App.entitlements */,
+				759F4251D226A83E45523A97 /* KeychainHelper.swift */,
+				327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */,
+				22DECD5BCD5F89314C4C77F4 /* AppIntents */,
 			);
 			path = App;
+			sourceTree = "<group>";
+		};
+		22DECD5BCD5F89314C4C77F4 /* AppIntents */ = {
+			isa = PBXGroup;
+			children = (
+				2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */,
+				3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */,
+				8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */,
+				70BD5617E197AEE38F5575E9 /* BeOneShortcuts.swift */,
+			);
+			path = AppIntents;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -167,6 +193,12 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				F1C4D8F2F6194CB115EF6EF1 /* MainViewController.swift in Sources */,
+				D9FFB5487F97B6B99F0256FD /* KeychainHelper.swift in Sources */,
+				30CF41078AC6C63AF04338E4 /* ApiKeyBridgePlugin.swift in Sources */,
+				C615BE245A32A985ACB0910F /* HabitEntity.swift in Sources */,
+				D4E7B32E715C132C2F3066A1 /* HabitEntityQuery.swift in Sources */,
+				303E5691EEB919AA7EEACAB6 /* TriggerHabitIntent.swift in Sources */,
+				1592F30D62789D1F610E3CB6 /* BeOneShortcuts.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -246,7 +278,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
@@ -303,7 +335,7 @@
 				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
 				GCC_WARN_UNUSED_FUNCTION = YES;
 				GCC_WARN_UNUSED_VARIABLE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				MTL_ENABLE_DEBUG_INFO = NO;
 				SDKROOT = iphoneos;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -323,7 +355,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X3DPK5Y29G;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -347,7 +379,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = X3DPK5Y29G;
 				INFOPLIST_FILE = App/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",

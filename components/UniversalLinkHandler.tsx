@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { Capacitor } from "@capacitor/core";
+import { ApiKeyBridge } from "@/lib/native/api-key-bridge";
 
 // Capacitor's native Universal Link handling (CAPSceneDelegateProxy.swift's
 // scene(_:continue:)) only broadcasts a native notification — it never
@@ -12,6 +13,18 @@ import { Capacitor } from "@capacitor/core";
 export default function UniversalLinkHandler() {
   useEffect(() => {
     if (!Capacitor.isNativePlatform()) return;
+
+    // Also bootstraps the Keychain-backed API key (see
+    // docs/features/app-intents.md) on every native cold start, not just
+    // when the user happens to open Profile — otherwise a Shortcuts/Siri
+    // App Intent invoked before a first Profile visit would find nothing
+    // in Keychain to authenticate with.
+    fetch("/api/user/api-key")
+      .then((r) => r.json())
+      .then((data: { apiKey?: string }) => {
+        if (data.apiKey) ApiKeyBridge.setApiKey({ apiKey: data.apiKey }).catch(() => {});
+      })
+      .catch(() => {});
 
     let removeListener: (() => void) | undefined;
 

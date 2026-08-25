@@ -13,8 +13,10 @@ interface Props {
 
 // Shown right after a card is linked (both the auto-claim branch in
 // app/nfc/[tagCode]/page.tsx and the picker path in ClaimTagPicker.tsx).
-// Each card gets its own tiny 2-action Shortcut built by hand on-device —
-// no generic/shared Shortcut, no runtime tag reading. NFC Automations only
+// Each card gets its own single-action Shortcut built by hand on-device —
+// the URL pastes directly into "Get Contents of URL", no separate "Text"
+// action needed since nothing is assembled dynamically at runtime. No
+// generic/shared Shortcut, no runtime tag reading. NFC Automations only
 // use a tag's UID to decide whether to fire; they never forward the tag's
 // NDEF content to the Shortcut they run, so a Shortcut has no way to
 // resolve "which card was tapped" itself. Baking the exact URL in here,
@@ -35,8 +37,10 @@ export default function TagLinkedSetup({ tagCode, itemName, itemIcon, onDone, do
     ? `${window.location.origin}/api/external/nfc/${tagCode}?apiKey=${apiKey}`
     : null;
 
+  const openAppUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/routines`;
+
   const instructions = triggerUrl
-    ? `Be One tap trigger for "${itemName}"\n\n1. Open Shortcuts → new Shortcut → add "Text" with this URL:\n${triggerUrl}\n\n2. Add "Get Contents of URL" using that Text as input.\n\n3. Automation → + → NFC → scan this card → Run Shortcut → pick the Shortcut you just built → turn off "Ask Before Running" and "Notify When Run".`
+    ? `Be One tap trigger for "${itemName}"\n\n1. Open Shortcuts → new Shortcut → add "Get Contents of URL" and paste this directly into its URL field:\n${triggerUrl}\n\n2. (Optional) Want the app to open after tapping instead of staying silent? Add "Open URLs" after it, pointed at: ${openAppUrl}\n\n3. Automation → + → NFC → scan this card → Run Shortcut → pick the Shortcut you just built → turn off "Ask Before Running" and "Notify When Run".`
     : null;
 
   const handleCopyUrl = async () => {
@@ -69,7 +73,7 @@ export default function TagLinkedSetup({ tagCode, itemName, itemIcon, onDone, do
           Trigger URL
         </p>
         <p className="font-body text-xs text-muted mb-3">
-          Paste this into a new Shortcut&apos;s &quot;Text&quot; action, then add &quot;Get Contents of URL&quot; after it — that&apos;s the whole Shortcut. One-time setup, this exact card only.
+          Paste this directly into a new Shortcut&apos;s &quot;Get Contents of URL&quot; action — that&apos;s the whole Shortcut, one action. One-time setup, this exact card only.
         </p>
         {triggerUrl ? (
           <div className="flex items-center gap-2 bg-bg border border-border rounded-card px-3 py-2.5 mb-3">
@@ -87,8 +91,11 @@ export default function TagLinkedSetup({ tagCode, itemName, itemIcon, onDone, do
         ) : (
           <p className="font-mono text-xs text-dim mb-3">Loading…</p>
         )}
-        <p className="font-body text-xs text-muted leading-relaxed">
+        <p className="font-body text-xs text-muted leading-relaxed mb-3">
           Then: Shortcuts → Automation → + → NFC → scan this card → Run Shortcut → pick the Shortcut you just built → turn off &quot;Ask Before Running&quot; and &quot;Notify When Run.&quot;
+        </p>
+        <p className="font-body text-xs text-dim leading-relaxed">
+          Prefer to see the app after tapping instead of pure silence? Add one more Shortcut action — &quot;Open URLs&quot; — pointed at <span className="font-mono text-[11px] select-all">{openAppUrl}</span>. Optional; skip it for a fully silent tap.
         </p>
       </div>
 
