@@ -7,6 +7,7 @@ import PendingNfcLink from "@/models/PendingNfcLink";
 import RoutineItem from "@/models/RoutineItem";
 import ClaimTagPicker from "@/components/ClaimTagPicker";
 import DoneScreen from "@/components/DoneScreen";
+import TagLinkedSetup from "@/components/TagLinkedSetup";
 
 const DEV_USER_ID = "dev-local-user";
 const PENDING_LINK_MAX_AGE_MS = 5 * 60 * 1000;
@@ -79,16 +80,7 @@ export default async function NfcTagPage({
 
         return (
           <Shell>
-            <h1 className="font-heading text-2xl text-text mb-2">Linked</h1>
-            <p className="text-muted font-body text-sm mb-6">
-              This tag now starts <span className="text-text">{item.name}</span>.
-            </p>
-            <a
-              href="/routines"
-              className="inline-block bg-olive text-text font-body font-medium py-3 px-6 rounded-card"
-            >
-              Back to Routines
-            </a>
+            <TagLinkedSetup tagCode={tagCode} itemName={item.name} itemIcon={item.icon} />
           </Shell>
         );
       }
@@ -97,10 +89,6 @@ export default async function NfcTagPage({
     const items = await RoutineItem.find({ userId, isActive: true }).sort({ order: 1 }).lean();
     return (
       <Shell>
-        <h1 className="font-heading text-2xl text-text mb-2">Link this tag</h1>
-        <p className="text-muted font-body text-sm mb-6">
-          Which habit should this tag start?
-        </p>
         <ClaimTagPicker
           tagCode={tagCode}
           items={items.map((i) => ({ _id: i._id.toString(), name: i.name, icon: i.icon }))}
