@@ -4,6 +4,7 @@ import { findUserIdByApiKey } from "@/lib/api-key";
 import { triggerHabit } from "@/lib/nfc-actions";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineGroup from "@/models/RoutineGroup";
+import AppIntentLink from "@/models/AppIntentLink";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +58,7 @@ export async function POST(req: NextRequest) {
   }
   const routineGroupId = readParam(body, req.nextUrl.searchParams, "routineGroupId");
   const date = readParam(body, req.nextUrl.searchParams, "date") || todayString();
+  const source = readParam(body, req.nextUrl.searchParams, "source");
 
   let item;
   try {
@@ -84,6 +86,19 @@ export async function POST(req: NextRequest) {
   }
 
   const { completed, started } = await triggerHabit(userId, routineItemId, item.itemType, routineGroupId, date);
+
+  // No hook exists for "user configured a Shortcut with this habit" — App
+  // Intents only tell us when one actually runs. This upsert is that signal,
+  // surfaced in Manage Habit as "connected via Shortcut" — see
+  // docs/features/app-intents.md. Doesn't block or get blocked by NfcTag
+  // links; purely additive bookkeeping, never fails the request.
+  if (source === "app_intent") {
+    await AppIntentLink.findOneAndUpdate(
+      { userId, routineItemId },
+      { lastTriggeredAt: new Date() },
+      { upsert: true }
+    );
+  }
 
   return NextResponse.json({ ok: true, completed, started });
 }

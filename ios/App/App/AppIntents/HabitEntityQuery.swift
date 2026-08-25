@@ -38,6 +38,7 @@ enum BeOneAPI {
             "apiKey": apiKey,
             "routineItemId": routineItemId,
             "routineGroupId": routineGroupId,
+            "source": "app_intent",
         ])
 
         let (_, response) = try await URLSession.shared.data(for: request)

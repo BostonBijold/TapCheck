@@ -45,9 +45,17 @@ ios/App/App/
 
 `BeOneAPI`'s base URL (`https://be-one-nu.vercel.app`) is a hardcoded Swift constant matching `capacitor.config.ts`'s `server.url` — there's no way to share the JS config into native code, so this is a second place (beyond `App.entitlements`'s associated domain and the AASA route — see [`nfc.md`'s "Domain permanence"](nfc.md#native-setup)) that needs updating together if the production domain ever changes.
 
+**`ios/App/App/SceneDelegate.swift` must construct `MainViewController()`, not a bare `CAPBridgeViewController()`.** It was the latter until this feature exposed the bug — meaning `MainViewController`'s overrides, including `capacitorDidLoad()`'s plugin registration (and even the pre-existing scroll-bounce fix, unrelated to any of this), silently never ran, ever. Confirmed on-device: `NSLog`, `os_log(.fault)`, and raw stderr/stdout writes placed directly in `MainViewController.viewDidLoad()` produced zero output through any capture mechanism, even in a fully non-accelerated, traditionally-linked build — the only remaining explanation was that the class was never instantiated. Symptom, if this regresses again: the "Trigger Habit" Shortcuts action resolves its habit picker fine (native Capacitor bridge basics still work) but every run fails with `BeOneAPIError.notSignedIn` regardless of being actually signed in, because `ApiKeyBridgePlugin` was never registered to receive the key in the first place.
+
 ## `openAppWhenRun = false`
 
 `TriggerHabitIntent` sets this explicitly. It's what makes the native intent behave like the existing silent NFC Automation path — no app launch, no UI, works with the phone locked — rather than the Universal Link path, which always foregrounds the app and shows the OS confirmation prompt. This is the actual functional parity target: an NFC Automation's "Run Shortcut" step can run this intent directly and get the same silence the URL-based flow already provides.
+
+## Connection status in Manage Habit
+
+There's no Apple-provided hook for "a user configured a Shortcut with this habit as its parameter" — the Shortcuts editor never talks to a server just because someone picked a value from `HabitEntityQuery`'s list. The only signal Be One ever gets is when the Shortcut actually **runs**. So rather than pretend to track individual Shortcuts, `models/AppIntentLink.ts` records usage: `{ userId, routineItemId, lastTriggeredAt }`, upserted by `POST /api/external/trigger-habit` whenever the caller passes `source: "app_intent"` (see [`api/external-api.md`](../api/external-api.md#post-apiexternaltrigger-habit)) — `TriggerHabitIntent`'s `BeOneAPI.triggerHabit` always sends this.
+
+`app/(app)/routines/[groupId]/edit/page.tsx` loads these alongside `NfcTag` rows and passes `appIntentLastTriggeredAt` to `components/RoutineEditView.tsx`, which shows a "Siri & Shortcuts — Connected · last used {date}" line in the per-item edit panel whenever it's non-null. This is independent of, and stacks freely with, the existing NFC tag status — a habit can be "linked" to a physical card *and* show as Shortcuts-connected at the same time, and nothing here blocks a habit from having multiple NFC tags or being picked by multiple different Shortcuts; the badge is just "has this ever been triggered via App Intent," not an exclusive slot.
 
 ## Accepted v1 gap — `updateAppShortcutParameters()`
 

@@ -62,6 +62,7 @@ Same auth as `start-timer` (see [Auth](#auth) above). Params, also accepted via 
 | `routineItemId` | yes | Raw Mongo `_id` of the `RoutineItem` being tapped. |
 | `routineGroupId` | no | Raw Mongo `_id` of the `RoutineGroup` the item belongs to. If given, the item must belong to that group — same validation as `start-timer` (`400 "Item does not belong to that group"` otherwise). Also what drives auto-advance in Case 2 below. |
 | `date` | no | `YYYY-MM-DD`. Defaults to server UTC date, same caveat as `start-timer`. |
+| `source` | no | Opaque marker, currently only `"app_intent"` is meaningful. When present with that value, upserts an `AppIntentLink` (`models/AppIntentLink.ts`) recording `{ userId, routineItemId, lastTriggeredAt }` — see [`features/app-intents.md`](../features/app-intents.md#connection-status-in-manage-habit). Purely additive bookkeeping; never affects the trigger dispatch itself and never fails the request. |
 
 Validation is identical to `start-timer`, in the same order: item must exist and belong to this user (`404`); if `routineGroupId` given, group must exist and belong to this user (`404`) and the item's `groupId` must match it (`400`); malformed ObjectId strings return `400`, not a 500.
 

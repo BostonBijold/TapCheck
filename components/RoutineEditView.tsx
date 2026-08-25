@@ -36,6 +36,7 @@ export interface EditItem {
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
   nfcTagCode: string | null; // tag currently linked to start this item, if any
+  appIntentLastTriggeredAt: string | null; // last time a Siri/Shortcuts App Intent triggered this item, if ever
 }
 
 interface Props {
@@ -351,6 +352,22 @@ function SortableRow({
             )}
           </div>
 
+          {/* Siri & Shortcuts connection — independent of NFC tag status.
+              There's no way to detect a Shortcut was *built* for this habit
+              (Apple gives no hook for that), only that one has *run* — so
+              this reflects usage, not configuration, and doesn't preclude
+              multiple Shortcuts or NFC tags also pointing at this habit. */}
+          {item.appIntentLastTriggeredAt && (
+            <div className="pt-2 border-t border-border">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
+                Siri &amp; Shortcuts
+              </p>
+              <p className="font-mono text-[11px] text-olive">
+                Connected · last used {new Date(item.appIntentLastTriggeredAt).toLocaleDateString()}
+              </p>
+            </div>
+          )}
+
           {/* For the external API (see Profile > External API Key) */}
           <div className="pt-2 border-t border-border">
             <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
@@ -497,6 +514,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
         scheduledDays: newItem.scheduledDays ?? scheduledDays,
         successThreshold: newItem.successThreshold ?? successThreshold,
         nfcTagCode: null,
+        appIntentLastTriggeredAt: null,
       },
     ]);
     setShowAddSheet(false);
