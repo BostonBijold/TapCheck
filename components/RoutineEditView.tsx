@@ -24,7 +24,6 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import HabitIcon, { IconPicker } from "@/components/HabitIcon";
 import AddHabitSheet from "@/components/AddHabitSheet";
-import TagLinkedSetup from "@/components/TagLinkedSetup";
 
 export interface EditItem {
   _id: string;
@@ -35,7 +34,6 @@ export interface EditItem {
   itemType: "standard" | "stopwatch" | "checkbox";
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
-  nfcTagCode: string | null; // tag currently linked to start this item, if any
   appIntentLastTriggeredAt: string | null; // last time a Siri/Shortcuts App Intent triggered this item, if ever
 }
 
@@ -54,9 +52,6 @@ function SortableRow({
   onToggleEdit,
   onSave,
   onRemove,
-  onArmNfc,
-  onUnlinkNfc,
-  onGenerateTrigger,
 }: {
   item: EditItem;
   isEditing: boolean;
@@ -70,9 +65,6 @@ function SortableRow({
     successThreshold: number
   ) => Promise<void>;
   onRemove: () => Promise<void>;
-  onArmNfc: () => Promise<void>;
-  onUnlinkNfc: () => Promise<void>;
-  onGenerateTrigger: () => Promise<string | null>;
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: item._id });
@@ -91,9 +83,6 @@ function SortableRow({
   const [editScheduledDays, setEditScheduledDays] = useState<number[]>(item.scheduledDays);
   const [editThreshold, setEditThreshold] = useState(item.successThreshold);
   const [saving, setSaving] = useState(false);
-  const [nfcArmed, setNfcArmed] = useState(false);
-  const [nfcBusy, setNfcBusy] = useState(false);
-  const [showTriggerSetup, setShowTriggerSetup] = useState<string | null>(null);
 
   function toggleEditDay(day: number) {
     setEditScheduledDays((prev) => {
@@ -275,88 +264,11 @@ function SortableRow({
             {saving ? "Saving…" : "Save changes"}
           </button>
 
-          {/* NFC tag link */}
-          <div className="pt-2 border-t border-border">
-            <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
-              NFC Tag
-            </p>
-            {showTriggerSetup ? (
-              <TagLinkedSetup
-                tagCode={showTriggerSetup}
-                itemName={item.name}
-                itemIcon={item.icon}
-                onDone={() => setShowTriggerSetup(null)}
-                doneLabel="Close"
-              />
-            ) : item.nfcTagCode ? (
-              <div className="flex items-center gap-2 flex-wrap">
-                <p className="font-mono text-[11px] text-olive flex-1">
-                  Linked · {item.nfcTagCode}
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setShowTriggerSetup(item.nfcTagCode)}
-                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-gold/10 border border-gold/30 text-gold"
-                >
-                  Setup Info
-                </button>
-                <button
-                  type="button"
-                  disabled={nfcBusy}
-                  onClick={async () => {
-                    setNfcBusy(true);
-                    await onUnlinkNfc();
-                    setNfcBusy(false);
-                  }}
-                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-burgundy/10 text-burgundy-light disabled:opacity-50"
-                >
-                  {nfcBusy ? "Unlinking…" : "Unlink"}
-                </button>
-              </div>
-            ) : nfcArmed ? (
-              <p className="font-mono text-[11px] text-gold">
-                Now tap the tag against your phone.
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2 items-start">
-                <button
-                  type="button"
-                  disabled={nfcBusy}
-                  onClick={async () => {
-                    setNfcBusy(true);
-                    await onArmNfc();
-                    setNfcBusy(false);
-                    setNfcArmed(true);
-                  }}
-                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-olive/15 border border-olive/30 text-olive disabled:opacity-50"
-                >
-                  {nfcBusy ? "Preparing…" : "Link a Physical Tag"}
-                </button>
-                <button
-                  type="button"
-                  disabled={nfcBusy}
-                  onClick={async () => {
-                    setNfcBusy(true);
-                    const tagCode = await onGenerateTrigger();
-                    setNfcBusy(false);
-                    if (tagCode) setShowTriggerSetup(tagCode);
-                  }}
-                  className="font-mono text-[10px] px-3 py-1.5 rounded-pill bg-gold/10 border border-gold/30 text-gold disabled:opacity-50"
-                >
-                  {nfcBusy ? "Generating…" : "Generate Silent Trigger (no tag needed)"}
-                </button>
-                <p className="font-body text-[10px] text-dim leading-relaxed">
-                  A physical tag needs one tap to link. A generated trigger works with any blank NFC tag you bind later in Shortcuts — no branded card required.
-                </p>
-              </div>
-            )}
-          </div>
-
-          {/* Siri & Shortcuts connection — independent of NFC tag status.
-              There's no way to detect a Shortcut was *built* for this habit
-              (Apple gives no hook for that), only that one has *run* — so
-              this reflects usage, not configuration, and doesn't preclude
-              multiple Shortcuts or NFC tags also pointing at this habit. */}
+          {/* Siri & Shortcuts connection — there's no way to detect a
+              Shortcut was *built* for this habit (Apple gives no hook for
+              that), only that one has *run* — so this reflects usage, not
+              configuration, and doesn't preclude multiple Shortcuts also
+              pointing at this habit. */}
           {item.appIntentLastTriggeredAt && (
             <div className="pt-2 border-t border-border">
               <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
@@ -457,35 +369,6 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     router.refresh();
   };
 
-  const handleArmNfc = async (routineItemId: string) => {
-    await fetch("/api/nfc-tags", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routineItemId }),
-    });
-  };
-
-  const handleUnlinkNfc = async (tagCode: string, routineItemId: string) => {
-    await fetch(`/api/nfc-tags/${tagCode}`, { method: "DELETE" });
-    setItems((prev) =>
-      prev.map((it) => (it._id === routineItemId ? { ...it, nfcTagCode: null } : it))
-    );
-  };
-
-  const handleGenerateTrigger = async (routineItemId: string): Promise<string | null> => {
-    const res = await fetch("/api/nfc-tags/generate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ routineItemId }),
-    });
-    if (!res.ok) return null;
-    const { tagCode } = await res.json();
-    setItems((prev) =>
-      prev.map((it) => (it._id === routineItemId ? { ...it, nfcTagCode: tagCode } : it))
-    );
-    return tagCode as string;
-  };
-
   const handleAdd = async (
     templateId: string | null,
     name: string,
@@ -513,7 +396,6 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
         order: prev.length,
         scheduledDays: newItem.scheduledDays ?? scheduledDays,
         successThreshold: newItem.successThreshold ?? successThreshold,
-        nfcTagCode: null,
         appIntentLastTriggeredAt: null,
       },
     ]);
@@ -610,9 +492,6 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
                     }
                     onSave={(name, icon, mins, type, days, threshold) => handleSaveItem(item._id, name, icon, mins, type, days, threshold)}
                     onRemove={() => handleRemove(item._id)}
-                    onArmNfc={() => handleArmNfc(item._id)}
-                    onUnlinkNfc={() => handleUnlinkNfc(item.nfcTagCode!, item._id)}
-                    onGenerateTrigger={() => handleGenerateTrigger(item._id)}
                   />
                 ))}
               </div>

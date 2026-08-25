@@ -1,22 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { findUserIdByApiKey } from "@/lib/api-key";
-import { triggerHabit } from "@/lib/nfc-actions";
+import { triggerHabit } from "@/lib/habit-trigger";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineGroup from "@/models/RoutineGroup";
 import AppIntentLink from "@/models/AppIntentLink";
 
 export const dynamic = "force-dynamic";
 
-// External trigger — same API-key auth as /api/external/start-timer, meant
-// to be fired from a single iPhone Shortcut (NFC tap or manual run) that
-// doesn't know or care whether it's starting or finishing something.
+// External trigger — same API-key auth as /api/external/start-timer. Called
+// directly by a caller who already knows the target routineItemId, and by
+// the native TriggerHabitIntent App Intent (ios/App/App/AppIntents), which
+// resolves the habit from a live Shortcuts/Siri picker instead — neither
+// caller knows or cares whether this starts or finishes something.
 //
 // Thin wrapper: auth + param parsing + ownership checks live here, the
-// actual start/complete case dispatch lives in lib/nfc-actions.ts, shared
-// with app/nfc/[tagCode] (the Universal-Links-driven, session-authenticated
-// version of the same tap). See docs/api/external-api.md for the full case
-// breakdown.
+// actual start/complete case dispatch lives in lib/habit-trigger.ts. See
+// docs/api/external-api.md for the full case breakdown.
 function todayString() {
   return new Date().toISOString().split("T")[0];
 }
@@ -90,8 +90,8 @@ export async function POST(req: NextRequest) {
   // No hook exists for "user configured a Shortcut with this habit" — App
   // Intents only tell us when one actually runs. This upsert is that signal,
   // surfaced in Manage Habit as "connected via Shortcut" — see
-  // docs/features/app-intents.md. Doesn't block or get blocked by NfcTag
-  // links; purely additive bookkeeping, never fails the request.
+  // docs/features/app-intents.md. Purely additive bookkeeping, never fails
+  // the request.
   if (source === "app_intent") {
     await AppIntentLink.findOneAndUpdate(
       { userId, routineItemId },

@@ -2,7 +2,7 @@
 
 # External API
 
-A separate, API-key-authenticated surface for triggering the app from outside a browser session — built for an iPhone Shortcut fired by an NFC tag tap, but not tied to that specifically. Deliberately kept apart from [routines-api.md](routines-api.md)'s session-authenticated endpoints, which are shaped for the app's own client, not a third-party caller.
+A separate, API-key-authenticated surface for triggering the app from outside a browser session — built for the native App Intents "Trigger Habit" action (Siri/Shortcuts/Spotlight, see [`features/app-intents.md`](../features/app-intents.md)), but not tied to that specifically. Deliberately kept apart from [routines-api.md](routines-api.md)'s session-authenticated endpoints, which are shaped for the app's own client, not a third-party caller.
 
 ## Auth
 
@@ -51,9 +51,9 @@ Once inside a session opened this way, moving between items *inside that session
 
 ## `POST /api/external/trigger-habit`
 
-A single, bidirectional endpoint for a Shortcut fired by an NFC tap: the same call either **starts** or **completes** a habit, decided entirely by current server state (is there an active timer, and does it match the tapped item) — never by a param the caller sends. This is what makes one NFC tag workable for a whole routine: tap it once to start the first item, tap the next tag to both finish that item and start the next, and so on.
+A single, bidirectional endpoint for the native "Trigger Habit" App Intent: the same call either **starts** or **completes** a habit, decided entirely by current server state (is there an active timer, and does it match the triggered item) — never by a param the caller sends. This is what makes one action workable for a whole routine: run it once to start the first item, run it again to both finish that item and start the next, and so on.
 
-The three-case dispatch below lives in `triggerHabit()` (`lib/nfc-actions.ts`), not inline in this route — it's shared with `app/nfc/[tagCode]`, the session-authenticated, Universal-Links-driven version of the same tap that needs no Shortcuts setup. See [`features/nfc.md`](../features/nfc.md). This route stays a thin wrapper: auth + param parsing + ownership checks, then a call into the shared function. Behavior and response shape here are unchanged by that refactor.
+The three-case dispatch below lives in `triggerHabit()` (`lib/habit-trigger.ts`), not inline in this route. This route stays a thin wrapper: auth + param parsing + ownership checks, then a call into the shared function.
 
 Same auth as `start-timer` (see [Auth](#auth) above). Params, also accepted via JSON body or query string (body takes precedence):
 
@@ -96,53 +96,13 @@ Both use the same `serializeLog` shape as `start-timer`'s response. Either can b
 
 ### Relationship to `start-timer`
 
-**`trigger-habit` supersedes `start-timer` for the tap-driven use case.** `start-timer` is a one-way "always start, never complete" primitive — fine for a Shortcut that means only "begin this," but wrong for an NFC tag meant to be tapped repeatedly through a routine, since it never completes the item you're walking away from on its own (that still relies on the general single-active-timer sweep completing it only once you start something *else*, not when you re-tap the same tag). A single NFC tag pointed at `trigger-habit` handles the full start → complete → advance cycle with one action, so **new Shortcuts should be built against `trigger-habit`, not `start-timer`**. `start-timer` isn't removed — it's kept as the lower-level "cold start" primitive `trigger-habit` builds on top of (both ultimately call `startInProgressLog`/`startImmediateLog`), and remains valid for a caller that genuinely only ever wants to start, never complete.
-
-## `GET /api/external/nfc/[tagCode]`
-
-A GET-based sibling to `trigger-habit`, built for a tiny per-card iPhone Shortcut — one per physical tag, its own trigger URL baked in directly, built by the user right after linking that card — paired with an NFC Automation in the Shortcuts app. An Automation can fire a Shortcut directly off an NFC tag with no OS confirmation card and no app-open requirement, phone locked included; this route is what that Automation calls. See [`features/nfc.md`](../features/nfc.md#setting-up-silent-tap-triggers) for the full setup story, including why there's no single shared Shortcut across cards (an NFC Automation only uses a tag's UID to trigger — it never forwards the tag's content to the Shortcut it runs, so a shared Shortcut has no way to resolve which card was tapped).
-
-Where `trigger-habit` takes an explicit `routineItemId` (one Shortcut per habit, hardcoded), this route takes a `tagCode` and resolves the linked habit **at request time**, not at Shortcut-build time — the same `NfcTag` lookup `app/nfc/[tagCode]` already does for the Universal Link path. That's what makes relinking a card to a different habit in the app take effect on the very next tap, with zero changes needed to that card's Shortcut or Automation. Once resolved, it calls the same `triggerHabit()` (`lib/nfc-actions.ts`) that `trigger-habit` and `app/nfc/[tagCode]` both call — three consumers of one shared implementation.
-
-Same auth as `start-timer`/`trigger-habit` (see [Auth](#auth) above), with one difference: a GET from Shortcuts' "Get Contents of URL" action carries no JSON body, so the API key here is only ever read from the query string or the `x-api-key` header — never a body field.
-
-| Param | Required | Meaning |
-|---|---|---|
-| `tagCode` | yes | Path segment — the tag's own code (`models/NfcTag.ts`), not a Mongo `_id`. |
-| `apiKey` | yes | Query string (`?apiKey=...`, what a Shortcut sends) or `x-api-key` header. |
-
-Tag resolution mirrors `app/nfc/[tagCode]/page.tsx`'s branch on `NfcTag.findOne({ tagCode })` exactly, translated to status codes instead of rendered screens:
-
-- **Tag doesn't exist** → `404 { error: "Tag not found" }`.
-- **Tag is claimed by a different user** → the same generic `404 { error: "Tag not found" }`, deliberately indistinguishable from "doesn't exist" — this endpoint never reveals that a tag exists or is owned by someone else, matching `app/nfc/[tagCode]/page.tsx`'s own anti-enumeration stance.
-- **Tag is unclaimed** — auto-claims exactly like the "arm, then tap" flow: if there's a `PendingNfcLink` for the caller armed within the last 5 minutes, and its `routineItemId` still resolves to an active `RoutineItem` for that user, the tag is claimed against it (`userId`/`routineItemId`/`routineGroupId`/`claimedAt` set, the `PendingNfcLink` deleted) and the trigger proceeds against the newly-claimed item in the same request. Otherwise the request fails with `422 { error: "Tag is not linked to a habit yet — link it in the app first" }` — an unattended Shortcut has no way to pick from a list the way the in-app `ClaimTagPicker` does, so a cold, never-armed tap here is a dead end by design.
-- **Tag is claimed by the caller** — the everyday case. Re-fetches the linked `RoutineItem` (`{ _id: tag.routineItemId, userId, isActive: true }`); if it no longer exists, `404 { error: "Habit not found" }`.
-
-No malformed-ObjectId `400` class exists here the way it does for `start-timer`/`trigger-habit`: `tagCode` is a plain unique string, never cast to an ObjectId, and every id used downstream (`tag.routineItemId`, `pending.routineItemId`) is internally-sourced, never raw caller input.
-
-On success, `routineGroupId` is read straight off the tag's own stored `routineGroupId` (or the just-claimed item's `groupId`) — never caller input, so unlike `trigger-habit`/`start-timer` there's no "does the item belong to that group" re-validation to do; `app/nfc/[tagCode]/page.tsx` skips this same check for the same reason. `date` defaults to server UTC date via the same pattern as the other two external routes.
-
-### Response
-
-```ts
-{
-  ok: true,
-  completed: SerializedRoutineLog | null,
-  started: SerializedRoutineLog | null,
-}
-```
-
-Identical shape and semantics to `trigger-habit`'s response — same underlying dispatch, just addressed by tag instead of by item.
-
-### Relationship to `trigger-habit`
-
-Same underlying dispatch, different addressing. `trigger-habit` requires knowing the target `routineItemId` up front, so a Shortcut built against it is scoped to one habit permanently. This endpoint resolves the habit from the tag at request time instead, which is what makes **relinking a card to a different habit in the app take effect immediately, without rebuilding or touching that card's Shortcut or Automation at all** — the URL a card's Shortcut calls never changes, only what it resolves to server-side does. `trigger-habit` remains the right choice for a caller that already knows the target `routineItemId` directly and doesn't need that flexibility; this endpoint is for the tag-identifies-the-habit case, one small Shortcut per physical card (see [`features/nfc.md`](../features/nfc.md#setting-up-silent-tap-triggers)).
+**`trigger-habit` supersedes `start-timer` for the repeat-trigger use case.** `start-timer` is a one-way "always start, never complete" primitive — fine for a caller that means only "begin this," but wrong for something meant to be run repeatedly through a routine, since it never completes the item you're walking away from on its own (that still relies on the general single-active-timer sweep completing it only once you start something *else*, not when you re-run against the same item). A single action pointed at `trigger-habit` handles the full start → complete → advance cycle in one call, which is exactly what the "Trigger Habit" App Intent (see [`features/app-intents.md`](../features/app-intents.md)) is built against. `start-timer` isn't removed — it's kept as the lower-level "cold start" primitive `trigger-habit` builds on top of (both ultimately call `startInProgressLog`/`startImmediateLog`), and remains valid for a caller that genuinely only ever wants to start, never complete.
 
 ## `GET /api/external/habits`
 
 A read-only sibling to the two trigger endpoints — lists the caller's active habits, with each habit carrying its own group context inline, rather than the nested-group-array shape `GET /api/routines` (the session-authenticated, in-app equivalent) uses. Built for the native App Intents `HabitEntityQuery` (`ios/App/App/AppIntents/HabitEntityQuery.swift`) to back a live Shortcuts/Siri picker — see [`features/app-intents.md`](../features/app-intents.md). No Shortcut or URL-based flow calls this directly.
 
-Same auth as the other GET route, `nfc/[tagCode]` (see [Auth](#auth) above) — header or query string only, no body.
+Same three-way auth as every other route (see [Auth](#auth) above); since it's a GET, the API key in practice arrives via the query string or `x-api-key` header, never a body field.
 
 No params beyond the API key.
 

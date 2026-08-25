@@ -2,15 +2,19 @@
 
 # App Intents — Native Habit Triggers
 
-A native alternative to [NFC tap-to-start habits](nfc.md)'s per-card URL-copy-paste Shortcut flow: Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets Be One declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual habits, with no URL or API key ever touching a Shortcut. This is **additive**, not a replacement: [`components/TagLinkedSetup.tsx`](nfc.md#generating-a-trigger-without-a-physical-tap), `POST /api/nfc-tags/generate`, and `GET /api/external/nfc/[tagCode]` are untouched and remain the path that needs no native rebuild at all. An NFC Automation can be pointed at this native intent directly instead of a URL-based Shortcut, once it's built.
+Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets Be One declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual habits, with no URL or API key ever touching a Shortcut. This is now the **only** supported way to trigger a habit from outside the app; an earlier NFC-tag/Universal-Link-based system (per-card URLs, a claim flow, `NfcTag`/`PendingNfcLink` models) was removed once this shipped — everything it did, App Intents does better, including physical taps (see "Physical NFC tags" below).
 
 ## Why this needed real native code
 
-App Intents has no JS/Capacitor-JS equivalent — unlike Universal Links, which route an NFC tap through the WebView (`components/UniversalLinkHandler.tsx`), Shortcuts-gallery/Siri/Spotlight integration is OS-level and only reachable from actual Swift code compiled into the native app target. This is the first custom native code this project needed beyond Capacitor's stock plugins (`@capacitor/app`, `@capacitor/splash-screen`, `@capacitor/status-bar`).
+App Intents has no JS/Capacitor-JS equivalent — this is OS-level Shortcuts-gallery/Siri/Spotlight integration, only reachable from actual Swift code compiled into the native app target. This is the first custom native code this project needed beyond Capacitor's stock plugins (`@capacitor/app`, `@capacitor/splash-screen`, `@capacitor/status-bar`).
+
+## Physical NFC tags
+
+No app-specific NFC code or data model is needed for a physical tap-to-trigger experience. Shortcuts' own NFC Automation binds directly to a tag's hardware UID when you set it up (Automation → + → NFC → scan tag → Run Shortcut) — it works with any tag, blank or not, and needs nothing written to it, no "claiming," no per-tag record in this app's database at all. Point that Automation at a Shortcut built around the "Trigger Habit" action (with the desired habit pre-selected as its parameter) and tapping the tag fires it silently, phone locked included. This is strictly simpler than the retired NFC-tag system, which needed a `tagCode` written to each tag, an in-app claim flow, and Universal Links just to get to the point of building a Shortcut.
 
 ## The habit list — `GET /api/external/habits`
 
-New, read-only sibling to `trigger-habit`/`nfc/[tagCode]` (see [`api/external-api.md`](../api/external-api.md#get-apiexternalhabits)) — lists a user's active habits with inline group context (`{ id, name, icon, itemType, groupId, groupName }`), sorted to match in-app ordering. Nothing else calls this endpoint; it exists solely to back the native picker below.
+Read-only sibling to `trigger-habit` (see [`api/external-api.md`](../api/external-api.md#get-apiexternalhabits)) — lists a user's active habits with inline group context (`{ id, name, icon, itemType, groupId, groupName }`), sorted to match in-app ordering. Nothing else calls this endpoint; it exists solely to back the native picker below.
 
 ## The Keychain bridge
 
@@ -21,7 +25,7 @@ App Intents code runs independent of the WebView — possibly via a background l
 - **`lib/native/api-key-bridge.ts`** — the JS-side `registerPlugin<ApiKeyBridgePlugin>("ApiKeyBridge")` wrapper.
 - **Bootstrapped from two call sites**, both already `Capacitor.isNativePlatform()`-gated no-ops on web:
   1. `components/ProfileView.tsx`'s existing API-key fetch (already there for the copy-to-clipboard card) now also pushes the key to Keychain.
-  2. `components/UniversalLinkHandler.tsx` (globally mounted in `app/layout.tsx`) does the same fetch-and-push on every native cold start — closing the gap where an intent invoked before the user ever opened Profile would find nothing in Keychain. If Be One is installed but Profile has never been opened *and* the app hasn't been cold-launched natively even once, the key genuinely isn't there yet — `TriggerHabitIntent` surfaces a clear, actionable error in that case rather than failing silently (see below).
+  2. `components/NativeBootstrap.tsx` (globally mounted in `app/layout.tsx`) does the same fetch-and-push on every native cold start — closing the gap where an intent invoked before the user ever opened Profile would find nothing in Keychain. If Be One is installed but Profile has never been opened *and* the app hasn't been cold-launched natively even once, the key genuinely isn't there yet — `TriggerHabitIntent` surfaces a clear, actionable error in that case rather than failing silently (see below).
 
 ## Swift file layout
 
@@ -43,19 +47,19 @@ ios/App/App/
                                  Info.plist configuration needed
 ```
 
-`BeOneAPI`'s base URL (`https://be-one-nu.vercel.app`) is a hardcoded Swift constant matching `capacitor.config.ts`'s `server.url` — there's no way to share the JS config into native code, so this is a second place (beyond `App.entitlements`'s associated domain and the AASA route — see [`nfc.md`'s "Domain permanence"](nfc.md#native-setup)) that needs updating together if the production domain ever changes.
+`BeOneAPI`'s base URL (`https://be-one-nu.vercel.app`) is a hardcoded Swift constant matching `capacitor.config.ts`'s `server.url` — there's no way to share the JS config into native code, so this is a place that needs updating manually if the production domain ever changes.
 
 **`ios/App/App/SceneDelegate.swift` must construct `MainViewController()`, not a bare `CAPBridgeViewController()`.** It was the latter until this feature exposed the bug — meaning `MainViewController`'s overrides, including `capacitorDidLoad()`'s plugin registration (and even the pre-existing scroll-bounce fix, unrelated to any of this), silently never ran, ever. Confirmed on-device: `NSLog`, `os_log(.fault)`, and raw stderr/stdout writes placed directly in `MainViewController.viewDidLoad()` produced zero output through any capture mechanism, even in a fully non-accelerated, traditionally-linked build — the only remaining explanation was that the class was never instantiated. Symptom, if this regresses again: the "Trigger Habit" Shortcuts action resolves its habit picker fine (native Capacitor bridge basics still work) but every run fails with `BeOneAPIError.notSignedIn` regardless of being actually signed in, because `ApiKeyBridgePlugin` was never registered to receive the key in the first place.
 
 ## `openAppWhenRun = false`
 
-`TriggerHabitIntent` sets this explicitly. It's what makes the native intent behave like the existing silent NFC Automation path — no app launch, no UI, works with the phone locked — rather than the Universal Link path, which always foregrounds the app and shows the OS confirmation prompt. This is the actual functional parity target: an NFC Automation's "Run Shortcut" step can run this intent directly and get the same silence the URL-based flow already provides.
+`TriggerHabitIntent` sets this explicitly — no app launch, no UI, works with the phone locked, regardless of whether it's run manually, via Siri, or from an NFC Automation. This is the whole point: a silent trigger with no OS confirmation prompt of any kind.
 
 ## Connection status in Manage Habit
 
 There's no Apple-provided hook for "a user configured a Shortcut with this habit as its parameter" — the Shortcuts editor never talks to a server just because someone picked a value from `HabitEntityQuery`'s list. The only signal Be One ever gets is when the Shortcut actually **runs**. So rather than pretend to track individual Shortcuts, `models/AppIntentLink.ts` records usage: `{ userId, routineItemId, lastTriggeredAt }`, upserted by `POST /api/external/trigger-habit` whenever the caller passes `source: "app_intent"` (see [`api/external-api.md`](../api/external-api.md#post-apiexternaltrigger-habit)) — `TriggerHabitIntent`'s `BeOneAPI.triggerHabit` always sends this.
 
-`app/(app)/routines/[groupId]/edit/page.tsx` loads these alongside `NfcTag` rows and passes `appIntentLastTriggeredAt` to `components/RoutineEditView.tsx`, which shows a "Siri & Shortcuts — Connected · last used {date}" line in the per-item edit panel whenever it's non-null. This is independent of, and stacks freely with, the existing NFC tag status — a habit can be "linked" to a physical card *and* show as Shortcuts-connected at the same time, and nothing here blocks a habit from having multiple NFC tags or being picked by multiple different Shortcuts; the badge is just "has this ever been triggered via App Intent," not an exclusive slot.
+`app/(app)/routines/[groupId]/edit/page.tsx` loads these and passes `appIntentLastTriggeredAt` to `components/RoutineEditView.tsx`, which shows a "Siri & Shortcuts — Connected · last used {date}" line in the per-item edit panel whenever it's non-null. Nothing here blocks a habit from being picked by multiple different Shortcuts, or an NFC Automation on top of one of them; the badge is just "has this ever been triggered via App Intent," not an exclusive slot.
 
 ## Accepted v1 gap — `updateAppShortcutParameters()`
 
@@ -67,8 +71,8 @@ Raised `IPHONEOS_DEPLOYMENT_TARGET` from `15.0` to `17.0` (all 4 occurrences in 
 
 ## Setting it up
 
-1. Rebuild and install the app on-device (native code changed — a web-only deploy isn't enough, same caveat as any native change; see [`nfc.md`'s Universal Link fix note](nfc.md#native-setup) for why that distinction matters in this server-URL-mode app).
+1. Rebuild and install the app on-device — native code changed, so a web-only deploy isn't enough; this app runs in Capacitor server-URL mode (`capacitor.config.ts`'s `server.url` points at the live Next.js deployment), so the *JS* side of any change ships on a normal web deploy, but Swift changes need an actual `xcodebuild`/install cycle.
 2. Open the app once (Profile, or just a cold launch) so the API key reaches Keychain.
 3. In the Shortcuts app, the "Trigger Habit" action should appear under Be One — add it to a new Shortcut, or ask Siri directly ("Trigger a habit in Be One").
 4. Pick a habit from the live picker. No URL, no API key entry.
-5. For a physical card: create the NFC Automation as usual (Automation → + → NFC → scan card → Run Shortcut) and point it at this Shortcut instead of a `Get Contents of URL`-based one.
+5. For a physical tap: Automation → + → NFC → scan any tag → Run Shortcut → the Shortcut built in step 3-4. No app-specific tag setup of any kind.

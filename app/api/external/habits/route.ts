@@ -6,11 +6,10 @@ import RoutineItem from "@/models/RoutineItem";
 
 export const dynamic = "force-dynamic";
 
-// GET-based, read-only sibling to trigger-habit/nfc/[tagCode] — lists a
-// user's active habits so a caller can pick one before triggering it.
-// Built for the native App Intents HabitEntityQuery (ios/App/App/AppIntents),
-// which needs a live list to back a Shortcuts/Siri picker; no Shortcut or
-// URL-based flow calls this directly. See docs/features/app-intents.md.
+// GET-based, read-only sibling to trigger-habit — lists a user's active
+// habits so a caller can pick one before triggering it. Built for the
+// native App Intents HabitEntityQuery (ios/App/App/AppIntents), which needs
+// a live list to back a Shortcuts/Siri picker. See docs/features/app-intents.md.
 //
 // Flat, denormalized shape (group context inlined per habit) rather than
 // GET /api/routines's nested-group array — a picker entry needs "Morning

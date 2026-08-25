@@ -8,11 +8,12 @@ import { findNextItemInGroup, incrementSessionPauseOrJump } from "@/lib/routine-
 import RoutineLog from "@/models/RoutineLog";
 import type { ItemType } from "@/models/RoutineItem";
 
-// Shared by app/api/external/trigger-habit (API-key-authenticated, fired by
-// an iPhone Shortcut) and app/nfc/[tagCode] (session-authenticated, fired by
-// Universal Links) — both mean "a tag was tapped for this item," they just
-// differ in how the caller is authenticated. See docs/api/external-api.md
-// for the full case breakdown this implements.
+// The shared start/complete/advance dispatch behind POST /api/external/
+// trigger-habit — called both directly (a caller who already knows the
+// target routineItemId) and by the native TriggerHabitIntent App Intent
+// (ios/App/App/AppIntents/TriggerHabitIntent.swift), which resolves the
+// habit from a live Shortcuts/Siri picker instead. See
+// docs/api/external-api.md for the full case breakdown this implements.
 //
 // Bidirectional: whether this starts or completes a habit is decided
 // entirely by current server state (is there an active timer, and does it
