@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { signOut } from "next-auth/react";
 import { Copy, Check } from "lucide-react";
 import Header from "@/components/Header";
+import TapTriggerSetupModal from "@/components/TapTriggerSetupModal";
+import { TAP_TRIGGER_SHORTCUT_URL } from "@/lib/tap-trigger-config";
 
 interface Props {
   name: string;
@@ -15,6 +17,7 @@ interface Props {
 export default function ProfileView({ name, email, today, skipAuth }: Props) {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [setupOpen, setSetupOpen] = useState(false);
 
   useEffect(() => {
     fetch("/api/user/api-key")
@@ -79,6 +82,30 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
             )}
           </div>
 
+          {/* Silent tap triggers via Shortcuts */}
+          <div className="bg-card rounded-card border border-border p-5">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
+              Silent Tap Setup
+            </p>
+            <p className="font-body text-xs text-muted mb-3">
+              Set up once per tag for instant, silent triggers — no confirmation prompt, no unlocking, works with the app closed.
+            </p>
+            <a
+              href={TAP_TRIGGER_SHORTCUT_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center min-h-[44px] font-mono text-[11px] text-olive-light break-all"
+            >
+              Get the Generic Shortcut →
+            </a>
+            <button
+              onClick={() => setSetupOpen(true)}
+              className="w-full py-3 rounded-card border border-gold/40 text-gold font-body text-sm min-h-[44px]"
+            >
+              How to set this up
+            </button>
+          </div>
+
           {/* Sign out */}
           {!skipAuth && (
             <button
@@ -98,6 +125,14 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
           )}
         </div>
       </div>
+
+      {setupOpen && (
+        <TapTriggerSetupModal
+          apiKey={apiKey}
+          shortcutUrl={TAP_TRIGGER_SHORTCUT_URL}
+          onClose={() => setSetupOpen(false)}
+        />
+      )}
     </div>
   );
 }
