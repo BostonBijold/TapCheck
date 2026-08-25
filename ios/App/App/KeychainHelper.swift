@@ -29,8 +29,7 @@ enum KeychainHelper {
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         ]) { _, new in new }
 
-        let addStatus = SecItemAdd(attributes as CFDictionary, nil)
-        NSLog("[BeOne] KeychainHelper.save SecItemAdd status: \(addStatus)")
+        SecItemAdd(attributes as CFDictionary, nil)
     }
 
     static func load() -> String? {
@@ -44,7 +43,6 @@ enum KeychainHelper {
 
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        NSLog("[BeOne] KeychainHelper.load SecItemCopyMatching status: \(status)")
         guard status == errSecSuccess, let data = result as? Data else { return nil }
         return String(data: data, encoding: .utf8)
     }

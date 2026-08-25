@@ -8,7 +8,14 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
         guard let windowScene = scene as? UIWindowScene else { return }
 
         window = UIWindow(windowScene: windowScene)
-        window?.rootViewController = CAPBridgeViewController()
+        // Was CAPBridgeViewController() directly — meaning MainViewController's
+        // overrides (scroll-bounce disable, and now the App Intents plugin
+        // registration in capacitorDidLoad) never actually ran. Found via a
+        // diagnostic session where os_log(.fault)/stderr/stdout writes in
+        // viewDidLoad produced zero output through any capture mechanism,
+        // in a fully non-stub, traditionally-linked build — the only
+        // explanation left was that the class was never instantiated at all.
+        window?.rootViewController = MainViewController()
         window?.makeKeyAndVisible()
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
