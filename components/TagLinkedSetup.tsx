@@ -7,6 +7,8 @@ interface Props {
   tagCode: string;
   itemName: string;
   itemIcon: string;
+  onDone?: () => void;
+  doneLabel?: string;
 }
 
 // Shown right after a card is linked (both the auto-claim branch in
@@ -17,7 +19,7 @@ interface Props {
 // NDEF content to the Shortcut they run, so a Shortcut has no way to
 // resolve "which card was tapped" itself. Baking the exact URL in here,
 // once, per card, sidesteps that entirely — see docs/features/nfc.md.
-export default function TagLinkedSetup({ tagCode, itemName, itemIcon }: Props) {
+export default function TagLinkedSetup({ tagCode, itemName, itemIcon, onDone, doneLabel }: Props) {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [copiedInstructions, setCopiedInstructions] = useState(false);
@@ -98,12 +100,22 @@ export default function TagLinkedSetup({ tagCode, itemName, itemIcon }: Props) {
         {copiedInstructions ? "Copied!" : "Copy Setup Instructions"}
       </button>
 
-      <a
-        href="/routines"
-        className="block text-center bg-olive text-text font-body font-medium py-3 px-6 rounded-card"
-      >
-        Back to Routines
-      </a>
+      {onDone ? (
+        <button
+          type="button"
+          onClick={onDone}
+          className="block w-full text-center bg-olive text-text font-body font-medium py-3 px-6 rounded-card"
+        >
+          {doneLabel ?? "Done"}
+        </button>
+      ) : (
+        <a
+          href="/routines"
+          className="block text-center bg-olive text-text font-body font-medium py-3 px-6 rounded-card"
+        >
+          Back to Routines
+        </a>
+      )}
     </div>
   );
 }
