@@ -1,4 +1,5 @@
 import AppIntents
+import Foundation
 
 // Calls the same POST /api/external/trigger-habit every other trigger path
 // already uses (app/api/external/trigger-habit/route.ts) — no new
@@ -22,7 +23,9 @@ struct TriggerHabitIntent: AppIntent {
     }
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
+        NSLog("[BeOne] TriggerHabitIntent.perform called for habit \(habit.id)")
         guard let apiKey = KeychainHelper.load() else {
+            NSLog("[BeOne] TriggerHabitIntent.perform: no key in Keychain")
             throw BeOneAPIError.notSignedIn
         }
         try await BeOneAPI.triggerHabit(apiKey: apiKey, routineItemId: habit.id, routineGroupId: habit.groupId)

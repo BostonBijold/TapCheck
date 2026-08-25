@@ -8,6 +8,8 @@ import { registerPlugin } from "@capacitor/core";
 // docs/features/app-intents.md.
 interface ApiKeyBridgePlugin {
   setApiKey(options: { apiKey: string }): Promise<void>;
+  // Temporary diagnostic — see ProfileView.tsx's debug button.
+  debugReadKey(): Promise<{ hasKey: boolean; length: number }>;
 }
 
 export const ApiKeyBridge = registerPlugin<ApiKeyBridgePlugin>("ApiKeyBridge");

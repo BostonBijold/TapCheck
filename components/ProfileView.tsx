@@ -17,6 +17,7 @@ interface Props {
 export default function ProfileView({ name, email, today, skipAuth }: Props) {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [debugStatus, setDebugStatus] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/user/api-key")
@@ -29,6 +30,27 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
       })
       .catch(() => {});
   }, []);
+
+  // Temporary diagnostic for the "not signed in" Shortcuts issue — remove
+  // once resolved.
+  const handlePushKey = async () => {
+    if (!apiKey) { setDebugStatus("No apiKey loaded in JS yet"); return; }
+    try {
+      await ApiKeyBridge.setApiKey({ apiKey });
+      setDebugStatus("setApiKey call succeeded (no error thrown)");
+    } catch (err) {
+      setDebugStatus(`setApiKey FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const handleCheckKey = async () => {
+    try {
+      const result = await ApiKeyBridge.debugReadKey();
+      setDebugStatus(`Keychain: hasKey=${result.hasKey}, length=${result.length}`);
+    } catch (err) {
+      setDebugStatus(`debugReadKey FAILED: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
 
   const handleCopy = async () => {
     if (!apiKey) return;
@@ -83,6 +105,30 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
               </div>
             ) : (
               <p className="font-mono text-xs text-dim">Loading…</p>
+            )}
+          </div>
+
+          {/* Temporary native bridge diagnostic — remove after debugging */}
+          <div className="bg-card rounded-card border border-tobacco/40 p-5">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-tobacco mb-2">
+              Debug: Native Keychain
+            </p>
+            <div className="flex gap-2 mb-3">
+              <button
+                onClick={handlePushKey}
+                className="flex-1 py-2 rounded-card border border-border text-text font-mono text-xs"
+              >
+                Push Key
+              </button>
+              <button
+                onClick={handleCheckKey}
+                className="flex-1 py-2 rounded-card border border-border text-text font-mono text-xs"
+              >
+                Check Key
+              </button>
+            </div>
+            {debugStatus && (
+              <p className="font-mono text-[11px] text-tobacco break-all">{debugStatus}</p>
             )}
           </div>
 
