@@ -51,6 +51,10 @@ ios/App/App/
 
 **`ios/App/App/SceneDelegate.swift` must construct `MainViewController()`, not a bare `CAPBridgeViewController()`.** It was the latter until this feature exposed the bug — meaning `MainViewController`'s overrides, including `capacitorDidLoad()`'s plugin registration (and even the pre-existing scroll-bounce fix, unrelated to any of this), silently never ran, ever. Confirmed on-device: `NSLog`, `os_log(.fault)`, and raw stderr/stdout writes placed directly in `MainViewController.viewDidLoad()` produced zero output through any capture mechanism, even in a fully non-accelerated, traditionally-linked build — the only remaining explanation was that the class was never instantiated. Symptom, if this regresses again: the "Trigger Habit" Shortcuts action resolves its habit picker fine (native Capacitor bridge basics still work) but every run fails with `BeOneAPIError.notSignedIn` regardless of being actually signed in, because `ApiKeyBridgePlugin` was never registered to receive the key in the first place.
 
+## Local date, not server UTC
+
+`BeOneAPI.triggerHabit` sends an explicit `date` param (`YYYY-MM-DD`, computed from `DateFormatter` with `timeZone = .current`) rather than leaving it out. Confirmed on-device: without it, `POST /api/external/trigger-habit` defaults to the *server's* UTC date, and a trigger fired at 7pm Mountain time landed on tomorrow's log — invisible on today's view. The web client never hits this, since `RoutinesView.tsx` has its own effect that compares the server-rendered UTC `today` against `new Date().toLocaleDateString("en-CA")` (the browser's local date) and redirects to correct it on every load/foreground; the App Intent path has no equivalent correction, so it has to get the date right itself up front instead.
+
 ## `openAppWhenRun = false`
 
 `TriggerHabitIntent` sets this explicitly — no app launch, no UI, works with the phone locked, regardless of whether it's run manually, via Siri, or from an NFC Automation. This is the whole point: a silent trigger with no OS confirmation prompt of any kind.

@@ -255,10 +255,15 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
     document.addEventListener("visibilitychange", revalidate);
     window.addEventListener("focus", revalidate);
     window.addEventListener("pageshow", revalidate);
+    // Also poll on a short interval so an external trigger (App Intent /
+    // Siri / Shortcuts) is caught even if this tab stays foregrounded the
+    // whole time — revalidate() already no-ops unless visible and running.
+    const poll = setInterval(revalidate, 2000);
     return () => {
       document.removeEventListener("visibilitychange", revalidate);
       window.removeEventListener("focus", revalidate);
       window.removeEventListener("pageshow", revalidate);
+      clearInterval(poll);
     };
   }, [phase, currentItem, currentIndex, items, fetchDayLogs]);
 

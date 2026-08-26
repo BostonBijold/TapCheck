@@ -17,7 +17,9 @@ import type { LogState } from "@/models/RoutineLog";
 import type { RowItem } from "@/components/RoutineItemRow";
 import { isItemVisibleOn } from "@/lib/routine-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
-import { emitRoutineLogChanged } from "@/lib/routine-log-events";
+import { emitRoutineLogChanged, ROUTINE_LOG_CHANGED_EVENT } from "@/lib/routine-log-events";
+
+const LOG_POLL_MS = 2000;
 
 export type RoutineItem = RowItem;
 export type RoutineGroup = GroupCardGroup;
@@ -215,6 +217,17 @@ export default function RoutinesView({
     }
   }, [today, selectedDate]);
 
+  const refetchLogs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/routine-logs?date=${selectedDate}`);
+      if (!res.ok) return;
+      const data: RoutineLogEntry[] = await res.json();
+      setLogs(Object.fromEntries(data.map((l) => [l.routineItemId, l])));
+    } catch {
+      // keep previous state; next poll/event will retry
+    }
+  }, [selectedDate]);
+
   // Re-fetch logs whenever the selected date changes
   useEffect(() => {
     if (selectedDate === today) {
@@ -231,6 +244,30 @@ export default function RoutinesView({
       });
     return () => { cancelled = true; };
   }, [selectedDate, today, initialLogs]);
+
+  // Poll for logs changed by something outside this tab (App Intent / Siri /
+  // Shortcuts trigger) while today's list is open and visible, so an external
+  // trigger shows up without the user needing to background/foreground the
+  // app. Only runs while viewing today — nothing external changes a past day.
+  useEffect(() => {
+    if (selectedDate !== today) return;
+    const onChanged = () => refetchLogs();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refetchLogs();
+    };
+    window.addEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const poll = setInterval(() => {
+      if (document.visibilityState === "visible") refetchLogs();
+    }, LOG_POLL_MS);
+    return () => {
+      window.removeEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      clearInterval(poll);
+    };
+  }, [selectedDate, today, refetchLogs]);
 
   // Re-fetch to-dos whenever the selected date changes
   useEffect(() => {

@@ -31,6 +31,19 @@ enum BeOneAPI {
     }
 
     static func triggerHabit(apiKey: String, routineItemId: String, routineGroupId: String) async throws {
+        // The server defaults `date` to its own UTC "today" when omitted —
+        // fine most of the day, but wrong every evening for anyone west of
+        // UTC (confirmed: a trigger sent at 7pm Mountain time landed on
+        // tomorrow's log, invisible on today's view, since the web client
+        // separately self-corrects server UTC -> local date on every load
+        // but the App Intent path bypassed that entirely). Send the
+        // device's own local calendar date instead, matching what
+        // RoutinesView.tsx's own timezone-correction redirect computes.
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = .current
+        let localDate = formatter.string(from: Date())
+
         var request = URLRequest(url: baseURL.appendingPathComponent("/api/external/trigger-habit"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -39,6 +52,7 @@ enum BeOneAPI {
             "routineItemId": routineItemId,
             "routineGroupId": routineGroupId,
             "source": "app_intent",
+            "date": localDate,
         ])
 
         let (_, response) = try await URLSession.shared.data(for: request)
