@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { X, Check } from "lucide-react";
+import { personalStackOrders } from "@/lib/virtue-dates";
 
 interface Virtue {
   _id: string;
@@ -12,7 +13,7 @@ interface Virtue {
 }
 
 interface Props {
-  thisWeekVirtue: { name: string; displayName: string; tagline: string } | null;
+  thisWeekVirtue: { name: string; displayName: string; tagline: string; order?: number } | null;
   date: string; // YYYY-MM-DD being checked in
   onDone: (actualMinutes: number) => void;
   onClose: () => void;
@@ -21,20 +22,38 @@ interface Props {
 type Answer = "yes" | "no";
 
 export default function VirtueCheckInModal({ thisWeekVirtue, date, onDone, onClose }: Props) {
-  const [virtues, setVirtues] = useState<Virtue[]>([]);
+  const [allVirtues, setAllVirtues] = useState<Virtue[]>([]);
+  const [stackSize, setStackSize] = useState<number | null>(null);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    fetch("/api/virtues")
-      .then((r) => r.json())
-      .then((data: Virtue[]) => {
-        setVirtues(data.sort((a, b) => a.order - b.order));
-        setLoading(false);
-      });
+    Promise.all([
+      fetch("/api/virtues").then((r) => r.json()) as Promise<Virtue[]>,
+      fetch("/api/virtue-stack").then((r) => r.json()) as Promise<{ stackSize: number | null }>,
+    ]).then(([virtueData, stack]) => {
+      setAllVirtues(virtueData.sort((a, b) => a.order - b.order));
+      setStackSize(stack.stackSize);
+      setLoading(false);
+    });
   }, []);
+
+  // Progressive stacking: only the virtues within the caller's personal
+  // weeks-active window appear here — never affects `thisWeekVirtue`, the
+  // shared highlight shown in the header above, which stays identical for
+  // every user. Falls back to the full list if stack info isn't available
+  // (e.g. thisWeekVirtue.order missing) rather than blocking check-in.
+  const virtues = useMemo(() => {
+    if (stackSize == null || thisWeekVirtue?.order == null || allVirtues.length === 0) {
+      return allVirtues;
+    }
+    const orders = new Set(
+      personalStackOrders(thisWeekVirtue.order, stackSize, allVirtues.length)
+    );
+    return allVirtues.filter((v) => orders.has(v.order));
+  }, [allVirtues, stackSize, thisWeekVirtue]);
 
   const answeredCount = Object.keys(answers).length;
   const allAnswered = !loading && virtues.length > 0 && answeredCount === virtues.length;

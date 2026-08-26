@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
 import Philosophy from "@/models/Philosophy";
+import { weekStartDate } from "@/lib/virtue-dates";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,17 @@ const DEV_USER_ID = "dev-local-user";
 //     "tap to select" action calls. null explicitly clears the selection
 //     (drops the user back into the marketplace). A non-null value must
 //     reference a real, active Philosophy — validated here rather than
-//     trusted from the client.
+//     trusted from the client. Setting it to a non-null value always also
+//     resets the caller's personal virtue-stacking progress (see
+//     virtueStackStartWeek below) — switching philosophies never carries
+//     stacked progress over, since the brief treats every philosophy
+//     selection (first pick or a later switch) as the start of a fresh
+//     stacking epoch. This is an invariant of the route, not a
+//     client-toggleable option — the client only decides whether to show a
+//     confirmation dialog first (see PhilosophyManageSheet.tsx).
+//   resetVirtueStack: true — the standalone "Virtue Reset" action; resets
+//     virtueStackStartWeek to the current week without touching the
+//     selected philosophy.
 export async function PATCH(req: NextRequest) {
   const session = await auth();
   const userId =
@@ -47,9 +58,17 @@ export async function PATCH(req: NextRequest) {
         return NextResponse.json({ error: "Invalid philosophy" }, { status: 400 });
       }
       update.selectedPhilosophyId = body.selectedPhilosophyId;
+      update.virtueStackStartWeek = weekStartDate(new Date());
     } else {
       return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
     }
+  }
+
+  if ("resetVirtueStack" in body) {
+    if (body.resetVirtueStack !== true) {
+      return NextResponse.json({ error: "Invalid payload" }, { status: 400 });
+    }
+    update.virtueStackStartWeek = weekStartDate(new Date());
   }
 
   if (Object.keys(update).length === 0) {

@@ -133,6 +133,15 @@ export default function ReviewView({
     router.refresh();
   }, [router]);
 
+  const resetVirtueStack = useCallback(async () => {
+    await fetch("/api/user/profile", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ resetVirtueStack: true }),
+    });
+    router.refresh();
+  }, [router]);
+
   return (
     <div className="min-h-dvh bg-bg">
       {mode === "checkin" && (
@@ -167,6 +176,7 @@ export default function ReviewView({
           currentPhilosophyId={currentPhilosophyId}
           onSelect={selectPhilosophy}
           onClose={() => setManageOpen(false)}
+          onReset={resetVirtueStack}
         />
       )}
 

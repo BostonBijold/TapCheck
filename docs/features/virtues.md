@@ -26,7 +26,26 @@ No stored virtue count — every read that needs one computes `Virtue.countDocum
 ```
 `philosophyId` is stamped server-side at write time from the user's *current* `User.selectedPhilosophyId` — never trusted from the client, and never migrated retroactively if the user later switches philosophies. This means a user's check-in history stays correctly attributed to whichever philosophy was active on each historical day, and every read (`GET /api/virtue-checkins`, all three query modes) is scoped by `philosophyId` too, so switching philosophies never mixes one philosophy's history into another's summary. A unique compound index on `{ userId, date }` still means the whole day's answers live in one document's `answers` array, not one row per virtue.
 
-**`User`** (`models/User.ts`) — adds `selectedPhilosophyId: ObjectId | null (ref Philosophy, default null)` alongside the pre-existing `apiKey` and `virtueWalkthroughSeen` fields. `null` means the user hasn't picked a philosophy yet (every brand-new user, and every pre-existing user before the one-time migration below ran) — the Virtues page renders the marketplace instead of the normal check-in UI in that state.
+**`User`** (`models/User.ts`) — adds `selectedPhilosophyId: ObjectId | null (ref Philosophy, default null)` and `virtueStackStartWeek: string | null` (Monday, `YYYY-MM-DD`) alongside the pre-existing `apiKey` and `virtueWalkthroughSeen` fields. `selectedPhilosophyId: null` means the user hasn't picked a philosophy yet (every brand-new user, and every pre-existing user before the one-time migration below ran) — the Virtues page renders the marketplace instead of the normal check-in UI in that state. `virtueStackStartWeek` drives progressive virtue stacking — see below.
+
+## Progressive virtue stacking
+
+A brand-new user's first check-in shouldn't be N yes/no questions on virtues they haven't read about yet. Each user's daily check-in list only includes virtues up to how many weeks they've *personally* been active on their current philosophy — capped at, and cyclically wrapping around, that philosophy's total virtue count. This is entirely separate from, and never changes, the shared calendar-driven "this week's virtue" highlight (`currentVirtueOrder`, above) — every user sees the identical highlight regardless of their personal stack size; stacking only controls how many *additional* virtues ride along in a given user's own check-in list.
+
+**Data model**: `User.virtueStackStartWeek` — the Monday (`weekStartDate`-formatted) of the week a user's personal stacking epoch began: on first use, on an explicit Virtue Reset, or on a philosophy switch. `null` (never set, e.g. every pre-existing user before this feature shipped) is lazily initialized to the *current* week on first read — functionally identical to a brand-new signup, per `lib/philosophy.ts`'s `resolveVirtueStackStartWeek(userId)`.
+
+**Math** (`lib/virtue-dates.ts`, pure, stateless given the start-week anchor — no cron job, nothing incremented on a schedule):
+- `personalWeeksActive(startWeekMonday, date)` — weeks elapsed (1-indexed, min 1) between the anchor and `date`, both Monday-anchored via `weekStartDate` — advances by exactly 1 every time the shared rotation's own week boundary is crossed, with nothing stored beyond the anchor itself.
+- `personalStackSize(weeksActive, virtueCount) = ((weeksActive - 1) % virtueCount) + 1` — cycles 1..virtueCount and wraps back to 1, deliberately mirroring `currentVirtueOrder`'s own formula.
+- `personalStackOrders(currentOrder, stackSize, virtueCount)` — the `stackSize` virtues (as `order` values) belonging in the list: `currentOrder` (this week's *live* shared highlight — must be freshly recomputed per call, not the user's original start-week highlight, since the shared highlight itself keeps advancing week over week) and walking backward through the fixed order, wrapping the same way the shared rotation wraps. Concretely this reproduces "every shared highlight the user has seen since their stacking epoch began."
+
+**Wiring**: `GET /api/virtue-stack` (`app/api/virtue-stack/route.ts`) resolves the caller's `stackSize` server-side (`{ stackSize: number | null }`, `null` when no philosophy selected) and is the only new endpoint — everything downstream (history dots, weekly review tallies, per-virtue effectiveness %) already tolerates a virtue having no answer on a given day (renders as an empty/`null` dot), so virtues outside a user's stack on a given day needed no other backend changes. `components/VirtueCheckInModal.tsx` fetches this alongside the existing `GET /api/virtues` call and filters the rendered/submitted virtue list down to `personalStackOrders(thisWeekVirtue.order, stackSize, allVirtues.length)` — `thisWeekVirtue` is the same shared-highlight object both mounting call sites (`RoutinesView.tsx`'s inline check-in, `ReviewView.tsx`'s "Today's Check-in") already pass down, so no prop plumbing changed at either call site. Falls back to showing every virtue if stack info isn't available, rather than blocking check-in.
+
+**Reset**: `PATCH /api/user/profile` accepts `{ resetVirtueStack: true }`, setting `virtueStackStartWeek` to the current week — the user's list immediately drops to just that week's shared highlight. Exposed as a "Reset Virtue Progress" button in `PhilosophyManageSheet.tsx`'s sheet variant only (not the forced-onboarding inline marketplace, since there's no progress yet to reset), behind a native `confirm()` (matching this codebase's existing confirm-dialog convention, e.g. `GoalDetailView.tsx`'s milestone delete) — `ReviewView.tsx`'s `resetVirtueStack` callback PATCHes and `router.refresh()`s.
+
+**Philosophy switch**: `PATCH /api/user/profile` unconditionally resets `virtueStackStartWeek` to the current week any time `selectedPhilosophyId` is set to a non-null value — first pick and later switches alike, since a fresh philosophy has no meaningful stack mapping from the old one. This is a route-level invariant, not a client-sent flag. `PhilosophyManageSheet.tsx`'s card tap handler shows the same `confirm()` pattern *before* calling `onSelect` whenever `currentPhilosophyId` is already set and differs from the tapped card (i.e., an actual switch, not the initial marketplace pick or a re-tap of the already-selected card, which is a no-op).
+
+**Known follow-up, not solved here**: `WeeklyReviewModal.tsx`'s Sunday summary still tallies every virtue in the philosophy, not just the ones that were actually in a user's stack that week — a virtue outside the stack simply shows 0/7 rather than being excluded from the summary entirely.
 
 **Admin** is centralized in `lib/admin.ts`'s `isAdmin(email)` (hardcoded email check + `SKIP_AUTH` fallback) — every admin-gated route and page imports this one helper now, rather than duplicating the check. **`models/User.ts` still has no `role` field** — `CLAUDE.md`'s "Admin Role" section implying a stored `role: 'admin'` remains aspirational, not implemented.
 
@@ -102,9 +121,10 @@ Run manually, exactly once per environment (`node --env-file=.env.local scripts/
 - `models/Philosophy.ts` — admin-created virtue sets (marketplace entries).
 - `models/Virtue.ts` — virtue reference documents, scoped to a philosophy via `philosophyId`.
 - `models/VirtueCheckIn.ts` — one document per user per day, stamped with the philosophy active at write time.
-- `lib/virtue-dates.ts` — `isoWeekNumber`, `weekStartDate` (Monday-anchored), `currentVirtueOrder(date, virtueCount)` (stateless, per-philosophy rotation).
-- `lib/seed-virtues.ts` — re-exports the above three; seeds nothing despite the name.
-- `lib/philosophy.ts` — `resolveSelectedPhilosophyId(userId)`, shared by every page/route that needs the caller's active philosophy; raw-collection reads/writes so it also works for `dev-local-user`.
+- `lib/virtue-dates.ts` — `isoWeekNumber`, `weekStartDate` (Monday-anchored), `currentVirtueOrder(date, virtueCount)` (stateless, per-philosophy rotation), and `personalWeeksActive`/`personalStackSize`/`personalStackOrders` (stateless progressive-stacking math, see above).
+- `lib/seed-virtues.ts` — re-exports all six of the above; seeds nothing despite the name.
+- `lib/philosophy.ts` — `resolveSelectedPhilosophyId(userId)`, shared by every page/route that needs the caller's active philosophy, and `resolveVirtueStackStartWeek(userId)` (lazy-inits on first read); raw-collection reads/writes so both also work for `dev-local-user`.
+- `app/api/virtue-stack/route.ts` — `GET`, resolves the caller's current `stackSize` server-side; the only new API surface this feature added.
 - `lib/admin.ts` — shared `isAdmin(email)` check, used by every admin-gated philosophy/virtue route and page.
 - `lib/seed.ts`'s `ensureVirtueCheckInItems` — per-user idempotent seeding of the two special evening `RoutineItem`s.
 - `scripts/migrate-philosophies.mjs` — one-off migration + Franklin's-13 seed (see above).
@@ -112,9 +132,9 @@ Run manually, exactly once per environment (`node --env-file=.env.local scripts/
 - `app/(app)/virtues/[slug]/page.tsx` → `components/VirtueDetailView.tsx` — full-page detail, admin essay+etymology editing, philosophy-aware "This Week" pill.
 - `app/(app)/review/page.tsx` — dead-URL redirect shim to `/virtues`.
 - `components/VirtueSheet.tsx` — the other virtue-detail UI (bottom sheet from the Routines page), essay-only.
-- `components/VirtueCheckInModal.tsx` — the daily check-in modal (virtue count driven by the API response, no change needed).
-- `components/WeeklyReviewModal.tsx` — the Sunday summary modal (client-gated only; `virtueCount` now a required prop).
-- `components/PhilosophyManageSheet.tsx` — the marketplace grid (`PhilosophyMarketplaceInline`, used inline when no philosophy is selected) and the "Manage" overlay sheet (default export), including the admin virtue editor.
+- `components/VirtueCheckInModal.tsx` — the daily check-in modal; filters `GET /api/virtues`' result down to the caller's personal stack via `GET /api/virtue-stack` + `personalStackOrders`.
+- `components/WeeklyReviewModal.tsx` — the Sunday summary modal (client-gated only; `virtueCount` now a required prop; still tallies every philosophy virtue, not just the caller's stack — see "Known follow-up" above).
+- `components/PhilosophyManageSheet.tsx` — the marketplace grid (`PhilosophyMarketplaceInline`, used inline when no philosophy is selected) and the "Manage" overlay sheet (default export), including the admin virtue editor, the switch-confirmation `confirm()`, and the "Reset Virtue Progress" button (sheet variant only).
 - `components/VirtuesHowItWorks.tsx` / `components/VirtueWalkthroughModal.tsx` — onboarding explainer, content sourced from `virtue-system-app-medium.md`.
 
 ## Depends on

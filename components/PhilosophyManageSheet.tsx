@@ -50,7 +50,13 @@ interface Props {
   currentPhilosophyId: string | null;
   onSelect: (philosophyId: string) => Promise<void> | void;
   onClose?: () => void; // omit for the forced-onboarding (no way to dismiss) case
+  onReset?: () => Promise<void> | void; // omit when there's nothing to reset yet (forced onboarding)
 }
+
+const SWITCH_WARNING =
+  "Switching virtue systems will reset your progress. You'll start with just this week's virtue and build back up one virtue per week as you continue using the app. Continue?";
+const RESET_WARNING =
+  "Reset your virtue check-in progress? You'll start back at just this week's virtue and build up one virtue per week, same as switching philosophies.";
 
 function slugify(s: string) {
   return s.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "");
@@ -543,12 +549,13 @@ function CreateForm({ onCreated, onCancel }: { onCreated: () => void; onCancel: 
   );
 }
 
-function MarketplaceBody({ isAdmin, currentPhilosophyId, onSelect }: Props) {
+function MarketplaceBody({ isAdmin, currentPhilosophyId, onSelect, onReset }: Props) {
   const [philosophies, setPhilosophies] = useState<PhilosophyRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
   const [editingPhilosophy, setEditingPhilosophy] = useState<PhilosophyRow | null>(null);
   const [selecting, setSelecting] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -580,6 +587,21 @@ function MarketplaceBody({ isAdmin, currentPhilosophyId, onSelect }: Props) {
         <CreateForm onCreated={() => { setCreating(false); load(); }} onCancel={() => setCreating(false)} />
       )}
 
+      {onReset && currentPhilosophyId && (
+        <button
+          onClick={async () => {
+            if (!confirm(RESET_WARNING)) return;
+            setResetting(true);
+            await onReset();
+            setResetting(false);
+          }}
+          disabled={resetting}
+          className="w-full mb-4 font-mono text-[10px] text-dim hover:text-burgundy-light border border-border rounded-card py-2.5 disabled:opacity-50"
+        >
+          {resetting ? "Resetting…" : "Reset Virtue Progress"}
+        </button>
+      )}
+
       {loading ? (
         <p className="font-mono text-xs text-dim text-center py-8">Loading…</p>
       ) : (
@@ -591,6 +613,8 @@ function MarketplaceBody({ isAdmin, currentPhilosophyId, onSelect }: Props) {
               isAdmin={isAdmin}
               isSelected={p._id === currentPhilosophyId}
               onSelect={async () => {
+                if (p._id === currentPhilosophyId) return;
+                if (currentPhilosophyId && !confirm(SWITCH_WARNING)) return;
                 setSelecting(p._id);
                 await onSelect(p._id);
                 setSelecting(null);
@@ -646,7 +670,7 @@ export function PhilosophyMarketplaceInline(props: Props) {
 // Rendered as an overlay sheet — used for "Manage" (switching later, and all
 // admin CRUD). Wider than the app's usual 420px shell so it's comfortable to
 // author virtue text on desktop, still usable stacked on mobile.
-export default function PhilosophyManageSheet({ isAdmin, currentPhilosophyId, onSelect, onClose }: Props) {
+export default function PhilosophyManageSheet({ isAdmin, currentPhilosophyId, onSelect, onClose, onReset }: Props) {
   return (
     <div className="fixed inset-0 z-50 flex flex-col justify-end sm:items-center sm:justify-center">
       <div className="absolute inset-0 bg-black/70" onClick={onClose} />
@@ -665,6 +689,7 @@ export default function PhilosophyManageSheet({ isAdmin, currentPhilosophyId, on
             isAdmin={isAdmin}
             currentPhilosophyId={currentPhilosophyId}
             onSelect={onSelect}
+            onReset={onReset}
           />
         </div>
       </div>
