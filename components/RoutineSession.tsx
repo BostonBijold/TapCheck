@@ -4,12 +4,23 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronRight } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
 import TimelineBar from "@/components/TimelineBar";
+import VirtueCheckInModal from "@/components/VirtueCheckInModal";
+import WeeklyReviewModal from "@/components/WeeklyReviewModal";
 import type { RowItem } from "@/components/RoutineItemRow";
+import type { VirtueData } from "@/components/VirtueSheet";
 import type { LogState } from "@/models/RoutineLog";
 import { emitRoutineLogChanged } from "@/lib/routine-log-events";
 import { useRingDrag } from "@/lib/useRingDrag";
 import { projectedFinishTime, staticBaselineFinish, type ItemProjection } from "@/lib/projected-finish";
 import { computeTimeline, type TimelineColorState } from "@/lib/routine-timeline";
+
+// Items of these types have no timer of their own — reaching one mid-session
+// should hand off to its own flow (check-in modal, weekly review, or the
+// routine review page) instead of falling through to the generic countdown
+// ring, which is all that used to happen here.
+function isSpecialItemType(itemType?: string): boolean {
+  return itemType === "virtue_checkin" || itemType === "weekly_review" || itemType === "routine_review";
+}
 
 interface SessionLog {
   itemId: string;
@@ -44,8 +55,10 @@ interface Props {
   logs?: Record<string, ExternalLog>;
   today: string;
   startIndex?: number;
+  thisWeekVirtue?: VirtueData | null; // needed to render a virtue_checkin/weekly_review item inline
   onClose: () => void;
   onFinish: () => void;
+  onOpenRoutineReview?: () => void; // routine_review has no inline UI — hands off to the review page
 }
 
 function pad(n: number) {
@@ -90,12 +103,13 @@ const TIMELINE_COLOR: Record<TimelineColorState, string> = {
   pending: "#3d3b2e",     // border-light
 };
 
-export default function RoutineSession({ groupId, groupName, groupStartTime = null, items, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
+export default function RoutineSession({ groupId, groupName, groupStartTime = null, items, logs: externalLogs, today, startIndex = 0, thisWeekVirtue = null, onClose, onFinish, onOpenRoutineReview }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
   const [phase, setPhase] = useState<"running" | "summary">("running");
+  const [specialModalOpen, setSpecialModalOpen] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Latest known state of every item's log today, from any source — this
   // session's own actions, an external API call, or a manual tap elsewhere.
@@ -107,7 +121,19 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   const currentItem = items[currentIndex];
   const isCheckbox = currentItem?.itemType === "checkbox";
   const isStopwatch = currentItem?.itemType === "stopwatch";
-  const isCountdown = !isCheckbox && !isStopwatch;
+  const isVirtueCheckin = currentItem?.itemType === "virtue_checkin";
+  const isWeeklyReview = currentItem?.itemType === "weekly_review";
+  const isRoutineReview = currentItem?.itemType === "routine_review";
+  const isSpecial = isVirtueCheckin || isWeeklyReview || isRoutineReview;
+  // weekly_review and routine_review are Sunday-only habits — same gate
+  // RoutineItemRow uses outside a session; virtue_checkin has no such gate.
+  const isSunday = new Date(today + "T12:00:00").getDay() === 0;
+  const specialAvailableToday = isVirtueCheckin || ((isWeeklyReview || isRoutineReview) && isSunday);
+  const isCountdown = !isCheckbox && !isStopwatch && !isSpecial;
+
+  // Reaching a new item always starts clean — a stale "check-in open" flag
+  // left over from the previous item would otherwise pop the wrong modal.
+  useEffect(() => { setSpecialModalOpen(false); }, [currentIndex]);
 
   const target = isCountdown ? (currentItem?.projectedMinutes ?? 0) * 60 : 0;
   const isOver = isCountdown && target > 0 && elapsed >= target;
@@ -153,9 +179,9 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
     onDragEnd: () => { isDraggingRef.current = false; },
   });
 
-  // Don't run the clock for checkbox items — there's nothing to time
+  // Don't run the clock for checkbox or special (no-timer) items — there's nothing to time
   useEffect(() => {
-    if (isRunning && phase === "running" && !isCheckbox) {
+    if (isRunning && phase === "running" && !isCheckbox && !isSpecial) {
       runStartRef.current = Date.now();
       recompute();
       intervalRef.current = setInterval(recompute, 1000);
@@ -167,7 +193,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
       if (intervalRef.current) clearInterval(intervalRef.current);
     }
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
-  }, [isRunning, phase, isCheckbox, recompute]);
+  }, [isRunning, phase, isCheckbox, isSpecial, recompute]);
 
   // Force an immediate resync the moment the app comes back to the foreground —
   // don't wait for the next 1s tick to correct the frozen display.
@@ -316,7 +342,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
 
       const own = records.find((r) => r.routineItemId === item._id);
       const seeded =
-        !isCheckboxItem && own?.startedAt
+        !isCheckboxItem && !isSpecialItemType(item.itemType) && own?.startedAt
           ? (own.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(own.startedAt).getTime()) / 1000))
           : 0;
       baseElapsedRef.current = seeded;
@@ -410,7 +436,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   // record exists for it (see the effect above), flush it as done with the
   // elapsed time actually run rather than leaving it dangling or losing it.
   const handleClose = useCallback(async () => {
-    if (phase === "running" && currentItem && currentItem.itemType !== "checkbox") {
+    if (phase === "running" && currentItem && currentItem.itemType !== "checkbox" && !isSpecialItemType(currentItem.itemType)) {
       await fetch("/api/routine-logs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -685,8 +711,8 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
           element outside this wrapper. */}
       <div
         className="flex flex-col select-none"
-        style={!isCheckbox ? { touchAction: "none", cursor: isDragging ? "grabbing" : "grab" } : undefined}
-        {...(!isCheckbox ? dragHandlers : {})}
+        style={!isCheckbox && !isSpecial ? { touchAction: "none", cursor: isDragging ? "grabbing" : "grab" } : undefined}
+        {...(!isCheckbox && !isSpecial ? dragHandlers : {})}
       >
         <div className="text-center px-4 pt-2 pb-3 flex-shrink-0 pointer-events-none">
           <div className="flex justify-center mb-3">
@@ -701,6 +727,14 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
           )}
           {isCheckbox && (
             <p className="font-mono text-dim text-xs mt-1">mark when done</p>
+          )}
+          {isVirtueCheckin && (
+            <p className="font-mono text-dim text-xs mt-1">daily virtue check-in</p>
+          )}
+          {(isWeeklyReview || isRoutineReview) && (
+            <p className="font-mono text-dim text-xs mt-1">
+              {specialAvailableToday ? (isWeeklyReview ? "weekly review" : "routine review") : "Sunday habit"}
+            </p>
           )}
         </div>
 
@@ -788,10 +822,35 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
         </div>
       )}
 
+      {/* ── Special items (virtue check-in / weekly review / routine review):
+          no timer of their own — hand off to their real flow instead of
+          falling through to a bare, meaningless countdown ring. ── */}
+      {isSpecial && (
+        <div className="flex-1 flex items-center justify-center px-4">
+          {specialAvailableToday ? (
+            <button
+              onClick={() => {
+                if (isRoutineReview) { onOpenRoutineReview?.(); return; }
+                setSpecialModalOpen(true);
+              }}
+              className="w-full max-w-[280px] flex items-center justify-center gap-2 bg-gold/10 hover:bg-gold/20 border border-gold/30 text-text py-4 px-4 rounded-card transition-colors min-h-[44px]"
+            >
+              <span className="font-body text-sm font-medium">
+                {isVirtueCheckin ? "✦ Start Check-In" : isWeeklyReview ? "☰ Start Weekly Review" : "☰ Open Routine Review"}
+              </span>
+            </button>
+          ) : (
+            <div className="px-4 py-3 rounded-card bg-bg border border-border">
+              <p className="font-mono text-xs text-dim">Sunday habit — skip or rest for today</p>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Action buttons */}
       <div className="px-4 pb-4 flex-shrink-0 space-y-2">
-        {/* Checkbox: just missed + rest (done is the big button above) */}
-        {isCheckbox ? (
+        {/* Checkbox/special: just missed + rest (done is the big button/modal above) */}
+        {isCheckbox || isSpecial ? (
           <div className="flex gap-2">
             <button onClick={handleMissed} className="flex-1 py-2.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px]">
               ✗ Missed
@@ -904,6 +963,25 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
           })}
         </div>
       </div>
+
+      {specialModalOpen && isVirtueCheckin && (
+        <VirtueCheckInModal
+          thisWeekVirtue={thisWeekVirtue}
+          date={today}
+          onDone={(mins) => { setSpecialModalOpen(false); advance("done", mins); }}
+          onClose={() => setSpecialModalOpen(false)}
+        />
+      )}
+
+      {specialModalOpen && isWeeklyReview && (
+        <WeeklyReviewModal
+          date={today}
+          currentVirtue={thisWeekVirtue}
+          virtueCount={thisWeekVirtue?.virtueCount ?? 0}
+          onDone={(mins) => { setSpecialModalOpen(false); advance("done", mins); }}
+          onClose={() => setSpecialModalOpen(false)}
+        />
+      )}
     </div>
   );
 }

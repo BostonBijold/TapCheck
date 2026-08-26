@@ -163,7 +163,7 @@ export default function QuoteScreen({ mode, onDismiss }: Props) {
 
       <div className="flex flex-col items-center gap-2">
         <ArrowButton
-          label={mode === "loading" ? "Enter" : "Close"}
+          label="Be one."
           disabled={!canDismiss || waitingForData}
           onClick={handleDismiss}
         />

@@ -580,8 +580,10 @@ export default function RoutinesView({
           logs={logs}
           today={selectedDate}
           startIndex={activeSession?.startIndex ?? 0}
+          thisWeekVirtue={virtue}
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
+          onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
         />
       )}
 

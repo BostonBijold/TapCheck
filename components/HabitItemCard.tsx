@@ -196,7 +196,7 @@ export default function HabitItemCard({
         {isCheckbox && (
           <button
             onClick={() => onStateChange("done", { isBackEntry })}
-            className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-olive/40 text-olive hover:bg-olive/10 transition-colors flex-shrink-0"
+            className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-olive/30 text-transparent hover:border-olive/60 transition-colors flex-shrink-0"
             aria-label="Mark done"
           >
             <span className="text-base leading-none">✓</span>
