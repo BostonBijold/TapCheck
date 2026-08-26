@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useRingDrag } from "@/lib/useRingDrag";
+import HabitIcon from "@/components/HabitIcon";
 
 export interface TimerItem {
   _id: string;
@@ -145,7 +146,9 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
           {...dragHandlers}
         >
           <div className="text-center px-4 mt-6 pointer-events-none">
-            <span className="text-5xl block mb-3 leading-none">{item.icon}</span>
+            <div className="flex justify-center mb-3">
+              <HabitIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
+            </div>
             <h2 className="font-heading text-2xl text-text">{item.name}</h2>
           </div>
 
@@ -239,7 +242,9 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
         {...dragHandlers}
       >
         <div className="text-center px-4 mt-6 pointer-events-none">
-          <span className="text-5xl block mb-3 leading-none">{item.icon}</span>
+          <div className="flex justify-center mb-3">
+            <HabitIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
+          </div>
           <h2 className="font-heading text-2xl text-text">{item.name}</h2>
         </div>
 

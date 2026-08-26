@@ -13,9 +13,17 @@ struct HabitEntity: AppEntity, Decodable {
     static var typeDisplayRepresentation: TypeDisplayRepresentation = "Habit"
     static var defaultQuery = HabitEntityQuery()
 
+    // `icon` is one of this app's internal lucide icon-name strings (e.g.
+    // "droplets"), not an emoji or glyph AppIntents can render — it used to
+    // get prefixed onto the title, which just showed that raw string
+    // ("droplets Shower") instead of a picture. Title is the habit name
+    // alone; the routine group goes in the subtitle so two same-named
+    // habits in different routines (e.g. two "Stretch"es) are still
+    // distinguishable, and the picker list is already sorted/grouped by
+    // routine order (see GET /api/external/habits).
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(
-            title: "\(icon) \(name)",
+            title: "\(name)",
             subtitle: groupName.isEmpty ? nil : "\(groupName)"
         )
     }
