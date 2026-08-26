@@ -1,16 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import {
-  ListChecks, Target, BarChart3, ScrollText,
-  Play, CheckSquare, Sparkles, X,
-} from "lucide-react";
-import FABHabitSheet from "@/components/FABHabitSheet";
-import FABTaskSheet from "@/components/FABTaskSheet";
+import { ListChecks, Target, BarChart3, ScrollText } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
+import QuoteScreen from "@/components/QuoteScreen";
 import { ROUTINE_LOG_CHANGED_EVENT } from "@/lib/routine-log-events";
 
 const LEFT_TABS = [
@@ -21,47 +17,6 @@ const RIGHT_TABS = [
   { href: "/goals",   label: "Goals",   Icon: Target     },
   { href: "/virtues", label: "Virtues", Icon: ScrollText },
 ];
-
-// Radial layout: 3 bubbles at 130° / 90° / 50° from the horizontal axis.
-// FAB center sits ~60px above the viewport bottom edge.
-// Radius: 100px.  Bubble size: 56px (w-14 h-14).
-const DIAL = [
-  {
-    key: "task",
-    icon: CheckSquare,
-    bg: "bg-blue-muted",
-    fg: "text-text",
-    left: "calc(50% - 92px)",
-    bottom: 109,
-    origin: "origin-bottom-right",
-    delay: 0,
-  },
-  {
-    key: "startNext",
-    icon: Play,
-    bg: "bg-olive",
-    fg: "text-text",
-    left: "calc(50% - 28px)",
-    bottom: 132,
-    origin: "origin-bottom",
-    delay: 50,
-  },
-  {
-    key: "habit",
-    icon: Sparkles,
-    bg: "bg-gold",
-    fg: "text-bg",
-    left: "calc(50% + 36px)",
-    bottom: 109,
-    origin: "origin-bottom-left",
-    delay: 100,
-  },
-];
-
-const DIAL_LABELS: Record<string, string> = {
-  task: "Task",
-  habit: "Habit",
-};
 
 interface ActiveTimer {
   routineItemId: string;
@@ -76,10 +31,6 @@ interface ActiveTimer {
 
 const ACTIVE_TIMER_POLL_MS = 30000;
 
-function todayStr() {
-  return new Date().toLocaleDateString("sv"); // YYYY-MM-DD in local time
-}
-
 function fmtClock(totalSeconds: number) {
   const s = Math.max(0, Math.floor(totalSeconds));
   const m = Math.floor(s / 60);
@@ -90,33 +41,9 @@ function fmtClock(totalSeconds: number) {
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [open, setOpen] = useState(false);
-  const [habitOpen, setHabitOpen] = useState(false);
-  const [taskOpen, setTaskOpen] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-  const [startLabel, setStartLabel] = useState<"Start Routine" | "Continue Routine">("Start Routine");
+  const [quoteOpen, setQuoteOpen] = useState(false);
   const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const showToast = (msg: string) => {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2800);
-  };
-
-  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current); }, []);
-
-  // Determine label: "Start Routine" when no logs exist today, "Continue Routine" otherwise
-  useEffect(() => {
-    const date = todayStr();
-    fetch(`/api/routines/start-next?date=${date}`)
-      .then((r) => r.json())
-      .then((data: { hasNext: boolean; hasLogs: boolean }) => {
-        setStartLabel(data.hasLogs ? "Continue Routine" : "Start Routine");
-      })
-      .catch(() => {});
-  }, []);
 
   // ── Active-timer awareness ──────────────────────────────────────────────────
   // Checked on load, on every route change, immediately whenever a
@@ -158,12 +85,6 @@ export default function BottomNav() {
     };
   }, [fetchActiveTimer]);
 
-  // The dial is meaningless while a timer owns the FAB — close it if one
-  // becomes active while open (e.g. started from another tab/device).
-  useEffect(() => {
-    if (activeTimer) setOpen(false);
-  }, [activeTimer]);
-
   // Live clock for the resume pill — wall-clock based like the timer screens
   // themselves, not tick-counting, so it self-corrects after being backgrounded.
   useEffect(() => {
@@ -181,24 +102,6 @@ export default function BottomNav() {
     };
   }, [activeTimer]);
 
-  const handleStartNext = async () => {
-    const date = todayStr();
-    const res = await fetch(`/api/routines/start-next?date=${date}`);
-    const data = await res.json() as { hasNext: boolean; hasLogs: boolean };
-    setStartLabel(data.hasLogs ? "Continue Routine" : "Start Routine");
-    if (!data.hasNext) {
-      showToast("All routines complete for today.");
-      return;
-    }
-    const base = "/routines";
-    const url = `/routines?startNext=1&date=${date}`;
-    if (pathname === base) {
-      router.replace(url);
-    } else {
-      router.push(url);
-    }
-  };
-
   const handleResumeTimer = () => {
     if (!activeTimer) return;
     const url = `/routines?resumeTimer=1&date=${activeTimer.date}`;
@@ -209,16 +112,9 @@ export default function BottomNav() {
     }
   };
 
-  const handleAction = (key: string) => {
-    setOpen(false);
-    if (key === "startNext") { handleStartNext(); return; }
-    if (key === "task")      { setTaskOpen(true);  return; }
-    if (key === "habit")     { setHabitOpen(true); return; }
-  };
-
   const handleFabClick = () => {
     if (activeTimer) { handleResumeTimer(); return; }
-    setOpen((v) => !v);
+    setQuoteOpen(true);
   };
 
   const elapsedSeconds = activeTimer
@@ -237,60 +133,9 @@ export default function BottomNav() {
 
   return (
     <>
-      {/* Toast */}
-      {toast && (
-        <div
-          className="fixed z-50 left-1/2 -translate-x-1/2 font-mono text-xs text-text bg-card border border-border px-4 py-2.5 rounded-card shadow-lg pointer-events-none"
-          style={{ bottom: "calc(80px + env(safe-area-inset-bottom))" }}
-        >
-          {toast}
-        </div>
+      {quoteOpen && (
+        <QuoteScreen mode="on-demand" onDismiss={() => setQuoteOpen(false)} />
       )}
-
-      {/* Habit sheet */}
-      {habitOpen && (
-        <FABHabitSheet date={todayStr()} onClose={() => setHabitOpen(false)} />
-      )}
-
-      {/* Task sheet */}
-      {taskOpen && (
-        <FABTaskSheet date={todayStr()} onClose={() => setTaskOpen(false)} />
-      )}
-
-      {/* Backdrop */}
-      {open && !activeTimer && (
-        <div
-          className="fixed inset-0 z-30 bg-black/50 backdrop-blur-sm"
-          onClick={() => setOpen(false)}
-        />
-      )}
-
-      {/* Arc bubbles */}
-      {!activeTimer && DIAL.map(({ key, icon: Icon, bg, fg, left, bottom, origin, delay }) => {
-        const label = key === "startNext" ? startLabel : DIAL_LABELS[key] ?? key;
-        return (
-          <button
-            key={key}
-            onClick={() => handleAction(key)}
-            aria-label={label}
-            className={`fixed z-40 w-14 h-14 rounded-full ${bg} ${fg} flex flex-col items-center justify-center gap-0.5 shadow-lg transition-all duration-200 ${origin} ${
-              open
-                ? "opacity-100 scale-100 pointer-events-auto"
-                : "opacity-0 scale-0 pointer-events-none"
-            }`}
-            style={{
-              left,
-              bottom: `calc(${bottom}px + env(safe-area-inset-bottom))`,
-              transitionDelay: open ? `${delay}ms` : "0ms",
-            }}
-          >
-            <Icon size={17} strokeWidth={2} />
-            <span className="font-mono text-[8px] uppercase tracking-wider leading-none text-center px-0.5">
-              {label}
-            </span>
-          </button>
-        );
-      })}
 
       {/* Nav bar */}
       <nav
@@ -318,15 +163,13 @@ export default function BottomNav() {
           {/* FAB */}
           <button
             onClick={handleFabClick}
-            aria-label={activeTimer ? `Resume ${activeTimer.itemName}` : open ? "Close" : "Quick add"}
+            aria-label={activeTimer ? `Resume ${activeTimer.itemName}` : "Quote"}
             className={`absolute left-1/2 -translate-x-1/2 -top-6 z-10 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center transition-all duration-200 ${
-              activeTimer ? "bg-amber" : open ? "bg-card-hover" : "bg-olive"
+              activeTimer ? "bg-amber" : "bg-olive"
             }`}
           >
             {activeTimer ? (
               <HabitIcon name={activeTimer.itemIcon} size={26} className="text-bg relative" />
-            ) : open ? (
-              <X size={20} className="text-muted" />
             ) : (
               <Image
                 src="/jackalope_transparent.png"

@@ -8,6 +8,7 @@ import VirtueCheckInModal from "@/components/VirtueCheckInModal";
 import WeeklyReviewModal from "@/components/WeeklyReviewModal";
 import VirtuesHowItWorks from "@/components/VirtuesHowItWorks";
 import PhilosophyManageSheet, { PhilosophyMarketplaceInline } from "@/components/PhilosophyManageSheet";
+import QuoteManageSheet from "@/components/QuoteManageSheet";
 
 interface VirtueRow {
   virtueId: string;
@@ -78,6 +79,7 @@ export default function ReviewView({
   const [mode, setMode] = useState<"history" | "checkin" | "weekly">(initialMode ?? "history");
   const [checkedInToday, setCheckedInToday] = useState(hasCheckedInToday);
   const [manageOpen, setManageOpen] = useState(false);
+  const [quotesOpen, setQuotesOpen] = useState(false);
 
   const activeDate = initialDate ?? today;
   const isSunday = new Date(today + "T12:00:00").getDay() === 0;
@@ -180,6 +182,8 @@ export default function ReviewView({
         />
       )}
 
+      {quotesOpen && <QuoteManageSheet onClose={() => setQuotesOpen(false)} />}
+
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
@@ -206,10 +210,26 @@ export default function ReviewView({
             >
               Manage
             </button>
+            {isAdmin && (
+              <button
+                onClick={() => setQuotesOpen(true)}
+                className="font-mono text-[10px] text-dim hover:text-text px-3 py-3 rounded-card border border-border flex-shrink-0"
+              >
+                Quotes
+              </button>
+            )}
           </div>
         )}
         {!currentVirtue && !needsPhilosophy && (
-          <div className="flex justify-end mt-6 mb-4">
+          <div className="flex justify-end gap-2 mt-6 mb-4">
+            {isAdmin && (
+              <button
+                onClick={() => setQuotesOpen(true)}
+                className="font-mono text-[10px] text-dim hover:text-text px-3 py-2 rounded-card border border-border"
+              >
+                Quotes
+              </button>
+            )}
             <button
               onClick={() => setManageOpen(true)}
               className="font-mono text-[10px] text-dim hover:text-text px-3 py-2 rounded-card border border-border"
