@@ -41,7 +41,13 @@ function requireEnv(name: string): string {
 async function signProviderToken(): Promise<string> {
   const teamId = requireEnv("APNS_TEAM_ID");
   const keyId = requireEnv("APNS_KEY_ID");
-  const privateKeyPem = requireEnv("APNS_PRIVATE_KEY").replace(/\\n/g, "\n");
+  // Base64 of the raw .p8 file contents, not a \n-escaped PEM string —
+  // confirmed on Vercel that a pasted PEM (even carefully \n-escaped to a
+  // single line) can come out corrupted enough to fail EC key import
+  // ("point is not on curve"), most likely from the dashboard's paste
+  // handling mangling something in the dash/backslash-heavy text. Base64
+  // has no characters that paste/autocorrect handling tends to touch.
+  const privateKeyPem = Buffer.from(requireEnv("APNS_PRIVATE_KEY"), "base64").toString("utf8");
 
   const key = await importPKCS8(privateKeyPem, "ES256");
   return new SignJWT({})
