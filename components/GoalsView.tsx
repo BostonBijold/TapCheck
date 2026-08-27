@@ -352,7 +352,7 @@ export default function GoalsView({ userName, today, skipAuth }: Props) {
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
         {/* Title */}
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mt-6 mb-8">
           <h1 className="font-heading text-xl text-text">Goals</h1>
           <button
             onClick={() => setAdding(true)}

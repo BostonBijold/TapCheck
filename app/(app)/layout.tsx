@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { usePathname } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import QuoteScreen from "@/components/QuoteScreen";
 
@@ -13,9 +14,20 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   // NativeBootstrap uses.
   const [showLoadingQuote, setShowLoadingQuote] = useState(true);
 
+  // The scroll container below is shared across every nested route (this
+  // layout never remounts on client-side nav), so without this its
+  // scrollTop carries over from whatever page you left — e.g. landing on
+  // Goals still scrolled halfway down from Routines. Reset it to the top
+  // whenever the route changes.
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const pathname = usePathname();
+  useEffect(() => {
+    scrollRef.current?.scrollTo(0, 0);
+  }, [pathname]);
+
   return (
     <>
-      <div className="app-scroll h-full overflow-y-auto overscroll-none">
+      <div ref={scrollRef} className="app-scroll h-full overflow-y-auto overscroll-none">
         {children}
       </div>
       <BottomNav />

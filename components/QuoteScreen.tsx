@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
 import ArrowButton from "@/components/ArrowButton";
 
@@ -22,12 +22,6 @@ interface Props {
   onDismiss: () => void;
 }
 
-const MIN_READ_MS: Record<LengthTier, number> = {
-  short: 4000,
-  medium: 6000,
-  long: 8000,
-};
-
 const TEXT_SIZE: Record<LengthTier, string> = {
   short: "text-3xl",
   medium: "text-2xl",
@@ -41,36 +35,24 @@ function todayLocalDate() {
 export default function QuoteScreen({ mode, onDismiss }: Props) {
   const [quote, setQuote] = useState<QuoteDTO | null>(null);
   const [fetching, setFetching] = useState(true);
-  const [minTimerDone, setMinTimerDone] = useState(mode === "on-demand");
-  // For "loading" mode: what tier to size the minimum-read timer on, once
-  // known — falls back to "medium" if the fetch comes back empty or fails,
-  // so a missing quote can never permanently block dismissal.
-  const [resolvedTier, setResolvedTier] = useState<LengthTier | null>(mode === "on-demand" ? "medium" : null);
   // The /routines page this screen sits on top of is server-rendered with
   // its data already in the same response this component hydrates from, so
   // there's no separate client fetch to wait on today — this flips true on
   // the next frame after mount. Kept as its own flag (rather than assumed
   // true) so a future client-fetched data source can wire in real readiness
-  // here without touching anything else in this component.
+  // here without touching anything else in this component. No minimum read
+  // time — the button appears the moment routines is ready, and it's the
+  // user's call whether to read the quote or dismiss it immediately.
   const [dataReady, setDataReady] = useState(mode === "on-demand");
-  const [waitingForData, setWaitingForData] = useState(false);
   const [closing, setClosing] = useState(false);
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchQuote = () => {
     setFetching(true);
     const url = mode === "loading" ? `/api/quotes/today?date=${todayLocalDate()}` : "/api/quotes/random";
     fetch(url)
       .then((r) => r.json())
-      .then((data: { quote: QuoteDTO | null }) => {
-        setQuote(data.quote);
-        setFetching(false);
-        if (mode === "loading") setResolvedTier(data.quote?.lengthTier ?? "medium");
-      })
-      .catch(() => {
-        setFetching(false);
-        if (mode === "loading") setResolvedTier("medium");
-      });
+      .then((data: { quote: QuoteDTO | null }) => setQuote(data.quote))
+      .finally(() => setFetching(false));
   };
 
   useEffect(() => {
@@ -79,35 +61,15 @@ export default function QuoteScreen({ mode, onDismiss }: Props) {
   }, []);
 
   useEffect(() => {
-    if (mode !== "loading" || !resolvedTier) return;
-    timerRef.current = setTimeout(() => setMinTimerDone(true), MIN_READ_MS[resolvedTier]);
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, [mode, resolvedTier]);
-
-  useEffect(() => {
     if (mode !== "loading") return;
     const raf = requestAnimationFrame(() => setDataReady(true));
     return () => cancelAnimationFrame(raf);
   }, [mode]);
 
-  // Once the underlying page becomes ready while we were sitting in the
-  // "tapped dismiss but had to wait" state, finish the dismissal.
-  useEffect(() => {
-    if (waitingForData && dataReady) {
-      setClosing(true);
-      const t = setTimeout(onDismiss, 300);
-      return () => clearTimeout(t);
-    }
-  }, [waitingForData, dataReady, onDismiss]);
-
-  const canDismiss = mode === "on-demand" || minTimerDone;
+  const canDismiss = mode === "on-demand" || dataReady;
 
   const handleDismiss = () => {
-    if (!canDismiss || waitingForData) return;
-    if (mode === "loading" && !dataReady) {
-      setWaitingForData(true);
-      return;
-    }
+    if (!canDismiss) return;
     setClosing(true);
     setTimeout(onDismiss, 300);
   };
@@ -161,16 +123,11 @@ export default function QuoteScreen({ mode, onDismiss }: Props) {
         )}
       </div>
 
-      <div className="flex flex-col items-center gap-2">
-        <ArrowButton
-          label="Be one."
-          disabled={!canDismiss || waitingForData}
-          onClick={handleDismiss}
-        />
-        {waitingForData && (
-          <p className="font-mono text-[10px] text-dim animate-pulse">Just a moment…</p>
-        )}
-      </div>
+      <ArrowButton
+        label="Be one."
+        disabled={!canDismiss}
+        onClick={handleDismiss}
+      />
     </div>
   );
 }
