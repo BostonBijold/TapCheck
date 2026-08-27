@@ -33,10 +33,12 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     // finishes on its own once the activity ends, so this needs no manual
     // cleanup beyond cancelling the previous task when a new activity starts.
     private func observePushToken(for activity: Activity<RoutineActivityAttributes>) {
+        NSLog("[LiveActivityPlugin] observePushToken starting for activity \(activity.id)")
         pushTokenTask?.cancel()
         pushTokenTask = Task {
             for await tokenData in activity.pushTokenUpdates {
                 let token = tokenData.map { String(format: "%02x", $0) }.joined()
+                NSLog("[LiveActivityPlugin] pushTokenUpdates yielded: \(token)")
                 // Development-signed builds (this project's only build
                 // config today — see docs/features/app-intents.md's
                 // deployment target note) must push through APNs' sandbox
@@ -47,8 +49,16 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 #else
                 let environment = "production"
                 #endif
-                notifyListeners("pushTokenReceived", data: ["token": token, "environment": environment])
+                // retainUntilConsumed: the token can arrive before JS has
+                // finished registering its listener (registerPushTokenForwarding
+                // in NativeBootstrap.tsx runs concurrently with, not strictly
+                // after, the mount-time effect that calls start()) — without
+                // this, that race silently drops the event with no listener
+                // ever receiving it.
+                notifyListeners("pushTokenReceived", data: ["token": token, "environment": environment], retainUntilConsumed: true)
+                NSLog("[LiveActivityPlugin] notifyListeners(pushTokenReceived) called")
             }
+            NSLog("[LiveActivityPlugin] pushTokenUpdates sequence finished")
         }
     }
 

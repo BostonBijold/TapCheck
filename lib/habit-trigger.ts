@@ -30,13 +30,22 @@ async function notifyLiveActivity(
       { _id: userId },
       "liveActivityPushToken liveActivityPushEnvironment"
     ).lean();
-    if (!user?.liveActivityPushToken || !user.liveActivityPushEnvironment) return;
+    if (!user?.liveActivityPushToken || !user.liveActivityPushEnvironment) {
+      console.log("[notifyLiveActivity] no push token registered for user", userId);
+      return;
+    }
 
     const target = started ?? completed;
-    if (!target) return;
+    if (!target) {
+      console.log("[notifyLiveActivity] no started/completed target — nothing to notify");
+      return;
+    }
 
     const item = await RoutineItem.findOne({ _id: target.routineItemId }).lean();
-    if (!item) return;
+    if (!item) {
+      console.log("[notifyLiveActivity] RoutineItem not found for", target.routineItemId);
+      return;
+    }
     const group = target.sessionGroupId
       ? await RoutineGroup.findOne({ _id: item.groupId }).lean()
       : null;
@@ -52,14 +61,29 @@ async function notifyLiveActivity(
       routineGroupId: target.sessionGroupId,
     };
 
+    const event = started ? "update" : "end";
+    console.log(
+      "[notifyLiveActivity] sending",
+      event,
+      "push to token",
+      user.liveActivityPushToken.slice(-12),
+      "env",
+      user.liveActivityPushEnvironment,
+      "content:",
+      contentState
+    );
     await sendLiveActivityPush({
       pushToken: user.liveActivityPushToken,
       environment: user.liveActivityPushEnvironment as "sandbox" | "production",
-      event: started ? "update" : "end",
+      event,
       contentState,
     });
-  } catch {
-    // Best-effort — see comment above.
+    console.log("[notifyLiveActivity] push sent successfully");
+  } catch (error) {
+    // Best-effort — a push failure shouldn't fail the habit-completion
+    // request that triggered it — but log it so it's visible in Vercel's
+    // Runtime Logs, since there's no other feedback channel for this.
+    console.error("[notifyLiveActivity] failed:", error);
   }
 }
 
