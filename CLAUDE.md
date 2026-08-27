@@ -398,7 +398,7 @@ Seed these in order. Essays and etymology to be added by Boston over time.
 - FAB button (center bottom nav): BUILT — opens quick actions (start next routine, add standalone habit, add task)
 - Goals tab: IN PROGRESS
 - Review tab: NOT BUILT
-- Quotes: NOT BUILT (Phase 4)
+- Quotes: BUILT — `Quote` model, admin authoring UI, loading-screen virtue-pinned pick + nav-button random pick (see `docs/api/quotes-api.md`)
 
 **Bottom nav (final structure):**
 1. Routines (far left) — Today view

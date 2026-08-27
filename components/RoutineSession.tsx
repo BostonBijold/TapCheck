@@ -10,6 +10,7 @@ import type { RowItem } from "@/components/RoutineItemRow";
 import type { VirtueData } from "@/components/VirtueSheet";
 import type { LogState } from "@/models/RoutineLog";
 import { emitRoutineLogChanged } from "@/lib/routine-log-events";
+import { updateRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
 import { projectedFinishTime, staticBaselineFinish, type ItemProjection } from "@/lib/projected-finish";
 import { computeTimeline, type TimelineColorState } from "@/lib/routine-timeline";
 
@@ -144,6 +145,12 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   // runStartRef = Date.now() when the current running segment began (null if paused).
   const baseElapsedRef = useRef(0);
   const runStartRef = useRef<number | null>(null);
+  // Set synchronously the instant the X button is tapped, before the
+  // close-completion PATCH is even fired — blocks the foreground-revalidation
+  // poll below from treating handleClose's own "mark done" write as an
+  // external completion and auto-advancing into the next item while the
+  // close is still in flight. See handleClose.
+  const closingRef = useRef(false);
 
   const recompute = useCallback(() => {
     if (runStartRef.current != null) {
@@ -226,6 +233,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   useEffect(() => {
     const revalidate = async () => {
       if (document.visibilityState !== "visible") return;
+      if (closingRef.current) return;
       if (phase !== "running" || !currentItem) return;
       const records = await fetchDayLogs();
       const currentLog = records.find((r) => r.routineItemId === currentItem._id);
@@ -248,6 +256,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
       } else {
         setPhase("summary");
         setIsRunning(false);
+        endRoutineActivity();
       }
     };
 
@@ -322,6 +331,23 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
       runStartRef.current = Date.now();
       setElapsed(seeded);
       setIsRunning(true);
+
+      // Checkbox/special items have no timer — end rather than show a
+      // stale one; update() falls back to starting fresh, so the very
+      // first timed item in a session (nothing to update yet) is handled
+      // the same call as switching between two timed items mid-session.
+      if (isCheckboxItem || isSpecialItemType(item.itemType)) {
+        endRoutineActivity();
+      } else {
+        updateRoutineActivity({
+          routineItemId: item._id,
+          routineGroupId: groupId,
+          routineLabel: groupName,
+          habitName: item.name,
+          startedAt: new Date(Date.now() - seeded * 1000).toISOString(),
+          projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+        });
+      }
     })();
 
     return () => { cancelled = true; };
@@ -372,6 +398,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
       } else {
         setPhase("summary");
         setIsRunning(false);
+        endRoutineActivity();
       }
     },
     [currentItem, currentIndex, items, saveLog, sessionLogs, fetchDayLogs]
@@ -409,6 +436,11 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   // record exists for it (see the effect above), flush it as done with the
   // elapsed time actually run rather than leaving it dangling or losing it.
   const handleClose = useCallback(async () => {
+    // Must be set before the PATCH below is even fired — the revalidation
+    // poll runs on a 2s interval independent of this call, and without this
+    // guard it can see the item this PATCH just marked done and race to
+    // auto-advance into the next item before onClose() unmounts the session.
+    closingRef.current = true;
     if (phase === "running" && currentItem && currentItem.itemType !== "checkbox" && !isSpecialItemType(currentItem.itemType)) {
       await fetch("/api/routine-logs", {
         method: "PATCH",
@@ -422,6 +454,7 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
       });
       emitRoutineLogChanged();
     }
+    endRoutineActivity();
     onClose();
   }, [phase, currentItem, elapsed, today, onClose]);
 

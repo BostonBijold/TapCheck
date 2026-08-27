@@ -18,6 +18,7 @@ import type { RowItem } from "@/components/RoutineItemRow";
 import { isItemVisibleOn } from "@/lib/routine-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
 import { emitRoutineLogChanged, ROUTINE_LOG_CHANGED_EVENT } from "@/lib/routine-log-events";
+import { startRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
 
 const LOG_POLL_MS = 2000;
 
@@ -88,6 +89,17 @@ export default function RoutinesView({
 
   const isPastDate = selectedDate !== today;
 
+  // "Routine label" for a standalone (non-session) Live Activity — see
+  // lib/native/routine-activity.ts. Session items get their group's own
+  // name directly from the loop that already has it (openInProgressTimer,
+  // RoutineSession.tsx); this lookup is only needed here for the standalone
+  // TimerScreen path, which doesn't otherwise know which group its item
+  // belongs to.
+  const findGroupName = useCallback(
+    (itemId: string) => groups.find((g) => g.items.some((i) => i._id === itemId))?.name ?? "Timer",
+    [groups]
+  );
+
   // Split into timed routine groups and standalone habit groups
   const routineGroups = useMemo(() => groups.filter((g) => g.timeOfDay !== "habit"), [groups]);
   const habitGroups = useMemo(() => groups.filter((g) => g.timeOfDay === "habit"), [groups]);
@@ -149,6 +161,16 @@ export default function RoutinesView({
         const elapsed = (inProgressLog.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(inProgressLog.startedAt).getTime()) / 1000));
         setTimerInitialElapsed(elapsed);
         setTimerItem(item as TimerItem);
+        // Re-syncs the Live Activity on cold start — idempotent (start()
+        // always ends any existing activity first), so this is safe even
+        // though the Activity likely already survived the app being closed.
+        startRoutineActivity({
+          routineItemId: item._id,
+          routineLabel: g.name,
+          habitName: item.name,
+          startedAt: new Date(Date.now() - elapsed * 1000).toISOString(),
+          projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+        });
         return true;
       }
     }
@@ -419,6 +441,13 @@ export default function RoutinesView({
           const elapsed = (existingLog.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(existingLog.startedAt).getTime()) / 1000));
           setTimerInitialElapsed(elapsed);
           setTimerItem(item);
+          startRoutineActivity({
+            routineItemId: item._id,
+            routineLabel: findGroupName(item._id),
+            habitName: item.name,
+            startedAt: new Date(Date.now() - elapsed * 1000).toISOString(),
+            projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+          });
           return;
         }
         // Paused with no resolvable session (e.g. the group was deleted) — fall
@@ -457,8 +486,15 @@ export default function RoutinesView({
       emitRoutineLogChanged();
       setTimerInitialElapsed(0);
       setTimerItem(item);
+      startRoutineActivity({
+        routineItemId: item._id,
+        routineLabel: findGroupName(item._id),
+        habitName: item.name,
+        startedAt: optimistic.startedAt!,
+        projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+      });
     },
-    [logs, selectedDate, groups]
+    [logs, selectedDate, groups, findGroupName]
   );
 
   // PATCH the in_progress log to done. Server derives actualMinutes from startedAt.
@@ -481,6 +517,7 @@ export default function RoutinesView({
       }
       emitRoutineLogChanged();
       setTimerItem(null);
+      endRoutineActivity();
     },
     [timerItem, selectedDate]
   );
@@ -498,6 +535,7 @@ export default function RoutinesView({
     });
     emitRoutineLogChanged();
     setTimerItem(null);
+    endRoutineActivity();
   }, [timerItem, selectedDate]);
 
   const handleSessionFinish = useCallback(async () => {

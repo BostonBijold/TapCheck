@@ -129,4 +129,4 @@ Sorted by group order, then item order within each group — matching the order 
 
 ## Consumed by
 
-[`features/timer.md`](../features/timer.md) (the resume-into-session behavior) and, indirectly, [`features/routines.md`](../features/routines.md) (where the item/group IDs this endpoint needs are surfaced for copying).
+[`features/timer.md`](../features/timer.md) (the resume-into-session behavior) and, indirectly, [`features/routines.md`](../features/routines.md) (where the item/group IDs this endpoint needs are surfaced for copying). `trigger-habit` specifically is also called by the Live Activity's "Done" button (`CompleteHabitFromActivityIntent`, `source: "live_activity"`) — see [`features/live-activity.md`](../features/live-activity.md).

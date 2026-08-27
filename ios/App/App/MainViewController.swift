@@ -14,5 +14,6 @@ class MainViewController: CAPBridgeViewController {
     // registration regardless). See docs/features/app-intents.md.
     override func capacitorDidLoad() {
         bridge?.registerPluginInstance(ApiKeyBridgePlugin())
+        bridge?.registerPluginInstance(LiveActivityPlugin())
     }
 }

@@ -2,7 +2,7 @@
 
 # Virtues API
 
-Covers `Philosophy` (virtue sets), the `Virtue` reference collection, daily `VirtueCheckIn` records, and philosophy selection — the data behind [features/virtues.md](../features/virtues.md). Completing the `virtue_checkin`/`weekly_review` special `RoutineItem`s still goes through the ordinary `POST /api/routine-logs` (documented in [routines-api.md](routines-api.md)) — not duplicated here.
+Covers `Philosophy` (virtue sets), the `Virtue` reference collection, daily `VirtueCheckIn` records, philosophy selection, and progressive virtue stacking — the data behind [features/virtues.md](../features/virtues.md). Completing the `virtue_checkin`/`weekly_review` special `RoutineItem`s still goes through the ordinary `POST /api/routine-logs` (documented in [routines-api.md](routines-api.md)) — not duplicated here.
 
 **Auth**: every route below follows the usual pattern — NextAuth session, with a `SKIP_AUTH`-gated dev fallback, `401` otherwise — except the admin-only routes, which check `isAdmin(email)` (`lib/admin.ts`: hardcoded email, or `SKIP_AUTH`) instead, `403` otherwise. `GET /api/virtues` is session-authenticated the same as everything else (`401` if not); the philosophy it resolves against is the caller's own session-derived selection (see below) — virtues themselves are global, read-only reference content.
 
@@ -97,9 +97,14 @@ Response: the upserted document, same shape as the `?date=` mode above.
 
 Session-authenticated. Accepts any subset of:
 - `virtueWalkthroughSeen: boolean`
-- `selectedPhilosophyId: string | null` — what the marketplace's "tap to select" action calls. `null` explicitly clears the selection (drops the user back into the marketplace on next load). A non-null value must reference a real, **active** `Philosophy` — validated server-side (`400 { error: "Invalid philosophy" }` if not), never trusted from the client.
+- `selectedPhilosophyId: string | null` — what the marketplace's "tap to select" action calls. `null` explicitly clears the selection (drops the user back into the marketplace on next load). A non-null value must reference a real, **active** `Philosophy` — validated server-side (`400 { error: "Invalid philosophy" }` if not), never trusted from the client. Setting it to a non-null value also unconditionally resets `virtueStackStartWeek` to the current week (see below) — a route-level side effect, not a separate client-sent flag; applies on first pick and on later switches alike.
+- `resetVirtueStack: true` — resets `virtueStackStartWeek` to the current week without touching `selectedPhilosophyId`. What "Reset Virtue Progress" (`PhilosophyManageSheet.tsx`'s sheet variant, behind a `confirm()`) calls. `false`/omitted has no effect — there's no way to unset a stack reset once requested, and no other value is meaningful here.
 
-`400` if neither key is present, or if a present key fails its own validation. Writes go through `User.findByIdAndUpdate(..., { upsert: true })` for real users, but through the raw driver collection (`User.collection.updateOne`) for `SKIP_AUTH`'s `dev-local-user` — its id isn't a valid ObjectId, so the Mongoose path would throw a CastError before the upsert ever ran; see [features/virtues.md](../features/virtues.md#philosophy-marketplace-and-switching). Response: `{ ok: true }`.
+`400` if none of the three keys is present, or if a present key fails its own validation. Writes go through `User.findByIdAndUpdate(..., { upsert: true })` for real users, but through the raw driver collection (`User.collection.updateOne`) for `SKIP_AUTH`'s `dev-local-user` — its id isn't a valid ObjectId, so the Mongoose path would throw a CastError before the upsert ever ran; see [features/virtues.md](../features/virtues.md#philosophy-marketplace-and-switching). Response: `{ ok: true }`.
+
+## `GET /api/virtue-stack`
+
+Session-authenticated. No params — resolves the caller's `stackSize` server-side via `resolveSelectedPhilosophyId` + `lib/philosophy.ts`'s `resolveVirtueStackStartWeek(userId)` (lazily initializes `virtueStackStartWeek` to the current week on first read if it was never set) and `lib/virtue-dates.ts`'s `personalWeeksActive`/`personalStackSize` math. Response: `{ stackSize: number | null }` — `null` when the caller has no philosophy selected. `components/VirtueCheckInModal.tsx` fetches this alongside `GET /api/virtues` to filter the daily check-in list down to the virtues in the caller's progressive stack; see [features/virtues.md](../features/virtues.md#progressive-virtue-stacking) for the full stacking model.
 
 ## Consumed by
 

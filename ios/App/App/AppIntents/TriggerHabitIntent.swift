@@ -25,7 +25,7 @@ struct TriggerHabitIntent: AppIntent {
         guard let apiKey = KeychainHelper.load() else {
             throw BeOneAPIError.notSignedIn
         }
-        try await BeOneAPI.triggerHabit(apiKey: apiKey, routineItemId: habit.id, routineGroupId: habit.groupId)
+        try await BeOneAPI.triggerHabit(apiKey: apiKey, routineItemId: habit.id, routineGroupId: habit.groupId, source: "app_intent")
         return .result(dialog: "Triggered \(habit.name)")
     }
 }

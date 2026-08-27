@@ -33,19 +33,28 @@ App Intents code runs independent of the WebView — possibly via a background l
 ios/App/App/
   KeychainHelper.swift
   ApiKeyBridgePlugin.swift
+  BeOneAPI.swift             — baseURL, triggerHabit, BeOneAPIError. Moved out of
+                                HabitEntityQuery.swift (where it originally lived inline) when
+                                the Live Activity feature needed to share it with a second
+                                target — see docs/features/live-activity.md. Now dual
+                                App + RoutineActivityExtension target membership.
   AppIntents/
     HabitEntity.swift         — AppEntity wrapping one habit from GET /api/external/habits
     HabitEntityQuery.swift    — EntityQuery + EntityStringQuery, backed by a 45s-TTL actor
                                  cache (HabitCache) so the Shortcuts editor's search field
-                                 doesn't hit the network on every keystroke; also hosts the
-                                 shared BeOneAPI networking enum (base URL, fetch/trigger
-                                 calls) used by TriggerHabitIntent too
+                                 doesn't hit the network on every keystroke; also hosts
+                                 fetchHabits as an App-only extension on the BeOneAPI enum
+                                 above (its response decodes into [HabitEntity], which the
+                                 Live Activity's extension target doesn't compile, hence not
+                                 in BeOneAPI.swift itself)
     TriggerHabitIntent.swift  — the AppIntent itself; POSTs to the existing
                                  /api/external/trigger-habit, no new trigger logic
     BeOneShortcuts.swift      — AppShortcutsProvider; this alone is what makes the action
                                  appear in the Shortcuts gallery/Siri/Spotlight, no
                                  Info.plist configuration needed
 ```
+
+A second AppIntent, `CompleteHabitFromActivityIntent` (the Live Activity's "Done" button), also calls into `BeOneAPI.triggerHabit` — see [`live-activity.md`](live-activity.md).
 
 `BeOneAPI`'s base URL (`https://be-one-nu.vercel.app`) is a hardcoded Swift constant matching `capacitor.config.ts`'s `server.url` — there's no way to share the JS config into native code, so this is a place that needs updating manually if the production domain ever changes.
 

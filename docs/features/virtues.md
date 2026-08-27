@@ -49,7 +49,7 @@ A brand-new user's first check-in shouldn't be N yes/no questions on virtues the
 
 **Admin** is centralized in `lib/admin.ts`'s `isAdmin(email)` (hardcoded email check + `SKIP_AUTH` fallback) — every admin-gated route and page imports this one helper now, rather than duplicating the check. **`models/User.ts` still has no `role` field** — `CLAUDE.md`'s "Admin Role" section implying a stored `role: 'admin'` remains aspirational, not implemented.
 
-`models/Quote.ts` does not exist — matches `CLAUDE.md`'s own "NOT BUILT (Phase 4)" note; still accurate.
+**Quotes are built, contrary to `CLAUDE.md`'s "NOT BUILT (Phase 4)" note** — `models/Quote.ts` exists, along with a full admin authoring UI and two read paths (loading-screen virtue-pinned pick, nav-button fully random pick). Not part of this feature's own data model (no `Virtue`/`Philosophy` field references a `Quote`, beyond the loose `virtue: slug` string match used for the loading-screen pin) — see [api/quotes-api.md](../api/quotes-api.md) for the full surface.
 
 ## Week convention and rotation (`lib/virtue-dates.ts`)
 

@@ -129,3 +129,7 @@ This is purely additive — nothing about the in-app rendering above changed, an
 ## Depends on
 
 The routine-logs section of [`docs/api/routines-api.md`](../api/routines-api.md), and [`docs/api/external-api.md`](../api/external-api.md) for the API-key-triggered start path and session anchoring.
+
+## Consumed by
+
+[`live-activity.md`](live-activity.md) — the Lock Screen/Dynamic Island timer starts, updates, and ends in lockstep with the same events documented here (timer start, `RoutineSession`'s per-item switch effect, completion, and the foreground-revalidation effect's external-completion handling).
