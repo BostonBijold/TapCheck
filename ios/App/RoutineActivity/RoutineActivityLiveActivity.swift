@@ -13,7 +13,6 @@ private enum Palette {
     static let olive = Color(red: 0x5a / 255, green: 0x6b / 255, blue: 0x35 / 255)
     static let gold = Color(red: 0xc4 / 255, green: 0xa8 / 255, blue: 0x4a / 255)
     static let amber = Color(red: 0xc4 / 255, green: 0x7a / 255, blue: 0x2a / 255)
-    static let burgundy = Color(red: 0x7a / 255, green: 0x2e / 255, blue: 0x2e / 255)
 }
 
 // A 24h upper bound is just a cap for Text(timerInterval:)'s range — no
@@ -21,6 +20,22 @@ private enum Palette {
 // beyond any realistic elapsed time so the text never stops updating.
 private func elapsedRange(from startedAt: Date) -> ClosedRange<Date> {
     startedAt...startedAt.addingTimeInterval(24 * 60 * 60)
+}
+
+// A live "+HH:MM:SS" (or "+MM:SS") count-up from the moment a target was
+// crossed — used both by timerText's post-target branch and by the routine
+// finish badge below. The two are the same number by construction: once
+// the active item is over its own target, its remaining contribution to
+// the routine's projected finish is zero (lib/projected-finish.ts's
+// remainingMinutes), so routineFinishAt(now) == (the finish time as of the
+// moment target was crossed) + (however long over target now) — i.e.
+// exactly this count-up. No seconds-hiding is possible here:
+// Text(timerInterval:) has no API for suppressing the seconds field, only
+// showsHours toggling HH:MM:SS vs MM:SS — confirmed with the user this
+// reads fine framed as an explicit "+" overage, unlike a wall-clock label
+// silently ticking seconds would.
+private func overtimeText(from target: Date) -> Text {
+    Text("+") + Text(timerInterval: target...target.addingTimeInterval(24 * 60 * 60), countsDown: false, showsHours: false)
 }
 
 private func targetInstant(_ state: RoutineActivityAttributes.ContentState) -> Date? {
@@ -32,35 +47,47 @@ private func estimatedFinish(_ state: RoutineActivityAttributes.ContentState) ->
     targetInstant(state)
 }
 
-// Same olive→amber→burgundy convention as the in-app countdown ring
-// (components/RoutineSession.tsx) — amber past 75% of target, burgundy once
-// over. Evaluated at render time, so — like the timer text itself — this
-// only updates when the widget actually redraws (a local/push update, or an
-// OS-triggered periodic reload), not continuously; see
-// docs/features/live-activity.md's platform note on this.
+// Two-color scheme (olive → amber), deliberately simpler than the in-app
+// countdown ring's olive → amber → burgundy — confirmed with the user that
+// on the Lock Screen, "over target" should read the same amber as the
+// 75%-warning state, not step further to burgundy. Evaluated at render
+// time, so — like the timer text itself — this only updates when the
+// widget actually redraws (a local/push update, or an OS-triggered
+// periodic reload), not continuously; see docs/features/live-activity.md's
+// platform note on this.
 private func timerColor(_ state: RoutineActivityAttributes.ContentState) -> Color {
     guard let target = targetInstant(state) else { return Palette.olive }
     let totalSeconds = TimeInterval(state.projectedMinutes * 60)
     guard totalSeconds > 0 else { return Palette.olive }
+    if Date() >= target { return Palette.amber }
     let ratio = Date().timeIntervalSince(state.startedAt) / totalSeconds
-    if Date() >= target { return Palette.burgundy }
     if ratio >= 0.75 { return Palette.amber }
     return Palette.olive
 }
 
-// Countdown-to-target for items with a projected time (matches the in-app
-// ring's "counts down, then holds" — see the AskUserQuestion decision in
-// docs/features/live-activity.md: a true countdown-then-count-up flip would
-// need a scheduled push at the exact crossing moment, not worth the added
-// infrastructure). Falls back to a plain count-up elapsed display for
-// stopwatch items (projectedMinutes == 0, no target to count down to).
+// Countdown-to-target for items with a projected time, flipping to a live
+// "+HH:MM:SS" count-up (overtimeText, above) once "now" passes it — matches
+// the in-app ring's own countdown-then-overtime behavior. This branch is
+// evaluated at render time (see timerColor's comment on what that means for
+// freshness), so the flip itself happens at the next real redraw, not
+// necessarily the exact crossing instant — same "eventually consistent"
+// characteristic already documented for color/timeline updates elsewhere in
+// this feature, not a new limitation. Falls back to a plain count-up
+// elapsed display for stopwatch items (projectedMinutes == 0, no target to
+// count down to or over).
 @ViewBuilder
 private func timerText(_ state: RoutineActivityAttributes.ContentState, size: CGFloat) -> some View {
     if let target = targetInstant(state) {
-        Text(timerInterval: state.startedAt...target, countsDown: true, showsHours: false)
-            .font(.system(size: size, weight: .semibold, design: .monospaced))
-            .foregroundStyle(timerColor(state))
-            .monospacedDigit()
+        Group {
+            if Date() >= target {
+                overtimeText(from: target)
+            } else {
+                Text(timerInterval: state.startedAt...target, countsDown: true, showsHours: false)
+            }
+        }
+        .font(.system(size: size, weight: .semibold, design: .monospaced))
+        .foregroundStyle(timerColor(state))
+        .monospacedDigit()
     } else {
         Text(timerInterval: elapsedRange(from: state.startedAt), countsDown: false, showsHours: false)
             .font(.system(size: size, weight: .semibold, design: .monospaced))
@@ -69,12 +96,16 @@ private func timerText(_ state: RoutineActivityAttributes.ContentState, size: CG
     }
 }
 
-// Mirrors lib/routine-timeline.ts's TIMELINE_COLOR map exactly (done/active
-// both read olive — "in hand" regardless of variance — pending is a dim
-// neutral fill, only an over-target active segment shifts to amber).
+// Mirrors lib/routine-timeline.ts's TIMELINE_COLOR map (done reads olive —
+// "in hand" regardless of variance, unless the payload already re-labeled
+// it "activeOver" for running over target while done, see
+// docs/features/live-activity.md — pending is a dim neutral fill).
+// Deliberately does NOT handle "active"/"activeOver" — those are always
+// resolved live via timerColor(_:) instead, see the comment on
+// timelineBar below for why a static lookup isn't enough for that one.
 private func timelineSegmentColor(_ colorState: String) -> Color {
     switch colorState {
-    case "done", "active": return Palette.olive
+    case "done": return Palette.olive
     case "activeOver": return Palette.amber
     default: return Palette.textMuted.opacity(0.35) // "pending"
     }
@@ -88,12 +119,25 @@ private func timelineSegmentColor(_ colorState: String) -> Color {
 // when the current habit belongs to a routine (see ContentState's
 // timelineSegments/routineStartedAt/routineFinishAt doc comment) — a
 // standalone timer falls back to the simpler per-habit finishLine below.
-private func timelineBar(_ segments: [RoutineActivityAttributes.TimelineSegment]) -> some View {
+//
+// The active item's own segment is the one exception to "just read
+// colorState off the payload": that string was fixed at whatever moment
+// the last update/push fired, so a habit that was on-track when its timer
+// started but has since run over target would otherwise stay olive
+// indefinitely, with no new push to correct it — confirmed by the user:
+// only the timer text (already computed live via timerColor(_:), not read
+// from the payload) reflected running over; the segment didn't. There's
+// only ever one such segment (computeTimeline gives the current item
+// "active"/"active-over" — mapped to "active"/"activeOver" for the wire —
+// and nothing else), so matching on that colorState value is enough to
+// find it without needing per-segment ids.
+private func timelineBar(_ state: RoutineActivityAttributes.ContentState) -> some View {
     GeometryReader { geo in
         HStack(spacing: 2) {
-            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+            ForEach(Array(state.timelineSegments.enumerated()), id: \.offset) { _, segment in
+                let isActiveSegment = segment.colorState == "active" || segment.colorState == "activeOver"
                 RoundedRectangle(cornerRadius: 2)
-                    .fill(timelineSegmentColor(segment.colorState))
+                    .fill(isActiveSegment ? timerColor(state) : timelineSegmentColor(segment.colorState))
                     .frame(width: max(3, geo.size.width * CGFloat(segment.pct / 100)))
             }
         }
@@ -105,7 +149,7 @@ private func timelineBar(_ segments: [RoutineActivityAttributes.TimelineSegment]
 private func routineTimelineBlock(_ state: RoutineActivityAttributes.ContentState) -> some View {
     if !state.timelineSegments.isEmpty, let routineStart = state.routineStartedAt, let routineFinish = state.routineFinishAt {
         VStack(alignment: .leading, spacing: 5) {
-            timelineBar(state.timelineSegments)
+            timelineBar(state)
             HStack {
                 Text(routineStart, style: .time)
                     .font(.system(size: 10, weight: .medium, design: .monospaced))
@@ -116,12 +160,34 @@ private func routineTimelineBlock(_ state: RoutineActivityAttributes.ContentStat
                         .font(.system(size: 10, weight: .semibold))
                     Text(routineFinish, style: .time)
                         .font(.system(size: 13, weight: .semibold))
+                    overtimeBadge(state)
                 }
                 .foregroundStyle(Palette.textPrimary)
             }
         }
     } else {
         finishLine(state)
+    }
+}
+
+// The static `routineFinish` sent in the payload is the "on-schedule"
+// projected finish as of the moment the active item started — which is
+// exactly baseFinish in the derivation above, so it stays correct as a
+// reference point and never needs correcting on its own. This badge is the
+// live correction on top of it: how much later the true finish now is,
+// ticking up in lockstep with the active item's own overtime. Hidden
+// entirely while the active item is still on schedule.
+//
+// Inline next to "Finish by", not on its own row — a separate-row version
+// was tried and rolled back: confirmed by the user it didn't actually fix
+// anything, so this reverts to the simpler inline layout rather than carry
+// unproven complexity forward.
+@ViewBuilder
+private func overtimeBadge(_ state: RoutineActivityAttributes.ContentState) -> some View {
+    if let target = targetInstant(state), Date() >= target {
+        overtimeText(from: target)
+            .font(.system(size: 12, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Palette.amber)
     }
 }
 
@@ -135,6 +201,7 @@ private func finishLine(_ state: RoutineActivityAttributes.ContentState) -> some
             Text("Finish by \(finish, style: .time)")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(Palette.textPrimary)
+            overtimeBadge(state)
         }
     }
 }
