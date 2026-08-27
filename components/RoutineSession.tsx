@@ -10,7 +10,6 @@ import type { RowItem } from "@/components/RoutineItemRow";
 import type { VirtueData } from "@/components/VirtueSheet";
 import type { LogState } from "@/models/RoutineLog";
 import { emitRoutineLogChanged } from "@/lib/routine-log-events";
-import { useRingDrag } from "@/lib/useRingDrag";
 import { projectedFinishTime, staticBaselineFinish, type ItemProjection } from "@/lib/projected-finish";
 import { computeTimeline, type TimelineColorState } from "@/lib/routine-timeline";
 
@@ -145,39 +144,13 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   // runStartRef = Date.now() when the current running segment began (null if paused).
   const baseElapsedRef = useRef(0);
   const runStartRef = useRef<number | null>(null);
-  // While the ring is being dragged, the drag gesture owns `elapsed` —
-  // recompute() stands down so the two don't fight over it.
-  const isDraggingRef = useRef(false);
 
   const recompute = useCallback(() => {
-    if (isDraggingRef.current) return;
     if (runStartRef.current != null) {
       const delta = Math.floor((Date.now() - runStartRef.current) / 1000);
       setElapsed(baseElapsedRef.current + delta);
     }
   }, []);
-
-  // Drag the ring like a dial to set elapsed time directly: one full
-  // clockwise lap = the current item's target (or 30m for a stopwatch, no
-  // target). Winding never changes whether the timer is running — it only
-  // ever reanchors runStartRef to "now" (see onChange) so that if it was
-  // running going in, it keeps running from the dragged value the instant
-  // you let go; if it was paused, it stays paused right where you left it.
-  // Called unconditionally (before the summary-phase early return below) —
-  // it's simply unused there, since the summary screen has no ring.
-  const revolutionSeconds = isStopwatch ? STOPWATCH_SOFT_CAP : (currentItem?.projectedMinutes ?? 0) * 60;
-  const { svgRef, isDragging, handlers: dragHandlers } = useRingDrag({
-    revolutionSeconds,
-    getElapsedSeconds: () => elapsed,
-    onChange: (seconds) => {
-      const rounded = Math.round(seconds);
-      baseElapsedRef.current = rounded;
-      if (runStartRef.current != null) runStartRef.current = Date.now();
-      setElapsed(rounded);
-    },
-    onDragStart: () => { isDraggingRef.current = true; },
-    onDragEnd: () => { isDraggingRef.current = false; },
-  });
 
   // Don't run the clock for checkbox or special (no-timer) items — there's nothing to time
   useEffect(() => {
@@ -703,18 +676,8 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
         />
       </div>
 
-      {/* Item info + ring together are one big drag surface for setting
-          elapsed time — not just the thin ring stroke. pointer-events-none
-          on the inner content means the wrapper's own handlers always get
-          the gesture, never a child. Checkbox items have no timer, so their
-          own big Done button below is a separate, ordinarily-clickable
-          element outside this wrapper. */}
-      <div
-        className="flex flex-col select-none"
-        style={!isCheckbox && !isSpecial ? { touchAction: "none", cursor: isDragging ? "grabbing" : "grab" } : undefined}
-        {...(!isCheckbox && !isSpecial ? dragHandlers : {})}
-      >
-        <div className="text-center px-4 pt-2 pb-3 flex-shrink-0 pointer-events-none">
+      <div className="flex flex-col select-none">
+        <div className="text-center px-4 pt-2 pb-3 flex-shrink-0">
           <div className="flex justify-center mb-3">
             <HabitIcon name={currentItem.icon} size={44} strokeWidth={1.25} className="text-text" />
           </div>
@@ -740,9 +703,9 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
 
         {/* ── Countdown ring ── */}
         {isCountdown && (
-          <div className="flex justify-center flex-shrink-0 pb-3 pointer-events-none">
+          <div className="flex justify-center flex-shrink-0 pb-3">
             <div className="relative w-44 h-44">
-              <svg ref={svgRef} className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
                 <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#2e2c22" strokeWidth="9" />
                 <circle
                   cx="80" cy="80" r={RING_R}
@@ -752,15 +715,14 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
                   strokeLinecap="round"
                   strokeDasharray={RING_CIRC}
                   strokeDashoffset={countdownOffset}
-                  style={isDragging ? undefined : { transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
+                  style={{ transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
                 />
-                {/* Handle at the arc's tip — purely visual, the whole area above is draggable */}
+                {/* Handle at the arc's tip — purely visual */}
                 <circle
                   cx={80 + RING_R * Math.cos(countdownRatio * 2 * Math.PI)}
                   cy={80 + RING_R * Math.sin(countdownRatio * 2 * Math.PI)}
-                  r={isDragging ? 11 : 8}
+                  r={8}
                   fill={countdownColor}
-                  style={{ transition: isDragging ? "none" : "r 0.15s ease" }}
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">
@@ -775,9 +737,9 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
 
         {/* ── Stopwatch ring ── */}
         {isStopwatch && (
-          <div className="flex justify-center flex-shrink-0 pb-3 pointer-events-none">
+          <div className="flex justify-center flex-shrink-0 pb-3">
             <div className="relative w-44 h-44">
-              <svg ref={svgRef} className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
                 <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#2e2c22" strokeWidth="9" />
                 <circle
                   cx="80" cy="80" r={RING_R}
@@ -787,15 +749,14 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
                   strokeLinecap="round"
                   strokeDasharray={RING_CIRC}
                   strokeDashoffset={stopwatchOffset}
-                  style={isDragging ? undefined : { transition: "stroke-dashoffset 0.95s linear" }}
+                  style={{ transition: "stroke-dashoffset 0.95s linear" }}
                 />
-                {/* Handle at the arc's tip — purely visual, the whole area above is draggable */}
+                {/* Handle at the arc's tip — purely visual */}
                 <circle
                   cx={80 + RING_R * Math.cos(stopwatchRatio * 2 * Math.PI)}
                   cy={80 + RING_R * Math.sin(stopwatchRatio * 2 * Math.PI)}
-                  r={isDragging ? 11 : 8}
+                  r={8}
                   fill="#5a6b35"
-                  style={{ transition: isDragging ? "none" : "r 0.15s ease" }}
                 />
               </svg>
               <div className="absolute inset-0 flex flex-col items-center justify-center">

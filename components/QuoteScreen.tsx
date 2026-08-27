@@ -86,7 +86,7 @@ export default function QuoteScreen({ mode, onDismiss }: Props) {
       }`}
       style={{
         paddingTop: "calc(2.5rem + env(safe-area-inset-top))",
-        paddingBottom: "calc(2.5rem + env(safe-area-inset-bottom))",
+        paddingBottom: "calc(6rem + env(safe-area-inset-bottom))",
       }}
     >
       <button

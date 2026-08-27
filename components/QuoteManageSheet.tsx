@@ -104,16 +104,16 @@ function QuoteForm({
         {genreOptions.map((g) => <option key={g} value={g} />)}
       </datalist>
       <div className="flex gap-2">
-        <input
+        <select
           value={virtue}
           onChange={(e) => setVirtue(e.target.value)}
-          placeholder="Virtue slug (optional)"
-          list="quote-virtue-options"
           className="flex-1 bg-card border border-border rounded-card px-3 py-2 font-mono text-xs text-muted outline-none focus:border-gold"
-        />
-        <datalist id="quote-virtue-options">
-          {virtueOptions.map((v) => <option key={v.slug} value={v.slug}>{v.name}</option>)}
-        </datalist>
+        >
+          <option value="">No virtue</option>
+          {virtueOptions.map((v) => (
+            <option key={v.slug} value={v.slug}>{v.name}</option>
+          ))}
+        </select>
         <input
           value={virtueDayIndex}
           onChange={(e) => setVirtueDayIndex(e.target.value.replace(/[^0-9]/g, ""))}
@@ -325,22 +325,20 @@ export default function QuoteManageSheet({ onClose }: Props) {
   useEffect(() => { loadQuotes(); }, [loadQuotes]);
 
   useEffect(() => {
+    // Quotes rotate through the loading screen for "A Good Man" (philosophy
+    // slug "agm") only — other philosophies (e.g. Franklin's 13) aren't part
+    // of that experience, so their virtues shouldn't show up here.
     fetch("/api/philosophies")
       .then((r) => r.json())
-      .then(async (philosophies: { _id: string }[]) => {
-        const seen = new Set<string>();
-        const options: VirtueOption[] = [];
-        for (const p of philosophies) {
-          const virtues = await fetch(`/api/virtues?philosophyId=${p._id}`).then((r) => r.json()) as
-            { slug: string; name: string }[];
-          for (const v of virtues) {
-            if (!seen.has(v.slug)) {
-              seen.add(v.slug);
-              options.push({ slug: v.slug, name: v.name });
-            }
-          }
+      .then(async (philosophies: { _id: string; slug: string }[]) => {
+        const agm = philosophies.find((p) => p.slug === "agm");
+        if (!agm) {
+          setVirtueOptions([]);
+          return;
         }
-        setVirtueOptions(options);
+        const virtues = await fetch(`/api/virtues?philosophyId=${agm._id}`).then((r) => r.json()) as
+          { slug: string; name: string }[];
+        setVirtueOptions(virtues.map((v) => ({ slug: v.slug, name: v.name })));
       })
       .catch(() => {});
   }, []);
