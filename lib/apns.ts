@@ -13,9 +13,11 @@ import http2 from "node:http2";
 
 // Matches ios/App/RoutineActivity/RoutineActivityAttributes.swift's
 // ContentState exactly — key names AND shape, since APNs delivers this
-// verbatim to the device for ActivityKit to decode. startedAt is seconds
-// since 1970 (a plain number), not an ISO string: Swift's Codable default
-// (deferredToDate) for Date, which the struct doesn't override.
+// verbatim to the device for ActivityKit to decode. startedAt is a plain
+// number, not an ISO string: Swift's Codable default (deferredToDate) for
+// Date, which the struct doesn't override — build it with
+// toAppleReferenceSeconds() below, NOT Unix seconds (see that function's
+// comment for why the difference matters here).
 export interface RoutineActivityContentState {
   routineLabel: string;
   habitName: string;
@@ -23,6 +25,21 @@ export interface RoutineActivityContentState {
   projectedMinutes: number;
   routineItemId: string;
   routineGroupId: string | null;
+}
+
+// Foundation's default Date Codable conformance (.deferredToDate — what
+// applies here since ContentState declares no custom date strategy, and
+// what iOS uses to decode this exact field from a push payload) encodes a
+// Date as seconds since the *Cocoa reference date*, 2001-01-01T00:00:00Z —
+// NOT Unix epoch seconds, despite that being the far more common default
+// elsewhere. Confirmed on-device: sending raw Unix seconds decoded to a
+// startedAt roughly 31 years in the future, so the Lock Screen's
+// Text(timerInterval:) — whose displayed range never included "now" —
+// just showed a frozen value instead of counting up. This offset
+// (978307200) is the number of seconds between the two epochs.
+const APPLE_REFERENCE_DATE_OFFSET_SECONDS = 978_307_200;
+export function toAppleReferenceSeconds(date: Date): number {
+  return Math.floor(date.getTime() / 1000) - APPLE_REFERENCE_DATE_OFFSET_SECONDS;
 }
 
 const BUNDLE_ID = "com.bostonbijold.beone";

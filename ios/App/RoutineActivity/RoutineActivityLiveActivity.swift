@@ -12,6 +12,8 @@ private enum Palette {
     static let textMuted = Color(red: 0x9a / 255, green: 0x92 / 255, blue: 0x80 / 255)
     static let olive = Color(red: 0x5a / 255, green: 0x6b / 255, blue: 0x35 / 255)
     static let gold = Color(red: 0xc4 / 255, green: 0xa8 / 255, blue: 0x4a / 255)
+    static let amber = Color(red: 0xc4 / 255, green: 0x7a / 255, blue: 0x2a / 255)
+    static let burgundy = Color(red: 0x7a / 255, green: 0x2e / 255, blue: 0x2e / 255)
 }
 
 // A 24h upper bound is just a cap for Text(timerInterval:)'s range — no
@@ -21,9 +23,50 @@ private func elapsedRange(from startedAt: Date) -> ClosedRange<Date> {
     startedAt...startedAt.addingTimeInterval(24 * 60 * 60)
 }
 
-private func estimatedFinish(_ state: RoutineActivityAttributes.ContentState) -> Date? {
+private func targetInstant(_ state: RoutineActivityAttributes.ContentState) -> Date? {
     guard state.projectedMinutes > 0 else { return nil }
     return state.startedAt.addingTimeInterval(TimeInterval(state.projectedMinutes * 60))
+}
+
+private func estimatedFinish(_ state: RoutineActivityAttributes.ContentState) -> Date? {
+    targetInstant(state)
+}
+
+// Same olive→amber→burgundy convention as the in-app countdown ring
+// (components/RoutineSession.tsx) — amber past 75% of target, burgundy once
+// over. Evaluated at render time, so — like the timer text itself — this
+// only updates when the widget actually redraws (a local/push update, or an
+// OS-triggered periodic reload), not continuously; see
+// docs/features/live-activity.md's platform note on this.
+private func timerColor(_ state: RoutineActivityAttributes.ContentState) -> Color {
+    guard let target = targetInstant(state) else { return Palette.olive }
+    let totalSeconds = TimeInterval(state.projectedMinutes * 60)
+    guard totalSeconds > 0 else { return Palette.olive }
+    let ratio = Date().timeIntervalSince(state.startedAt) / totalSeconds
+    if Date() >= target { return Palette.burgundy }
+    if ratio >= 0.75 { return Palette.amber }
+    return Palette.olive
+}
+
+// Countdown-to-target for items with a projected time (matches the in-app
+// ring's "counts down, then holds" — see the AskUserQuestion decision in
+// docs/features/live-activity.md: a true countdown-then-count-up flip would
+// need a scheduled push at the exact crossing moment, not worth the added
+// infrastructure). Falls back to a plain count-up elapsed display for
+// stopwatch items (projectedMinutes == 0, no target to count down to).
+@ViewBuilder
+private func timerText(_ state: RoutineActivityAttributes.ContentState, size: CGFloat) -> some View {
+    if let target = targetInstant(state) {
+        Text(timerInterval: state.startedAt...target, countsDown: true, showsHours: false)
+            .font(.system(size: size, weight: .semibold, design: .monospaced))
+            .foregroundStyle(timerColor(state))
+            .monospacedDigit()
+    } else {
+        Text(timerInterval: elapsedRange(from: state.startedAt), countsDown: false, showsHours: false)
+            .font(.system(size: size, weight: .semibold, design: .monospaced))
+            .foregroundStyle(Palette.textPrimary)
+            .monospacedDigit()
+    }
 }
 
 // Deliberately takes no per-item identity from `state` — see
@@ -65,10 +108,7 @@ struct RoutineActivityLiveActivity: Widget {
                         .foregroundStyle(Palette.textPrimary)
                         .lineLimit(1)
                     Spacer()
-                    Text(timerInterval: elapsedRange(from: state.startedAt), countsDown: false, showsHours: false)
-                        .font(.system(size: 19, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Palette.textPrimary)
-                        .monospacedDigit()
+                    timerText(state, size: 19)
                         .frame(minWidth: 64, alignment: .trailing)
                 }
 
@@ -94,10 +134,7 @@ struct RoutineActivityLiveActivity: Widget {
                     }
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(timerInterval: elapsedRange(from: state.startedAt), countsDown: false, showsHours: false)
-                        .font(.system(size: 17, weight: .semibold, design: .monospaced))
-                        .foregroundStyle(Palette.textPrimary)
-                        .monospacedDigit()
+                    timerText(state, size: 17)
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 8) {
@@ -113,10 +150,7 @@ struct RoutineActivityLiveActivity: Widget {
                 Image(systemName: "timer")
                     .foregroundStyle(Palette.gold)
             } compactTrailing: {
-                Text(timerInterval: elapsedRange(from: state.startedAt), countsDown: false, showsHours: false)
-                    .font(.system(size: 13, design: .monospaced))
-                    .monospacedDigit()
-                    .foregroundStyle(Palette.textPrimary)
+                timerText(state, size: 13)
                     .frame(maxWidth: 44)
             } minimal: {
                 Image(systemName: "timer")

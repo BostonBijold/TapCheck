@@ -9,7 +9,7 @@ import RoutineLog from "@/models/RoutineLog";
 import RoutineItem, { type ItemType } from "@/models/RoutineItem";
 import RoutineGroup from "@/models/RoutineGroup";
 import User from "@/models/User";
-import { sendLiveActivityPush, type RoutineActivityContentState } from "@/lib/apns";
+import { sendLiveActivityPush, toAppleReferenceSeconds, type RoutineActivityContentState } from "@/lib/apns";
 
 // Best-effort push of the newly-current habit (or an "end" if nothing's
 // active anymore) to the user's Live Activity — see
@@ -53,9 +53,7 @@ async function notifyLiveActivity(
     const contentState: RoutineActivityContentState = {
       routineLabel: group ? group.name : "Timer",
       habitName: item.name,
-      startedAt: target.startedAt
-        ? Math.floor(new Date(target.startedAt).getTime() / 1000)
-        : Math.floor(Date.now() / 1000),
+      startedAt: toAppleReferenceSeconds(target.startedAt ? new Date(target.startedAt) : new Date()),
       projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
       routineItemId: target.routineItemId,
       routineGroupId: target.sessionGroupId,
