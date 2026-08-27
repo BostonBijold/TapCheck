@@ -14,13 +14,15 @@ App Intents (the first piece of native code here) compiled directly into the `Ap
 
 ```
 ios/App/App/
-  BeOneAPI.swift                      — baseURL, triggerHabit, BeOneAPIError. Dual target
-                                         membership (App + RoutineActivityExtension) — moved
-                                         out of AppIntents/HabitEntityQuery.swift (where it used
-                                         to live inline) specifically so the Live Activity's
-                                         "Done" button can call triggerHabit without duplicating
-                                         this networking code. fetchHabits/HabitsResponse stayed
-                                         behind as an App-only extension on this same enum
+  BeOneAPI.swift                      — baseURL, triggerHabit, completeActiveHabit, BeOneAPIError.
+                                         Dual target membership (App + RoutineActivityExtension) —
+                                         triggerHabit/BeOneAPIError moved out of
+                                         AppIntents/HabitEntityQuery.swift (where they used to live
+                                         inline) specifically so the Live Activity's "Done" button
+                                         could reuse this networking code; completeActiveHabit was
+                                         added directly here for the same reason. fetchHabits/
+                                         HabitsResponse stayed behind as an App-only extension on
+                                         this same enum
                                          (HabitEntityQuery.swift) — its response decodes into
                                          [HabitEntity], which is App-target-only, so pulling it
                                          into this dual-membership file would fail to compile in
@@ -101,13 +103,19 @@ Thin wrappers (`startRoutineActivity`, `updateRoutineActivity`, `endRoutineActiv
 
 **Checkbox/special items** (`virtue_checkin`, `weekly_review`, `routine_review` — see [`timer.md`](timer.md)) have no timer of their own; `RoutineSession.tsx`'s per-item effect calls `end` rather than `update` when landing on one, so the Lock Screen doesn't show a frozen, meaningless timer. Landing on the *next* timed item afterward goes through `update()`'s start-fallback, same as a session's very first item.
 
-## The "Done" button — always ends the Activity, never tries to advance it live
+## The "Done" button — matches the NFC/Shortcuts tap exactly, including live advance
 
-`CompleteHabitFromActivityIntent` (`LiveActivityIntent`, runs in the extension process without opening the app or showing any UI — same `openAppWhenRun`-false spirit as `TriggerHabitIntent`) calls `BeOneAPI.triggerHabit(routineItemId, routineGroupId, source: "live_activity")` — the exact same endpoint and Case-2 dispatch ([`external-api.md`](../api/external-api.md#post-apiexternaltrigger-habit)) the Shortcuts/Siri path already uses, so completing (and, if `routineGroupId` is set, server-side auto-advancing to the next item) works identically regardless of which native entry point triggered it.
+`CompleteHabitFromActivityIntent` (`LiveActivityIntent`, runs in the `RoutineActivityExtension` process without opening the app or showing any UI — same `openAppWhenRun`-false spirit as `TriggerHabitIntent`) is meant to feel identical to tapping an NFC tag or running the "Trigger Habit" Shortcut: complete the current habit, start the next one in the group if there is one, or finish the routine if it was the last. Getting there took three iterations, kept here because the failure modes are non-obvious and specific to running inside a Live Activity's extension process rather than an ordinary Shortcuts-invoked intent:
 
-It then **unconditionally ends the Activity**, even when the server auto-started a next item. Reflecting that next item live in the widget itself was considered and rejected: `trigger-habit`'s response only carries `routineItemId`/`state`/`actualMinutes` (RoutineLog fields), never the next item's name/icon/`projectedMinutes` (those live on `RoutineItem`, not the log) — and `GET /api/external/habits` (the other native-reachable endpoint) doesn't return `projectedMinutes` either, so even a second fetch wouldn't have enough to rebuild a correct `ContentState`. Not worth the complexity for a Lock Screen button, especially given the app already self-heals this for free: `RoutineSession.tsx`'s foreground-revalidation effect ([`timer.md`](timer.md)) notices the external completion within 2 seconds (or immediately on foreground) and calls `setCurrentIndex`, whose effect runs `update()`'s start-fallback for the new current item. **Net effect**: tapping Done dismisses the card; if the session isn't actually finished, reopening the app shows it already advanced, with a fresh Live Activity appearing for the next item within a couple seconds.
+1. **`BeOneAPI.triggerHabit(routineItemId:, routineGroupId:)` with those two values passed as the button's bound `@Parameter`s**, captured at `Button(intent:)` construction time from `context.state`. Backend worked. Display never updated. Root cause (see the platform note below): a Live Activity's on-screen content only visually repaints when the display next wakes, so with the phone staying locked and asleep the whole time, there was never any evidence either way from just looking at the screen.
+2. **Same endpoint, but `perform()` read `routineItemId`/`routineGroupId` fresh from `Activity<RoutineActivityAttributes>.activities.first?.content.state` instead of trusting the bound parameters** — reasoning that `Activity.activities` is a live, system-synced data source independent of view rendering, so it should sidestep staleness entirely. It didn't: confirmed on-device, tapping Done a *second* time while the screen had stayed asleep since the first tap did **nothing at all** — no completion, no advance. `Activity.activities` was empty when queried from inside this intent's `perform()` in that execution context, so the guard at the top of the function returned immediately.
+3. **`POST /api/external/complete-active-habit`** ([`api/external-api.md`](../api/external-api.md#post-apiexternalcomplete-active-habit)) — a new endpoint taking no `routineItemId` at all, resolving "which habit" server-side from the single in_progress `RoutineLog` (server-authoritative, via the single-active-timer invariant). This is the one that actually works regardless of screen state or how many taps happen without a redraw in between: correctness no longer depends on *any* value the widget extension itself has to track or look up.
 
-`source: "live_activity"` is a distinct value from Shortcuts' `"app_intent"` — harmless (the route only branches on `=== "app_intent"` for `AppIntentLink` bookkeeping; any other value, including this one, is simply not recorded there) and more honest about where the trigger actually came from, at the cost of the "Connected" badge in Manage Habit ([`app-intents.md`](app-intents.md#connection-status-in-manage-habit)) not lighting up for Live-Activity-only usage.
+`Activity.activities` is still used, but now only for a **best-effort cosmetic update**, not for correctness: after `completeActiveHabit` returns, if `response.started` is non-nil (a next item was auto-started) and `Activity<RoutineActivityAttributes>.activities.first` happens to be available, the intent does one more lookup — `GET /api/external/habits` — for just that item's `name`/`groupName` (a local `HabitSummary`/`HabitsResponse` decode pair, not `AppIntents/HabitEntity.swift`'s `HabitEntity`, which is `AppEntity`/Shortcuts-picker machinery not compiled into this target), and calls `activity.update(...)` with `projectedMinutes: 0` (hides the estimated-finish line) and `startedAt: Date()` (right now — close enough, since the real server `startedAt` is a moment earlier). This is intentionally a placeholder: the next time the app is opened, `RoutineSession.tsx`'s foreground-revalidation effect ([`timer.md`](timer.md)) notices the item is already current and its per-item effect calls `update()` again with the real `projectedMinutes` and server `startedAt`, silently correcting it. If `Activity.activities` is empty, or `response.started` is nil (last item in the group, or the log wasn't session-anchored at all), or the habits lookup fails, the Activity just ends instead — the worst case is a card that doesn't visually update until the app is next opened, never an incorrect completion.
+
+**Platform note, not a bug**: a Live Activity's on-screen content only visually repaints when the display next wakes — an `.update()`/`.end()` call while the screen is fully asleep changes the stored state immediately but doesn't force a redraw. The live countdown *text* (`Text(timerInterval:)`) is special-cased by the system to keep ticking through that, but a full content swap (different habit name/button target) isn't. Don't judge whether an update landed by staring at an asleep screen — wake it (or unlock) first.
+
+`source: "live_activity"` on the old `trigger-habit` codepath was a distinct value from Shortcuts' `"app_intent"`, used only for `AppIntentLink` bookkeeping ([`app-intents.md`](app-intents.md#connection-status-in-manage-habit)) — `complete-active-habit` doesn't take a `source` param at all, so Live-Activity-only usage no longer lights up the "Connected" badge in Manage Habit either way.
 
 ## No tap-through deep link
 
@@ -127,4 +135,4 @@ Same native-rebuild requirement as [`app-intents.md`](app-intents.md#setting-it-
 
 ## Depends on
 
-[`timer.md`](timer.md) (elapsed-time computation, the single-active-timer invariant, the Routine Session's per-item switch effect and foreground-revalidation effect) and [`api/external-api.md`](../api/external-api.md) (`trigger-habit`'s Case 2 dispatch, which the Done button reuses verbatim). Shares `BeOneAPI`/`KeychainHelper` with [`app-intents.md`](app-intents.md).
+[`timer.md`](timer.md) (elapsed-time computation, the single-active-timer invariant, the Routine Session's per-item switch effect and foreground-revalidation effect) and [`api/external-api.md`](../api/external-api.md) (`complete-active-habit`, which the Done button calls, and `trigger-habit`'s Case 2 dispatch, which `complete-active-habit` mirrors server-side). Shares `BeOneAPI`/`KeychainHelper` with [`app-intents.md`](app-intents.md).

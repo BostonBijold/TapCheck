@@ -63,6 +63,27 @@ enum BeOneAPI {
         }
         return try JSONDecoder().decode(TriggerResponse.self, from: data)
     }
+
+    // Backs the Live Activity's "Done" button — see
+    // CompleteHabitFromActivityIntent.swift and
+    // docs/features/live-activity.md. No routineItemId: the server
+    // completes whichever log is currently in_progress (server-
+    // authoritative, single-active-timer invariant), which sidesteps the
+    // widget extension needing to reliably know which habit is current on
+    // its own.
+    @discardableResult
+    static func completeActiveHabit(apiKey: String) async throws -> TriggerResponse {
+        var request = URLRequest(url: baseURL.appendingPathComponent("/api/external/complete-active-habit"))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(["apiKey": apiKey])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+            throw BeOneAPIError.requestFailed
+        }
+        return try JSONDecoder().decode(TriggerResponse.self, from: data)
+    }
 }
 
 enum BeOneAPIError: Error, CustomLocalizedStringResourceConvertible {

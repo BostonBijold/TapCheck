@@ -26,8 +26,12 @@ private func estimatedFinish(_ state: RoutineActivityAttributes.ContentState) ->
     return state.startedAt.addingTimeInterval(TimeInterval(state.projectedMinutes * 60))
 }
 
-private func doneButton(for state: RoutineActivityAttributes.ContentState) -> some View {
-    Button(intent: CompleteHabitFromActivityIntent(routineItemId: state.routineItemId, routineGroupId: state.routineGroupId)) {
+// Deliberately takes no per-item identity from `state` — see
+// CompleteHabitFromActivityIntent, which looks up the current habit fresh
+// from Activity.activities at tap-time instead of trusting whatever was
+// baked into this view the last time it actually redrew.
+private func doneButton() -> some View {
+    Button(intent: CompleteHabitFromActivityIntent()) {
         Text("Done")
             .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity)
@@ -68,7 +72,7 @@ struct RoutineActivityLiveActivity: Widget {
                         .frame(minWidth: 64, alignment: .trailing)
                 }
 
-                doneButton(for: state)
+                doneButton()
             }
             .padding(16)
             .activityBackgroundTint(Palette.bgPrimary)
@@ -102,7 +106,7 @@ struct RoutineActivityLiveActivity: Widget {
                                 .font(.system(size: 11))
                                 .foregroundStyle(Palette.textMuted)
                         }
-                        doneButton(for: state)
+                        doneButton()
                     }
                 }
             } compactLeading: {

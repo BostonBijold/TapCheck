@@ -103,3 +103,41 @@ export async function triggerHabit(
 
   return { completed, started };
 }
+
+// Completes whichever item is currently in_progress for this user — no
+// routineItemId needed, unlike triggerHabit above — and, if it was anchored
+// to a Routine Session (sessionGroupId set), auto-starts the next unlogged
+// item in that group. Built for the Live Activity's "Done" button
+// (CompleteHabitFromActivityIntent.swift): that button can't reliably know
+// which habit is current by the time it's tapped (see
+// docs/features/live-activity.md's note on stale bound parameters vs.
+// Activity.activities being unreliable from within a LiveActivityIntent's
+// perform()), but the server always knows unambiguously — at most one
+// in_progress log ever exists per the single-active-timer invariant. A
+// no-op (both null) if nothing is currently active. Takes no `date` either
+// — always acts on the active log's own `date`, same as Case 3 above,
+// since there's no per-call caller intent to anchor to a particular day.
+export async function completeActiveHabit(userId: string) {
+  const activeLog = await RoutineLog.findOne({ userId, state: "in_progress" })
+    .sort({ startedAt: -1 })
+    .lean();
+
+  if (!activeLog) {
+    return { completed: null, started: null };
+  }
+
+  const completedLog = await completeInProgressLog(userId, activeLog.routineItemId.toString(), activeLog.date);
+  const completed = serializeLog(completedLog);
+
+  let started = null;
+  const sessionGroupId = activeLog.sessionGroupId ? activeLog.sessionGroupId.toString() : null;
+  if (sessionGroupId) {
+    const next = await findNextItemInGroup(userId, sessionGroupId, activeLog.date);
+    if (next) {
+      const startedLog = await startItem(userId, next.itemType, next._id.toString(), activeLog.date, sessionGroupId);
+      started = serializeLog(startedLog);
+    }
+  }
+
+  return { completed, started };
+}
