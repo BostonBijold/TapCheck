@@ -366,6 +366,19 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
         );
         const routineFinishAt = projectedFinishTime(projectionItems, new Date(nowMs));
 
+        // Live-Activity-only override: computeTimeline deliberately reports
+        // "done" as olive regardless of variance (matching RoutineItemRow's
+        // done badge convention — see lib/routine-timeline.ts), and that
+        // in-app behavior is unchanged here. But on the Lock Screen, a
+        // habit that finished well over its target reverting straight to
+        // green loses information the user asked to keep visible — so this
+        // payload specifically re-labels a *done-but-over-target* segment
+        // as "activeOver" (amber), same color an over-target *active*
+        // segment already uses. Looked up by id since computeTimeline
+        // drops zero-width (missed/rest) segments, so segment order can't
+        // be zipped against `items`/`projectionItems` positionally.
+        const projectionById = new Map(items.map((it, i) => [it._id, projectionItems[i]]));
+
         updateRoutineActivity({
           routineItemId: item._id,
           routineGroupId: groupId,
@@ -373,10 +386,15 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
           habitName: item.name,
           startedAt: new Date(virtualStartedAt).toISOString(),
           projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
-          timelineSegments: timeline.segments.map((seg) => ({
-            pct: seg.pct,
-            colorState: seg.colorState === "active-over" ? "activeOver" : seg.colorState,
-          })),
+          timelineSegments: timeline.segments.map((seg) => {
+            const proj = projectionById.get(seg.id);
+            const doneOverTarget =
+              proj?.state === "done" && proj.actualMinutes != null && proj.actualMinutes > proj.projectedMinutes;
+            return {
+              pct: seg.pct,
+              colorState: doneOverTarget || seg.colorState === "active-over" ? "activeOver" : seg.colorState,
+            };
+          }),
           routineStartedAt: new Date(timeline.startInstant).toISOString(),
           routineFinishAt: routineFinishAt.toISOString(),
         });

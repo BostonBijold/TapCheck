@@ -173,6 +173,8 @@ The original single "Finish by 7:45 AM" line read ambiguously once a routine had
 
 Both paths map `TimelineColorState`'s `"active-over"` to `"activeOver"` before sending — a Swift-identifier-friendly rename, not a semantic change; `RoutineActivityAttributes.TimelineSegment.colorState` is a plain `String`, not a Swift enum, so this is just string matching in `timelineSegmentColor(_:)`, not a shared type.
 
+**One deliberate divergence from `computeTimeline`'s own color mapping**: `lib/routine-timeline.ts` always reports a `"done"` item as olive regardless of variance (matching `RoutineItemRow`'s done badge elsewhere in the app — see that file's own comment), and that in-app behavior is untouched. But confirmed with the user: on the Lock Screen specifically, a habit that ran well over target reverting straight to green the moment it's marked done loses information worth keeping visible at a glance. Both `RoutineSession.tsx` (via a local `projectionById` lookup) and `buildRoutineTimeline()` server-side re-label a segment as `"activeOver"` (amber) whenever its underlying `ItemProjection` is `state: "done"` with `actualMinutes > projectedMinutes` — a payload-building-time override, not a change to `computeTimeline` or anything the in-app timeline bar renders.
+
 Like the countdown/color above, this is refreshed only on an item switch (or a push trigger), not per-second — a routine's projected finish time doesn't need second-level precision on a Lock Screen glance, and refreshing on every habit transition is already far more granular than the "only updates when the app is reopened" gap this feature exists to close.
 
 ## Setting it up

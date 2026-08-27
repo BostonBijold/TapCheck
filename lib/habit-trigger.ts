@@ -63,7 +63,25 @@ async function buildRoutineTimeline(
   );
   const finishAt = projectedFinishTime(projectionItems, new Date(nowMs));
 
-  return { timeline, finishAt };
+  // Live-Activity-only override — see the matching comment in
+  // RoutineSession.tsx's identical logic. computeTimeline deliberately
+  // reports "done" as olive regardless of variance everywhere else in the
+  // app; only the pushed payload re-labels a done-but-over-target segment
+  // as "activeOver" (amber) so that information isn't lost the moment a
+  // habit that ran long gets marked done.
+  const projectionById = new Map(groupItems.map((it, i) => [it._id.toString(), projectionItems[i]]));
+  const segments = timeline.segments.map((seg) => {
+    const proj = projectionById.get(seg.id);
+    const doneOverTarget =
+      proj?.state === "done" && proj.actualMinutes != null && proj.actualMinutes > proj.projectedMinutes;
+    return {
+      pct: seg.pct,
+      colorState:
+        doneOverTarget || seg.colorState === "active-over" ? "activeOver" : (seg.colorState as string),
+    };
+  });
+
+  return { startInstant: timeline.startInstant, finishAt, segments };
 }
 
 // Best-effort push of the newly-current habit (or an "end" if nothing's
@@ -128,11 +146,8 @@ async function notifyLiveActivity(
         projectedMinutes
       );
       if (routineTimeline) {
-        contentState.timelineSegments = routineTimeline.timeline.segments.map((seg) => ({
-          pct: seg.pct,
-          colorState: seg.colorState === "active-over" ? "activeOver" : seg.colorState,
-        }));
-        contentState.routineStartedAt = toAppleReferenceSeconds(new Date(routineTimeline.timeline.startInstant));
+        contentState.timelineSegments = routineTimeline.segments as RoutineActivityContentState["timelineSegments"];
+        contentState.routineStartedAt = toAppleReferenceSeconds(new Date(routineTimeline.startInstant));
         contentState.routineFinishAt = toAppleReferenceSeconds(routineTimeline.finishAt);
       }
     }
