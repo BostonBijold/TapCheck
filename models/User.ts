@@ -21,6 +21,19 @@ const UserSchema = new Schema(
     // an NFC tag) — see app/api/external/start-timer. Generated once, lazily,
     // the first time it's requested; never rotated automatically.
     apiKey: { type: String, default: null, index: true, unique: true, sparse: true },
+    // Live Activity push-update token — see docs/features/live-activity.md's
+    // "Push-driven updates" section and lib/apns.ts. Re-issued by iOS
+    // periodically; POST /api/live-activity/push-token always overwrites
+    // rather than versioning, since only the latest token is ever usable and
+    // there's at most one relevant Live Activity per user at a time (the
+    // single-active-timer invariant).
+    liveActivityPushToken: { type: String, default: null },
+    // "sandbox" for a Development-signed build (Xcode Debug config — what
+    // this personal app runs today), "production" for a Distribution-signed
+    // build (App Store/TestFlight). APNs rejects a token sent to the wrong
+    // host outright, so this has to travel with the token, not be a single
+    // server-wide setting.
+    liveActivityPushEnvironment: { type: String, enum: ["sandbox", "production"], default: null },
   },
   {
     strict: false, // allow adapter-owned fields to coexist without declaring them

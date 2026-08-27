@@ -6,7 +6,62 @@ import {
 } from "@/lib/routine-log-actions";
 import { findNextItemInGroup, incrementSessionPauseOrJump } from "@/lib/routine-session-actions";
 import RoutineLog from "@/models/RoutineLog";
-import type { ItemType } from "@/models/RoutineItem";
+import RoutineItem, { type ItemType } from "@/models/RoutineItem";
+import RoutineGroup from "@/models/RoutineGroup";
+import User from "@/models/User";
+import { sendLiveActivityPush, type RoutineActivityContentState } from "@/lib/apns";
+
+// Best-effort push of the newly-current habit (or an "end" if nothing's
+// active anymore) to the user's Live Activity — see
+// docs/features/live-activity.md's "Push-driven updates" section. Only
+// meaningful for the two external-trigger entry points below (trigger-habit,
+// completeActiveHabit): in-app switches already update the card locally
+// from the app's own foreground JS (lib/native/routine-activity.ts) and
+// don't need a push. Never throws — a push failure shouldn't fail the
+// habit-completion request that triggered it, same as the AppIntentLink
+// bookkeeping below.
+async function notifyLiveActivity(
+  userId: string,
+  started: ReturnType<typeof serializeLog> | null,
+  completed: ReturnType<typeof serializeLog> | null
+) {
+  try {
+    const user = await User.findOne(
+      { _id: userId },
+      "liveActivityPushToken liveActivityPushEnvironment"
+    ).lean();
+    if (!user?.liveActivityPushToken || !user.liveActivityPushEnvironment) return;
+
+    const target = started ?? completed;
+    if (!target) return;
+
+    const item = await RoutineItem.findOne({ _id: target.routineItemId }).lean();
+    if (!item) return;
+    const group = target.sessionGroupId
+      ? await RoutineGroup.findOne({ _id: item.groupId }).lean()
+      : null;
+
+    const contentState: RoutineActivityContentState = {
+      routineLabel: group ? group.name : "Timer",
+      habitName: item.name,
+      startedAt: target.startedAt
+        ? Math.floor(new Date(target.startedAt).getTime() / 1000)
+        : Math.floor(Date.now() / 1000),
+      projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+      routineItemId: target.routineItemId,
+      routineGroupId: target.sessionGroupId,
+    };
+
+    await sendLiveActivityPush({
+      pushToken: user.liveActivityPushToken,
+      environment: user.liveActivityPushEnvironment as "sandbox" | "production",
+      event: started ? "update" : "end",
+      contentState,
+    });
+  } catch {
+    // Best-effort — see comment above.
+  }
+}
 
 // The shared start/complete/advance dispatch behind POST /api/external/
 // trigger-habit — called both directly (a caller who already knows the
@@ -101,6 +156,7 @@ export async function triggerHabit(
     started = serializeLog(startedLog);
   }
 
+  await notifyLiveActivity(userId, started, completed);
   return { completed, started };
 }
 
@@ -139,5 +195,6 @@ export async function completeActiveHabit(userId: string) {
     }
   }
 
+  await notifyLiveActivity(userId, started, completed);
   return { completed, started };
 }

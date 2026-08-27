@@ -4,8 +4,12 @@ import Foundation
 
 // Bridges RoutinesView.tsx / RoutineSession.tsx to ActivityKit so a running
 // timer shows on the Lock Screen / Dynamic Island — see
-// docs/features/live-activity.md. Local-only (no push token registration);
-// every start/update call comes from this device's own foreground JS.
+// docs/features/live-activity.md. start/update/end calls come from this
+// device's own foreground JS; separately, the requested Activity carries a
+// push token (see observePushToken below) so the server can also push
+// updates directly — the mechanism that lets the card react to NFC/
+// Shortcuts triggers and the Lock Screen "Done" button while the app isn't
+// open, which local-only calls fundamentally can't do.
 @objc(LiveActivityPlugin)
 public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     public let identifier = "LiveActivityPlugin"
@@ -16,6 +20,37 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "update", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "end", returnType: CAPPluginReturnPromise),
     ]
+
+    // Cancelled/replaced whenever a new Activity is requested — only one is
+    // ever relevant at a time (single-active-timer invariant), so only one
+    // token stream needs observing.
+    private var pushTokenTask: Task<Void, Never>?
+
+    // Forwards each new push token to JS as a "pushTokenReceived" event —
+    // relayed on to POST /api/live-activity/push-token by
+    // lib/native/routine-activity.ts. Activity.pushTokenUpdates is an
+    // AsyncSequence that yields a new token whenever iOS (re)issues one and
+    // finishes on its own once the activity ends, so this needs no manual
+    // cleanup beyond cancelling the previous task when a new activity starts.
+    private func observePushToken(for activity: Activity<RoutineActivityAttributes>) {
+        pushTokenTask?.cancel()
+        pushTokenTask = Task {
+            for await tokenData in activity.pushTokenUpdates {
+                let token = tokenData.map { String(format: "%02x", $0) }.joined()
+                // Development-signed builds (this project's only build
+                // config today — see docs/features/app-intents.md's
+                // deployment target note) must push through APNs' sandbox
+                // host; a Distribution-signed build must use production.
+                // #if DEBUG is the correct proxy for that distinction here.
+                #if DEBUG
+                let environment = "sandbox"
+                #else
+                let environment = "production"
+                #endif
+                notifyListeners("pushTokenReceived", data: ["token": token, "environment": environment])
+            }
+        }
+    }
 
     // JS's Date#toISOString() always includes fractional seconds
     // ("...16:19:21.772Z") — the default ISO8601DateFormatter() does NOT
@@ -31,12 +66,6 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func isSupported(_ call: CAPPluginCall) {
         call.resolve(["supported": ActivityAuthorizationInfo().areActivitiesEnabled])
-    }
-
-    // TEMPORARY diagnostics — remove once Live Activities are confirmed
-    // working end to end on device.
-    private func log(_ message: String) {
-        print("[LiveActivityPlugin] \(message)")
     }
 
     private func parseContentState(_ call: CAPPluginCall) -> RoutineActivityAttributes.ContentState? {
@@ -63,14 +92,11 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     // server-side in lib/routine-log-actions.ts), so a fresh `start` call
     // always means "the old one, if any, is no longer current."
     @objc func start(_ call: CAPPluginCall) {
-        log("start() called with options: \(call.options ?? [:])")
         guard ActivityAuthorizationInfo().areActivitiesEnabled else {
-            log("start() rejected — areActivitiesEnabled is false")
             call.reject("Live Activities not enabled")
             return
         }
         guard let state = parseContentState(call) else {
-            log("start() rejected — parseContentState returned nil")
             call.reject("Missing or invalid content state")
             return
         }
@@ -83,12 +109,11 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 let activity = try Activity<RoutineActivityAttributes>.request(
                     attributes: RoutineActivityAttributes(),
                     content: .init(state: state, staleDate: nil),
-                    pushType: nil
+                    pushType: .token
                 )
-                log("start() succeeded — activity id \(activity.id), activityState \(activity.activityState)")
+                observePushToken(for: activity)
                 call.resolve()
             } catch {
-                log("start() threw: \(error)")
                 call.reject("Failed to start Live Activity: \(error.localizedDescription)")
             }
         }
@@ -99,9 +124,7 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
     // item. Falls back to starting fresh if none exists (e.g. the app
     // process was relaunched and JS state doesn't know that).
     @objc func update(_ call: CAPPluginCall) {
-        log("update() called with options: \(call.options ?? [:])")
         guard let state = parseContentState(call) else {
-            log("update() rejected — parseContentState returned nil")
             call.reject("Missing or invalid content state")
             return
         }
@@ -109,17 +132,14 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         Task {
             if let activity = Activity<RoutineActivityAttributes>.activities.first {
                 await activity.update(.init(state: state, staleDate: nil))
-                log("update() applied to existing activity id \(activity.id)")
                 call.resolve()
             } else {
-                log("update() found no existing activity — falling back to start()")
                 start(call)
             }
         }
     }
 
     @objc func end(_ call: CAPPluginCall) {
-        log("end() called — \(Activity<RoutineActivityAttributes>.activities.count) active")
         Task {
             for activity in Activity<RoutineActivityAttributes>.activities {
                 await activity.end(nil, dismissalPolicy: .immediate)

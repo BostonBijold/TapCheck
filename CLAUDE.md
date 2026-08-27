@@ -545,6 +545,9 @@ NEXTAUTH_SECRET=
 NEXTAUTH_URL=
 GOOGLE_CLIENT_ID=      # if using Google OAuth
 GOOGLE_CLIENT_SECRET=  # if using Google OAuth
+APNS_KEY_ID=           # Apple Push Notifications Auth Key — see docs/features/live-activity.md
+APNS_TEAM_ID=          # X3DPK5Y29G
+APNS_PRIVATE_KEY=      # contents of the downloaded .p8 file
 ```
 
 ---

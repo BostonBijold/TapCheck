@@ -6,5 +6,16 @@
 	<array>
 		<string>$(AppIdentifierPrefix)com.bostonbijold.beone.shared</string>
 	</array>
+	<!-- Required to receive a Live Activity push token at all (see
+	     LiveActivityPlugin.swift's observePushToken and
+	     docs/features/live-activity.md's "Push-driven updates" section) —
+	     the same underlying aps-environment entitlement regular remote
+	     notifications would need, if this app ever adds those too.
+	     "development" matches this project's only build config today
+	     (Debug/Development-signed, per app-intents.md's deployment-target
+	     note); update to "production" alongside a Distribution-signed
+	     Release build. -->
+	<key>aps-environment</key>
+	<string>development</string>
 </dict>
 </plist>
