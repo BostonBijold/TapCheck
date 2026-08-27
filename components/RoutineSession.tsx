@@ -145,12 +145,6 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   // runStartRef = Date.now() when the current running segment began (null if paused).
   const baseElapsedRef = useRef(0);
   const runStartRef = useRef<number | null>(null);
-  // Set synchronously the instant the X button is tapped, before the
-  // close-completion PATCH is even fired — blocks the foreground-revalidation
-  // poll below from treating handleClose's own "mark done" write as an
-  // external completion and auto-advancing into the next item while the
-  // close is still in flight. See handleClose.
-  const closingRef = useRef(false);
 
   const recompute = useCallback(() => {
     if (runStartRef.current != null) {
@@ -233,7 +227,6 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
   useEffect(() => {
     const revalidate = async () => {
       if (document.visibilityState !== "visible") return;
-      if (closingRef.current) return;
       if (phase !== "running" || !currentItem) return;
       const records = await fetchDayLogs();
       const currentLog = records.find((r) => r.routineItemId === currentItem._id);
@@ -431,32 +424,16 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
     [phase, currentIndex, items, fetchDayLogs]
   );
 
-  // Closing mid-item (the X button) used to silently discard whatever the
-  // current item's timer had accumulated. Now that a server-side in_progress
-  // record exists for it (see the effect above), flush it as done with the
-  // elapsed time actually run rather than leaving it dangling or losing it.
-  const handleClose = useCallback(async () => {
-    // Must be set before the PATCH below is even fired — the revalidation
-    // poll runs on a 2s interval independent of this call, and without this
-    // guard it can see the item this PATCH just marked done and race to
-    // auto-advance into the next item before onClose() unmounts the session.
-    closingRef.current = true;
-    if (phase === "running" && currentItem && currentItem.itemType !== "checkbox" && !isSpecialItemType(currentItem.itemType)) {
-      await fetch("/api/routine-logs", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          routineItemId: currentItem._id,
-          date: today,
-          state: "done",
-          actualMinutes: Math.max(1, Math.round(elapsed / 60)),
-        }),
-      });
-      emitRoutineLogChanged();
-    }
-    endRoutineActivity();
+  // Closing mid-item (the X button) just dismisses this view — the current
+  // item's log is already in_progress server-side (see the per-item effect
+  // above) and keeps running untouched, same as backgrounding the app. The
+  // Live Activity keeps tracking it on the Lock Screen too (deliberately
+  // not ended here — see docs/features/live-activity.md). The user resumes
+  // via the FAB's active-timer indicator (BottomNav.tsx) or by reopening
+  // this group's "Start Routine."
+  const handleClose = useCallback(() => {
     onClose();
-  }, [phase, currentItem, elapsed, today, onClose]);
+  }, [onClose]);
 
   const handleDone = () => {
     if (isCheckbox) {
