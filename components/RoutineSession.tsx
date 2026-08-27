@@ -332,13 +332,53 @@ export default function RoutineSession({ groupId, groupName, groupStartTime = nu
       if (isCheckboxItem || isSpecialItemType(item.itemType)) {
         endRoutineActivity();
       } else {
+        // Same projection/timeline math the in-app view itself uses (see
+        // the render-time projectionItems below) — recomputed here from
+        // `records` (the fresh fetch just above) rather than reusing
+        // component state, since this runs inside an async effect and
+        // `records` is already the live truth for exactly this moment.
+        // Only ever refreshed on an item switch, not per-second — see
+        // docs/features/live-activity.md's note on this being
+        // "eventually consistent," same as the countdown/color already are.
+        const virtualStartedAt = Date.now() - seeded * 1000;
+        const projectionItems: ItemProjection[] = items.map((it) => {
+          if (it._id === item._id) {
+            return {
+              projectedMinutes: it.projectedMinutes,
+              state: "active",
+              targetInstant: virtualStartedAt + it.projectedMinutes * 60000,
+            };
+          }
+          const rec = records.find((r) => r.routineItemId === it._id);
+          if (rec && (rec.state === "done" || rec.state === "missed" || rec.state === "rest")) {
+            return {
+              projectedMinutes: it.projectedMinutes,
+              state: rec.state,
+              actualMinutes: rec.state === "done" ? rec.actualMinutes : undefined,
+            };
+          }
+          return { projectedMinutes: it.projectedMinutes, state: "pending" };
+        });
+        const nowMs = Date.now();
+        const timeline = computeTimeline(
+          items.map((it, i) => ({ id: it._id, ...projectionItems[i] })),
+          nowMs
+        );
+        const routineFinishAt = projectedFinishTime(projectionItems, new Date(nowMs));
+
         updateRoutineActivity({
           routineItemId: item._id,
           routineGroupId: groupId,
           routineLabel: groupName,
           habitName: item.name,
-          startedAt: new Date(Date.now() - seeded * 1000).toISOString(),
+          startedAt: new Date(virtualStartedAt).toISOString(),
           projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+          timelineSegments: timeline.segments.map((seg) => ({
+            pct: seg.pct,
+            colorState: seg.colorState === "active-over" ? "activeOver" : seg.colorState,
+          })),
+          routineStartedAt: new Date(timeline.startInstant).toISOString(),
+          routineFinishAt: routineFinishAt.toISOString(),
         });
       }
     })();

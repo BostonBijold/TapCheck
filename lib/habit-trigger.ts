@@ -10,6 +10,61 @@ import RoutineItem, { type ItemType } from "@/models/RoutineItem";
 import RoutineGroup from "@/models/RoutineGroup";
 import User from "@/models/User";
 import { sendLiveActivityPush, toAppleReferenceSeconds, type RoutineActivityContentState } from "@/lib/apns";
+import { projectedFinishTime, type ItemProjection } from "@/lib/projected-finish";
+import { computeTimeline } from "@/lib/routine-timeline";
+
+// Server-side equivalent of RoutineSession.tsx's own projectionItems/timeline
+// computation — same lib/projected-finish.ts + lib/routine-timeline.ts math,
+// just built from a fresh DB query instead of React state, since a push
+// notification has no client-side session open to read from. Returns null
+// for a standalone (non-session) item — there's no "routine" to show a
+// timeline of. See docs/features/live-activity.md's "Push-driven updates".
+async function buildRoutineTimeline(
+  userId: string,
+  groupId: string,
+  date: string,
+  activeRoutineItemId: string,
+  activeStartedAtMs: number,
+  activeProjectedMinutes: number
+) {
+  const groupItems = await RoutineItem.find({ groupId, userId, isActive: true })
+    .sort({ order: 1 })
+    .lean();
+  if (groupItems.length === 0) return null;
+
+  const itemIds = groupItems.map((i) => i._id.toString());
+  const logs = await RoutineLog.find({ userId, date, routineItemId: { $in: itemIds } }).lean();
+  const logByItemId = new Map(logs.map((l) => [l.routineItemId.toString(), l]));
+
+  const projectionItems: ItemProjection[] = groupItems.map((it) => {
+    const id = it._id.toString();
+    if (id === activeRoutineItemId) {
+      return {
+        projectedMinutes: it.projectedMinutes,
+        state: "active",
+        targetInstant: activeStartedAtMs + activeProjectedMinutes * 60000,
+      };
+    }
+    const log = logByItemId.get(id);
+    if (log && (log.state === "done" || log.state === "missed" || log.state === "rest")) {
+      return {
+        projectedMinutes: it.projectedMinutes,
+        state: log.state,
+        actualMinutes: log.state === "done" ? (log.actualMinutes ?? undefined) : undefined,
+      };
+    }
+    return { projectedMinutes: it.projectedMinutes, state: "pending" };
+  });
+
+  const nowMs = Date.now();
+  const timeline = computeTimeline(
+    groupItems.map((it, i) => ({ id: it._id.toString(), ...projectionItems[i] })),
+    nowMs
+  );
+  const finishAt = projectedFinishTime(projectionItems, new Date(nowMs));
+
+  return { timeline, finishAt };
+}
 
 // Best-effort push of the newly-current habit (or an "end" if nothing's
 // active anymore) to the user's Live Activity — see
@@ -50,14 +105,37 @@ async function notifyLiveActivity(
       ? await RoutineGroup.findOne({ _id: item.groupId }).lean()
       : null;
 
+    const startedAtDate = target.startedAt ? new Date(target.startedAt) : new Date();
+    const projectedMinutes = item.itemType === "stopwatch" ? 0 : item.projectedMinutes;
+
     const contentState: RoutineActivityContentState = {
       routineLabel: group ? group.name : "Timer",
       habitName: item.name,
-      startedAt: toAppleReferenceSeconds(target.startedAt ? new Date(target.startedAt) : new Date()),
-      projectedMinutes: item.itemType === "stopwatch" ? 0 : item.projectedMinutes,
+      startedAt: toAppleReferenceSeconds(startedAtDate),
+      projectedMinutes,
       routineItemId: target.routineItemId,
       routineGroupId: target.sessionGroupId,
+      timelineSegments: [],
     };
+
+    if (group && target.sessionGroupId) {
+      const routineTimeline = await buildRoutineTimeline(
+        userId,
+        target.sessionGroupId,
+        target.date,
+        target.routineItemId,
+        startedAtDate.getTime(),
+        projectedMinutes
+      );
+      if (routineTimeline) {
+        contentState.timelineSegments = routineTimeline.timeline.segments.map((seg) => ({
+          pct: seg.pct,
+          colorState: seg.colorState === "active-over" ? "activeOver" : seg.colorState,
+        }));
+        contentState.routineStartedAt = toAppleReferenceSeconds(new Date(routineTimeline.timeline.startInstant));
+        contentState.routineFinishAt = toAppleReferenceSeconds(routineTimeline.finishAt);
+      }
+    }
 
     const event = started ? "update" : "end";
     console.log(

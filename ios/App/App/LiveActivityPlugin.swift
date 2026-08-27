@@ -78,6 +78,18 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve(["supported": ActivityAuthorizationInfo().areActivitiesEnabled])
     }
 
+    // timelineSegments/routineStartedAt/routineFinishAt are all optional —
+    // absent (or unparseable) simply means no timeline is shown, same as a
+    // standalone (non-session) timer with no routine to show one for. See
+    // docs/features/live-activity.md.
+    private func parseTimelineSegments(_ call: CAPPluginCall) -> [RoutineActivityAttributes.TimelineSegment] {
+        guard let raw = call.getArray("timelineSegments") as? [[String: Any]] else { return [] }
+        return raw.compactMap { entry in
+            guard let pct = entry["pct"] as? Double, let colorState = entry["colorState"] as? String else { return nil }
+            return RoutineActivityAttributes.TimelineSegment(pct: pct, colorState: colorState)
+        }
+    }
+
     private func parseContentState(_ call: CAPPluginCall) -> RoutineActivityAttributes.ContentState? {
         guard
             let routineItemId = call.getString("routineItemId"),
@@ -87,13 +99,19 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
             let startedAt = Self.isoFormatter.date(from: startedAtString)
         else { return nil }
 
+        let routineStartedAt = call.getString("routineStartedAt").flatMap { Self.isoFormatter.date(from: $0) }
+        let routineFinishAt = call.getString("routineFinishAt").flatMap { Self.isoFormatter.date(from: $0) }
+
         return RoutineActivityAttributes.ContentState(
             routineLabel: routineLabel,
             habitName: habitName,
             startedAt: startedAt,
             projectedMinutes: call.getInt("projectedMinutes") ?? 0,
             routineItemId: routineItemId,
-            routineGroupId: call.getString("routineGroupId")
+            routineGroupId: call.getString("routineGroupId"),
+            timelineSegments: parseTimelineSegments(call),
+            routineStartedAt: routineStartedAt,
+            routineFinishAt: routineFinishAt
         )
     }
 
@@ -123,6 +141,17 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 )
                 observePushToken(for: activity)
                 call.resolve()
+
+                // A freshly-request()ed Activity's Text(timerInterval:) has
+                // been observed (confirmed on-device: phone locked when the
+                // routine started) rendering as a static, non-ticking
+                // snapshot — frozen at the full countdown value — until the
+                // Activity receives an update() call, even with identical
+                // content. This immediate follow-up forces that live-
+                // ticking attachment right away rather than waiting for
+                // whatever the next real content change happens to be.
+                try? await Task.sleep(for: .milliseconds(500))
+                await activity.update(.init(state: state, staleDate: nil))
             } catch {
                 call.reject("Failed to start Live Activity: \(error.localizedDescription)")
             }

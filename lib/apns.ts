@@ -18,6 +18,11 @@ import http2 from "node:http2";
 // Date, which the struct doesn't override — build it with
 // toAppleReferenceSeconds() below, NOT Unix seconds (see that function's
 // comment for why the difference matters here).
+export interface RoutineActivityTimelineSegment {
+  pct: number;
+  colorState: "done" | "active" | "activeOver" | "pending";
+}
+
 export interface RoutineActivityContentState {
   routineLabel: string;
   habitName: string;
@@ -25,6 +30,12 @@ export interface RoutineActivityContentState {
   projectedMinutes: number;
   routineItemId: string;
   routineGroupId: string | null;
+  // Whole-routine timeline — [] and undefined/undefined for a standalone
+  // (non-session) item, which has no routine to show one for. Both dates
+  // are also toAppleReferenceSeconds() numbers, same reasoning as startedAt.
+  timelineSegments: RoutineActivityTimelineSegment[];
+  routineStartedAt?: number;
+  routineFinishAt?: number;
 }
 
 // Foundation's default Date Codable conformance (.deferredToDate — what

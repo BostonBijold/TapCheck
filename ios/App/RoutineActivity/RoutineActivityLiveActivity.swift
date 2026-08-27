@@ -69,6 +69,76 @@ private func timerText(_ state: RoutineActivityAttributes.ContentState, size: CG
     }
 }
 
+// Mirrors lib/routine-timeline.ts's TIMELINE_COLOR map exactly (done/active
+// both read olive — "in hand" regardless of variance — pending is a dim
+// neutral fill, only an over-target active segment shifts to amber).
+private func timelineSegmentColor(_ colorState: String) -> Color {
+    switch colorState {
+    case "done", "active": return Palette.olive
+    case "activeOver": return Palette.amber
+    default: return Palette.textMuted.opacity(0.35) // "pending"
+    }
+}
+
+// One segment per remaining/completed item in the routine, proportional to
+// its current share of the group's running total — see
+// lib/routine-timeline.ts (the same math, computed JS-side and shipped over
+// as plain pct/colorState pairs, since neither the app process nor the push
+// sender can hand the widget extension a live-recomputing view). Only shown
+// when the current habit belongs to a routine (see ContentState's
+// timelineSegments/routineStartedAt/routineFinishAt doc comment) — a
+// standalone timer falls back to the simpler per-habit finishLine below.
+private func timelineBar(_ segments: [RoutineActivityAttributes.TimelineSegment]) -> some View {
+    GeometryReader { geo in
+        HStack(spacing: 2) {
+            ForEach(Array(segments.enumerated()), id: \.offset) { _, segment in
+                RoundedRectangle(cornerRadius: 2)
+                    .fill(timelineSegmentColor(segment.colorState))
+                    .frame(width: max(3, geo.size.width * CGFloat(segment.pct / 100)))
+            }
+        }
+    }
+    .frame(height: 6)
+}
+
+@ViewBuilder
+private func routineTimelineBlock(_ state: RoutineActivityAttributes.ContentState) -> some View {
+    if !state.timelineSegments.isEmpty, let routineStart = state.routineStartedAt, let routineFinish = state.routineFinishAt {
+        VStack(alignment: .leading, spacing: 5) {
+            timelineBar(state.timelineSegments)
+            HStack {
+                Text(routineStart, style: .time)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(Palette.textMuted)
+                Spacer()
+                HStack(spacing: 4) {
+                    Image(systemName: "flag.checkered")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(routineFinish, style: .time)
+                        .font(.system(size: 13, weight: .semibold))
+                }
+                .foregroundStyle(Palette.textPrimary)
+            }
+        }
+    } else {
+        finishLine(state)
+    }
+}
+
+@ViewBuilder
+private func finishLine(_ state: RoutineActivityAttributes.ContentState) -> some View {
+    if let finish = estimatedFinish(state) {
+        HStack(spacing: 6) {
+            Image(systemName: "flag.checkered")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(Palette.gold)
+            Text("Finish by \(finish, style: .time)")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(Palette.textPrimary)
+        }
+    }
+}
+
 // Deliberately takes no per-item identity from `state` — see
 // CompleteHabitFromActivityIntent, which looks up the current habit fresh
 // from Activity.activities at tap-time instead of trusting whatever was
@@ -89,18 +159,10 @@ struct RoutineActivityLiveActivity: Widget {
             // ── Lock Screen / banner ──
             let state = context.state
             VStack(alignment: .leading, spacing: 10) {
-                HStack {
-                    Text(state.routineLabel.uppercased())
-                        .font(.system(size: 10, weight: .semibold))
-                        .tracking(1.2)
-                        .foregroundStyle(Palette.gold)
-                    Spacer()
-                    if let finish = estimatedFinish(state) {
-                        Text("Est. \(finish, style: .time)")
-                            .font(.system(size: 11, weight: .medium, design: .monospaced))
-                            .foregroundStyle(Palette.textMuted)
-                    }
-                }
+                Text(state.routineLabel.uppercased())
+                    .font(.system(size: 10, weight: .semibold))
+                    .tracking(1.2)
+                    .foregroundStyle(Palette.gold)
 
                 HStack(alignment: .firstTextBaseline) {
                     Text(state.habitName)
@@ -111,6 +173,8 @@ struct RoutineActivityLiveActivity: Widget {
                     timerText(state, size: 19)
                         .frame(minWidth: 64, alignment: .trailing)
                 }
+
+                routineTimelineBlock(state)
 
                 doneButton()
             }
@@ -138,11 +202,7 @@ struct RoutineActivityLiveActivity: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 8) {
-                        if let finish = estimatedFinish(state) {
-                            Text("Estimated finish: \(finish, style: .time)")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Palette.textMuted)
-                        }
+                        routineTimelineBlock(state)
                         doneButton()
                     }
                 }

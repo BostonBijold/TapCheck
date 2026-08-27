@@ -4,6 +4,14 @@ import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 // timer on the Lock Screen / Dynamic Island. No-op-safe to call on web/PWA:
 // registerPlugin resolves to a stub there, and every call site additionally
 // guards with Capacitor.isNativePlatform(). See docs/features/live-activity.md.
+// Mirrors ios/App/RoutineActivity/RoutineActivityAttributes.swift's
+// TimelineSegment — pct/colorState only, matching lib/routine-timeline.ts's
+// TimelineSegment minus the fields the native view doesn't need (id, minutes).
+export interface RoutineActivityTimelineSegment {
+  pct: number;
+  colorState: "done" | "active" | "activeOver" | "pending";
+}
+
 export interface RoutineActivityState {
   routineItemId: string;
   routineGroupId?: string | null; // omit/undefined for a standalone (non-session) timer
@@ -11,6 +19,11 @@ export interface RoutineActivityState {
   habitName: string;
   startedAt: string;              // ISO string — server-authoritative RoutineLog.startedAt
   projectedMinutes: number;       // 0 for a stopwatch item (no target) — hides the estimated-finish line
+  // Whole-routine timeline — omit for a standalone timer, which has no
+  // routine to show one for. See docs/features/live-activity.md.
+  timelineSegments?: RoutineActivityTimelineSegment[];
+  routineStartedAt?: string;      // ISO string
+  routineFinishAt?: string;       // ISO string
 }
 
 export interface RoutineActivityPushToken {

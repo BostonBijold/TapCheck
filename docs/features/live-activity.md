@@ -154,6 +154,27 @@ This is the one place in this feature where the wire format for the *same* struc
 
 The Done button's `perform()` still doesn't touch `Activity.activities` for a same-tap cosmetic update — the push it triggers arrives asynchronously (typically under a second, but not synchronous with the button tap completing), so tapping Done still won't flip the card *instantly* the way the local-update path does when the app is open. It'll update shortly after, without needing the app opened at all, which is the actual gap this was built to close.
 
+## Countdown timer, and colors
+
+`RoutineActivityLiveActivity.swift`'s `timerText(_:size:)` shows a real countdown (`Text(timerInterval:countsDown: true)`) toward the target for items with `projectedMinutes > 0`, falling back to the plain count-up elapsed display (as before) for stopwatch items with no target. `timerColor(_:)` mirrors the in-app ring's olive → amber (past 75% of target) → burgundy (over target) convention, evaluated at render time.
+
+**Deliberately does not flip to counting up past zero once over target** — confirmed with the user this was an acceptable tradeoff rather than building a scheduled push to swap the display exactly when `projectedMinutes` elapses: `Text(timerInterval:countsDown: true)` has no built-in "count down, then count up past zero" mode: once "now" passes the range's `upperBound`, it just holds at `00:00`. Paired with the color shifting to burgundy and the existing "Est. finish" clock time, this is still an unambiguous "you're over" signal — just not an exact running overage count the way the in-app ring shows.
+
+**A freshly-started Activity's countdown can render as a frozen, non-ticking snapshot** — confirmed on-device: starting a routine while the phone was already locked showed the full target duration (e.g. `10:00`) the entire time, only beginning to actually tick once the app was reopened and its own foreground re-sync issued a fresh `update()` call. `LiveActivityPlugin.start()` now works around this by following its own `request()` with an `update()` call carrying identical content ~500ms later — the extra call is what attaches live-ticking behavior; a `request()` alone was, at least in this instance, not sufficient on its own.
+
+## Routine timeline
+
+The original single "Finish by 7:45 AM" line read ambiguously once a routine had more than one item left — indistinguishable from "this *habit* finishes at 7:45," which was never the intent. `ContentState.timelineSegments`/`routineStartedAt`/`routineFinishAt` (`RoutineActivityAttributes.swift`) carry a whole-routine view instead: a proportional segment bar (`timelineBar`/`routineTimelineBlock`, `RoutineActivityLiveActivity.swift`) plus the routine's actual start time and live projected finish, both shown side-by-side with the bar. Empty/`nil` (a standalone, non-session timer, which has no routine to show one for) falls back to the original single-habit `finishLine`.
+
+**The math is the exact same functions the in-app view already uses** — `lib/projected-finish.ts`'s `ItemProjection`/`projectedFinishTime` and `lib/routine-timeline.ts`'s `computeTimeline`, both pure functions with no React dependency, so nothing needed reimplementing:
+
+- **Local path** (`RoutineSession.tsx`'s per-item switch effect) builds `projectionItems` from `items` + the `records` it already just fetched via `fetchDayLogs()` (the current item is `"active"`, everything else resolved from that fresh fetch — simpler than the render-time version below it, which additionally has to reconcile `sessionLogs`/`latestLogs`/`externalLogs` precedence for its own live display) and passes `timelineSegments`/`routineStartedAt`/`routineFinishAt` alongside the existing fields in the same `updateRoutineActivity(...)` call — no new call site, no extra bridge round-trip.
+- **Push path** (`lib/habit-trigger.ts`'s new `buildRoutineTimeline()`, called from `notifyLiveActivity()` whenever `target.sessionGroupId` is set) does the server-side equivalent: queries every active `RoutineItem` in the group plus today's `RoutineLog`s for them, resolves each to the same four-state `ItemProjection`, and calls the identical `computeTimeline`/`projectedFinishTime`.
+
+Both paths map `TimelineColorState`'s `"active-over"` to `"activeOver"` before sending — a Swift-identifier-friendly rename, not a semantic change; `RoutineActivityAttributes.TimelineSegment.colorState` is a plain `String`, not a Swift enum, so this is just string matching in `timelineSegmentColor(_:)`, not a shared type.
+
+Like the countdown/color above, this is refreshed only on an item switch (or a push trigger), not per-second — a routine's projected finish time doesn't need second-level precision on a Lock Screen glance, and refreshing on every habit transition is already far more granular than the "only updates when the app is reopened" gap this feature exists to close.
+
 ## Setting it up
 
 Same native-rebuild requirement as [`app-intents.md`](app-intents.md#setting-it-up): this only ships via an actual `xcodebuild`/install cycle, not a web-only Vercel deploy. After installing:
