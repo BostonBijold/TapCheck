@@ -1,8 +1,14 @@
 > **Keep this file updated after any code change in this area — do not let it drift from actual implementation.**
 
-# App Intents — Native Habit Triggers
+# App Intents — Native Check Triggers
 
-Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets Be One declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual habits, with no URL or API key ever touching a Shortcut. This is now the **only** supported way to trigger a habit from outside the app; an earlier NFC-tag/Universal-Link-based system (per-card URLs, a claim flow, `NfcTag`/`PendingNfcLink` models) was removed once this shipped — everything it did, App Intents does better, including physical taps (see "Physical NFC tags" below).
+> Note: this doc's prose has been updated for the app's pivot from personal
+> habits to restaurant work checks, but the underlying Swift code (file/type
+> names like `HabitEntity.swift`, `TriggerHabitIntent`, `fetchHabits`) and
+> the "Be One" name shown to Siri/Shortcuts are native-project concerns not
+> touched by this pass — see CLAUDE.md for the pivot's current scope.
+
+Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets the app declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual checks, with no URL or API key ever touching a Shortcut. This is now the **only** supported way to trigger a check from outside the app; an earlier NFC-tag/Universal-Link-based system (per-card URLs, a claim flow, `NfcTag`/`PendingNfcLink` models) was removed once this shipped — everything it did, App Intents does better, including physical taps (see "Physical NFC tags" below).
 
 ## Why this needed real native code
 

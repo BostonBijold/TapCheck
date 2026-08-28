@@ -4,18 +4,15 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { ListChecks, Target, BarChart3, ScrollText } from "lucide-react";
+import { ListChecks, BarChart3 } from "lucide-react";
 import HabitIcon from "@/components/HabitIcon";
-import QuoteScreen from "@/components/QuoteScreen";
 import { ROUTINE_LOG_CHANGED_EVENT } from "@/lib/routine-log-events";
 
 const LEFT_TABS = [
-  { href: "/routines",  label: "Routines",  Icon: ListChecks },
-  { href: "/analytics", label: "Analytics", Icon: BarChart3  },
+  { href: "/routines",  label: "Checks",  Icon: ListChecks },
 ];
 const RIGHT_TABS = [
-  { href: "/goals",   label: "Goals",   Icon: Target     },
-  { href: "/virtues", label: "Virtues", Icon: ScrollText },
+  { href: "/analytics", label: "Analytics", Icon: BarChart3  },
 ];
 
 interface ActiveTimer {
@@ -41,7 +38,6 @@ function fmtClock(totalSeconds: number) {
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
-  const [quoteOpen, setQuoteOpen] = useState(false);
   const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -112,11 +108,6 @@ export default function BottomNav() {
     }
   };
 
-  const handleFabClick = () => {
-    if (activeTimer) { handleResumeTimer(); return; }
-    setQuoteOpen(true);
-  };
-
   const elapsedSeconds = activeTimer
     ? (activeTimer.pausedSeconds ?? 0) + Math.floor((nowTick - new Date(activeTimer.startedAt).getTime()) / 1000)
     : 0;
@@ -133,10 +124,6 @@ export default function BottomNav() {
 
   return (
     <>
-      {quoteOpen && (
-        <QuoteScreen mode="on-demand" onDismiss={() => setQuoteOpen(false)} />
-      )}
-
       {/* Nav bar */}
       <nav
         className="fixed bottom-0 left-0 right-0 z-40 bg-card border-t border-border"
@@ -160,10 +147,10 @@ export default function BottomNav() {
             </button>
           )}
 
-          {/* FAB */}
+          {/* FAB — resumes the active timer when one exists; otherwise inert */}
           <button
-            onClick={handleFabClick}
-            aria-label={activeTimer ? `Resume ${activeTimer.itemName}` : "Quote"}
+            onClick={activeTimer ? handleResumeTimer : undefined}
+            aria-label={activeTimer ? `Resume ${activeTimer.itemName}` : undefined}
             className={`absolute left-1/2 -translate-x-1/2 -top-6 z-10 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center transition-all duration-200 ${
               activeTimer ? "bg-amber" : "bg-olive"
             }`}

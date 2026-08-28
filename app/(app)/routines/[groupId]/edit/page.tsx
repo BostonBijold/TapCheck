@@ -3,12 +3,12 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
+import type { ItemType } from "@/models/RoutineItem";
 import AppIntentLink from "@/models/AppIntentLink";
 import RoutineEditView from "@/components/RoutineEditView";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const DEV_USER_ID = "dev-local-user";
 
 export default async function EditRoutinePage({
   params,
@@ -19,22 +19,26 @@ export default async function EditRoutinePage({
   const session = await auth();
   if (!skipAuth && !session?.user?.id) redirect("/login");
 
-  const userId = session?.user?.id ?? (skipAuth ? DEV_USER_ID : null);
-  if (!userId) redirect("/login");
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) redirect("/login");
+  const { companyId, userId } = sessionUser;
+  if (!companyId) redirect("/routines");
 
   await connectDB();
 
-  const group = await RoutineGroup.findOne({ _id: params.groupId, userId }).lean();
+  const group = await RoutineGroup.findOne({ _id: params.groupId, companyId }).lean();
   if (!group) redirect("/routines");
 
   const items = await RoutineItem.find({
     groupId: params.groupId,
-    userId,
+    companyId,
     isActive: true,
   })
     .sort({ order: 1 })
     .lean();
 
+  // AppIntentLink stays scoped to the specific signed-in person — it
+  // records whose Shortcut is connected to a habit, not company config.
   const appIntentLinks = await AppIntentLink.find({
     userId,
     routineItemId: { $in: items.map((i) => i._id) },
@@ -56,7 +60,8 @@ export default async function EditRoutinePage({
         icon: i.icon,
         projectedMinutes: i.projectedMinutes,
         order: i.order,
-        itemType: (i.itemType ?? "standard") as "standard" | "stopwatch" | "checkbox",
+        itemType: (i.itemType ?? "form_check") as ItemType,
+        formFields: i.formFields ?? [],
         // Existing documents predate these fields — Mongoose defaults only
         // apply on create, so a .lean() read can come back undefined.
         scheduledDays: i.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],

@@ -66,7 +66,7 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
               External API Key
             </p>
             <p className="font-body text-xs text-muted mb-3">
-              Paste into an iPhone Shortcut (e.g. fired from an NFC tag) to start a habit or task timer from outside the app.
+              Paste into an iPhone Shortcut (e.g. fired from an NFC tag) to start a check or task timer from outside the app.
             </p>
             {apiKey ? (
               <div className="flex items-center gap-2 bg-bg border border-border rounded-card px-3 py-2.5">

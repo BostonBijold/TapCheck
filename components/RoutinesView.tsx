@@ -6,14 +6,14 @@ import Header from "@/components/Header";
 import DateNav from "@/components/DateNav";
 import RoutineGroupCard, { type GroupCardGroup } from "@/components/RoutineGroupCard";
 import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
+import FormCheckScreen from "@/components/FormCheckScreen";
 import RoutineSession from "@/components/RoutineSession";
-import VirtueSheet, { type VirtueData } from "@/components/VirtueSheet";
-import VirtueCheckInModal from "@/components/VirtueCheckInModal";
 import AddHabitSheet from "@/components/AddHabitSheet";
 import TodoSection, { type TodoEntry } from "@/components/TodoSection";
 import EditTodoSheet from "@/components/EditTodoSheet";
 import FABTaskSheet from "@/components/FABTaskSheet";
 import type { LogState } from "@/models/RoutineLog";
+import type { FormFieldDef } from "@/models/RoutineItem";
 import type { RowItem } from "@/components/RoutineItemRow";
 import { isItemVisibleOn } from "@/lib/routine-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
@@ -48,8 +48,6 @@ interface Props {
   today: string;
   userName: string;
   skipAuth?: boolean;
-  currentVirtue?: VirtueData | null;
-  isAdmin?: boolean;
   autoStartNext?: boolean;
   autoAddHabit?: boolean;
   autoResumeTimer?: boolean;
@@ -63,8 +61,6 @@ interface ActiveSession {
 export default function RoutinesView({
   groups, initialLogs, initialTodos, weekLogs, weekDates,
   today, userName, skipAuth,
-  currentVirtue: initialVirtue = null,
-  isAdmin = false,
   autoStartNext = false,
   autoAddHabit = false,
   autoResumeTimer = false,
@@ -72,8 +68,6 @@ export default function RoutinesView({
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(today);
   const prevTodayRef = useRef(today);
-  const [virtue, setVirtue] = useState(initialVirtue);
-  const [virtueOpen, setVirtueOpen] = useState(false);
   const [logs, setLogs] = useState<Record<string, RoutineLogEntry>>(
     Object.fromEntries(initialLogs.map((l) => [l.routineItemId, l]))
   );
@@ -82,7 +76,6 @@ export default function RoutinesView({
   const [timerInitialElapsed, setTimerInitialElapsed] = useState(0);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [addHabitGroup, setAddHabitGroup] = useState<{ id: string; name: string } | null>(null);
-  const [checkInItem, setCheckInItem] = useState<RowItem | null>(null);
   const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
   const [addTodoOpen, setAddTodoOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
@@ -326,7 +319,13 @@ export default function RoutinesView({
     async (
       routineItemId: string,
       newState: LogState | null,
-      opts?: { actualMinutes?: number; isBackEntry?: boolean; startedAt?: string; completedAt?: string }
+      opts?: {
+        actualMinutes?: number;
+        isBackEntry?: boolean;
+        startedAt?: string;
+        completedAt?: string;
+        formData?: Record<string, string | number | boolean>;
+      }
     ) => {
       const prev = logs[routineItemId];
 
@@ -380,6 +379,7 @@ export default function RoutinesView({
             state: newState,
             startedAt: opts.startedAt,
             completedAt: opts.completedAt,
+            formData: opts.formData,
           }),
         });
         if (res.ok) {
@@ -522,6 +522,33 @@ export default function RoutinesView({
     [timerItem, selectedDate]
   );
 
+  // Same PATCH path as handleTimerComplete, plus formData — see
+  // components/FormCheckScreen.tsx. actualMinutes is still server-derived
+  // from startedAt (see completeInProgressLog); the client-computed value
+  // here is only the fallback, same as the standalone timer's Done button.
+  const handleFormCheckComplete = useCallback(
+    async (formData: Record<string, string | number | boolean>, actualMinutes: number) => {
+      if (!timerItem) return;
+      setLogs((l) => ({
+        ...l,
+        [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", routineItemId: timerItem._id, date: selectedDate }), state: "done", actualMinutes },
+      }));
+      const res = await fetch("/api/routine-logs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ routineItemId: timerItem._id, date: selectedDate, state: "done", actualMinutes, formData }),
+      });
+      if (res.ok) {
+        const saved: RoutineLogEntry = await res.json();
+        setLogs((l) => ({ ...l, [timerItem._id]: saved }));
+      }
+      emitRoutineLogChanged();
+      setTimerItem(null);
+      endRoutineActivity();
+    },
+    [timerItem, selectedDate]
+  );
+
   const handleTimerMissed = useCallback(async () => {
     if (!timerItem) return;
     setLogs((l) => ({
@@ -559,9 +586,10 @@ export default function RoutinesView({
       name: string,
       icon: string,
       projectedMinutes: number,
-      itemType: "standard" | "stopwatch" | "checkbox" = "standard",
+      itemType: "standard" | "stopwatch" | "checkbox" | "form_check" = "form_check",
       scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
-      successThreshold: number = 7
+      successThreshold: number = 7,
+      formFields: FormFieldDef[] = []
     ) => {
       if (!addHabitGroup) return;
       await fetch("/api/routine-items", {
@@ -576,6 +604,7 @@ export default function RoutinesView({
           itemType,
           scheduledDays,
           successThreshold,
+          formFields,
         }),
       });
       setAddHabitGroup(null);
@@ -600,13 +629,23 @@ export default function RoutinesView({
   return (
     <div className="min-h-dvh bg-bg">
       {timerItem && (
-        <TimerScreen
-          item={timerItem}
-          initialElapsed={timerInitialElapsed}
-          onComplete={handleTimerComplete}
-          onMissed={handleTimerMissed}
-          onClose={() => setTimerItem(null)}
-        />
+        timerItem.itemType === "form_check" ? (
+          <FormCheckScreen
+            item={timerItem}
+            initialElapsed={timerInitialElapsed}
+            onComplete={handleFormCheckComplete}
+            onMissed={handleTimerMissed}
+            onClose={() => setTimerItem(null)}
+          />
+        ) : (
+          <TimerScreen
+            item={timerItem}
+            initialElapsed={timerInitialElapsed}
+            onComplete={handleTimerComplete}
+            onMissed={handleTimerMissed}
+            onClose={() => setTimerItem(null)}
+          />
+        )
       )}
 
       {sessionGroup && (
@@ -618,19 +657,8 @@ export default function RoutinesView({
           logs={logs}
           today={selectedDate}
           startIndex={activeSession?.startIndex ?? 0}
-          thisWeekVirtue={virtue}
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
-          onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
-        />
-      )}
-
-      {virtue && virtueOpen && (
-        <VirtueSheet
-          virtue={virtue}
-          isAdmin={isAdmin}
-          onClose={() => setVirtueOpen(false)}
-          onEssayChange={(essay) => setVirtue((v) => v ? { ...v, essay } : v)}
         />
       )}
 
@@ -643,22 +671,9 @@ export default function RoutinesView({
         />
       )}
 
-      {checkInItem && (
-        <VirtueCheckInModal
-          thisWeekVirtue={virtue}
-          date={selectedDate}
-          onDone={(mins) => {
-            handleStateChange(checkInItem._id, "done", { actualMinutes: mins });
-            setCheckInItem(null);
-          }}
-          onClose={() => setCheckInItem(null)}
-        />
-      )}
-
       {addTodoOpen && (
         <FABTaskSheet
           date={selectedDate}
-          startWithNoGoal
           onClose={() => setAddTodoOpen(false)}
         />
       )}
@@ -674,24 +689,6 @@ export default function RoutinesView({
 
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
-
-        {/* Virtue strip */}
-        {virtue && (
-          <button
-            onClick={() => setVirtueOpen(true)}
-            className="w-full text-left bg-card border border-gold/25 rounded-card px-4 py-3 mt-6 mb-4 hover:bg-card-hover active:opacity-90 transition-colors flex items-center gap-3"
-          >
-            <div className="flex-1 min-w-0">
-              <p className="font-mono text-[9px] uppercase tracking-widest text-gold mb-0.5">
-                This Week&apos;s Virtue
-              </p>
-              <p className="font-heading text-base italic text-text leading-tight truncate">
-                {virtue.displayName}
-              </p>
-            </div>
-            <span className="text-gold/60 text-sm flex-shrink-0">›</span>
-          </button>
-        )}
 
         <>
           {/* Date navigation */}
@@ -717,7 +714,7 @@ export default function RoutinesView({
               </div>
             </div>
 
-            {/* Routine groups (morning / afternoon / evening) */}
+            {/* Shift groups (opening / mid-shift / closing) */}
             <div className="space-y-8">
               {routineGroups.map((group) => (
                 <RoutineGroupCard
@@ -732,9 +729,6 @@ export default function RoutinesView({
                   onStateChange={handleStateChange}
                   onStartTimer={handleStartTimer}
                   onStartRoutine={(g, startIndex) => setActiveSession({ group: g, startIndex })}
-                  onOpenCheckIn={(item) => setCheckInItem(item)}
-                  onOpenReview={() => router.push(`/virtues?mode=weekly&date=${selectedDate}&return=routines`)}
-                  onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
                 />
               ))}
             </div>
@@ -749,12 +743,12 @@ export default function RoutinesView({
               onAdd={() => setAddTodoOpen(true)}
             />
 
-            {/* Standalone habits section */}
+            {/* Standalone/anytime checks section */}
             {(habitGroups.length > 0) && (
               <div className="mt-10">
                 <div className="flex items-center gap-3 mb-4">
                   <span className="font-mono text-[10px] uppercase tracking-widest text-dim">
-                    Habits
+                    {habitGroups[0]?.name ?? "Checks"}
                   </span>
                   <div className="flex-1 h-px bg-border" />
                   <button
@@ -782,9 +776,6 @@ export default function RoutinesView({
                       onStateChange={handleStateChange}
                       onStartTimer={handleStartTimer}
                       onStartRoutine={() => {}}
-                      onOpenCheckIn={(item) => setCheckInItem(item)}
-                      onOpenReview={() => router.push(`/virtues?mode=weekly&date=${selectedDate}&return=routines`)}
-                      onOpenRoutineReview={() => router.push(`/routines/review?date=${selectedDate}&entryPoint=sunday_prompt&return=routines`)}
                     />
                   ))}
                 </div>
@@ -797,7 +788,7 @@ export default function RoutinesView({
                     }}
                     className="w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
                   >
-                    + Add your first habit
+                    + Add your first check
                   </button>
                 )}
               </div>
@@ -805,7 +796,7 @@ export default function RoutinesView({
 
             {groups.length === 0 && (
               <div className="text-center py-20">
-                <p className="text-muted text-sm">No routines yet.</p>
+                <p className="text-muted text-sm">No checks yet.</p>
               </div>
             )}
           </>

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import { findUserIdByApiKey } from "@/lib/api-key";
+import { findSessionByApiKey } from "@/lib/api-key";
 import { triggerHabit } from "@/lib/habit-trigger";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineGroup from "@/models/RoutineGroup";
@@ -47,9 +47,13 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const userId = await findUserIdByApiKey(apiKey);
-  if (!userId) {
+  const apiSession = await findSessionByApiKey(apiKey);
+  if (!apiSession) {
     return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+  }
+  const { userId, companyId } = apiSession;
+  if (!companyId) {
+    return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   }
 
   const routineItemId = readParam(body, req.nextUrl.searchParams, "routineItemId");
@@ -62,7 +66,7 @@ export async function POST(req: NextRequest) {
 
   let item;
   try {
-    item = await RoutineItem.findOne({ _id: routineItemId, userId, isActive: true }).lean();
+    item = await RoutineItem.findOne({ _id: routineItemId, companyId, isActive: true }).lean();
   } catch {
     return NextResponse.json({ error: "Invalid routineItemId" }, { status: 400 });
   }
@@ -73,7 +77,7 @@ export async function POST(req: NextRequest) {
   if (routineGroupId) {
     let group;
     try {
-      group = await RoutineGroup.findOne({ _id: routineGroupId, userId }).lean();
+      group = await RoutineGroup.findOne({ _id: routineGroupId, companyId }).lean();
     } catch {
       return NextResponse.json({ error: "Invalid routineGroupId" }, { status: 400 });
     }
@@ -85,7 +89,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { completed, started } = await triggerHabit(userId, routineItemId, item.itemType, routineGroupId, date);
+  const { completed, started } = await triggerHabit(companyId, userId, routineItemId, item.itemType, routineGroupId, date);
 
   // No hook exists for "user configured a Shortcut with this habit" — App
   // Intents only tell us when one actually runs. This upsert is that signal,

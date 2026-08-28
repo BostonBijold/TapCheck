@@ -7,8 +7,8 @@ import ArrowButton from "@/components/ArrowButton";
 
 // Keep in sync with the animation durations in app/globals.css
 // (splash-word-in, splash-fade-in).
-const QUOTE_LINE_1 = ["Waste", "no", "more", "time", "arguing"];
-const QUOTE_LINE_2 = ["what", "a", "good", "man", "should", "be."];
+const QUOTE_LINE_1 = ["The", "job", "isn't", "finished"];
+const QUOTE_LINE_2 = ["until", "the", "checklist", "is."];
 const WORD_COUNT = QUOTE_LINE_1.length + QUOTE_LINE_2.length;
 
 const QUOTE_TOTAL_MS = 5000; // last word finishes fading in at this mark
@@ -62,16 +62,15 @@ export default function WelcomePage() {
 
         <Image
           src="/logo.png"
-          alt="Be One"
+          alt="TapCheck"
           width={96}
           height={96}
           priority
           className="splash-logo"
-          style={{ filter: "invert(1)", opacity: 0.95 }}
         />
 
         <ArrowButton
-          label="Be one."
+          label="Get started."
           disabled={!ready}
           onClick={() => router.replace("/routines")}
           animate

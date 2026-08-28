@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import { findUserIdByApiKey } from "@/lib/api-key";
+import { findSessionByApiKey } from "@/lib/api-key";
 import { completeActiveHabit } from "@/lib/habit-trigger";
 
 export const dynamic = "force-dynamic";
@@ -31,12 +31,16 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const userId = await findUserIdByApiKey(apiKey);
-  if (!userId) {
+  const apiSession = await findSessionByApiKey(apiKey);
+  if (!apiSession) {
     return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
   }
+  const { userId, companyId } = apiSession;
+  if (!companyId) {
+    return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  }
 
-  const { completed, started } = await completeActiveHabit(userId);
+  const { completed, started } = await completeActiveHabit(companyId, userId);
 
   return NextResponse.json({ ok: true, completed, started });
 }

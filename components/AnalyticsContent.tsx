@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import HabitIcon from "@/components/HabitIcon";
 import type { WeeklyProgress, DayBreakdown } from "@/lib/routine-progress";
 
@@ -81,18 +80,18 @@ function dayLabel(dateStr: string): string {
 }
 
 function barColor(pct: number, hasLogs: boolean): string {
-  if (!hasLogs) return "#2e2c22";
-  if (pct >= 1)    return "#c4a84a"; // gold — perfect day
-  if (pct >= 0.75) return "#7a9248"; // new olive
-  if (pct >= 0.5)  return "#c47a2a";
-  if (pct > 0)     return "#8b5a2b";
-  return "#7a2e2e";
+  if (!hasLogs) return "#dbe2ea";
+  if (pct >= 1)    return "#3b82f6"; // gold — perfect day
+  if (pct >= 0.75) return "#2563eb"; // new olive
+  if (pct >= 0.5)  return "#d97706";
+  if (pct > 0)     return "#78716c";
+  return "#dc2626";
 }
 
 function completionBarColor(pct: number): string {
-  if (pct >= 0.8) return "#c4a84a"; // gold — strong performance
-  if (pct >= 0.5) return "#c47a2a";
-  return "#7a2e2e";
+  if (pct >= 0.8) return "#3b82f6"; // gold — strong performance
+  if (pct >= 0.5) return "#d97706";
+  return "#dc2626";
 }
 
 // Same day-state palette as StreakDots — a segment here should read as the
@@ -107,21 +106,21 @@ function completionBarColor(pct: number): string {
 // border = explicitly marked missed.
 function daySegmentStyle(day: DayBreakdown): { background: string; border?: string } {
   if (day.state === "done") {
-    return { background: day.timing === "amber" ? "#c47a2a" : "#5a6b35" };
+    return { background: day.timing === "amber" ? "#d97706" : "#2563eb" };
   }
   switch (day.state) {
-    case "rest": return { background: "#4a7a9a" };
-    case "missed": return { background: "transparent", border: "1px solid #a03a3a" };
-    case "unlogged": return { background: "transparent", border: "1px solid #5a5548" };
-    case "pending": return { background: "transparent", border: "1px dashed #5a5548" };
-    case "not_scheduled": return { background: "#2e2c2233" };
+    case "rest": return { background: "#71717a" };
+    case "missed": return { background: "transparent", border: "1px solid #ef4444" };
+    case "unlogged": return { background: "transparent", border: "1px solid #94a3b8" };
+    case "pending": return { background: "transparent", border: "1px dashed #94a3b8" };
+    case "not_scheduled": return { background: "#dbe2ea33" };
   }
 }
 
 const PACING: Record<WeeklyProgress["pacing"], { color: string; label: string }> = {
-  green: { color: "#7a9248", label: "on track" },
-  amber: { color: "#c47a2a", label: "in reach" },
-  red: { color: "#a03a3a", label: "will miss" },
+  green: { color: "#2563eb", label: "on track" },
+  amber: { color: "#d97706", label: "in reach" },
+  red: { color: "#ef4444", label: "will miss" },
 };
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
@@ -313,7 +312,6 @@ function HabitRow({ habit }: { habit: HabitStats }) {
 // ── Main export ───────────────────────────────────────────────────────────────
 
 export default function AnalyticsContent() {
-  const router = useRouter();
   const [days, setDays] = useState<7 | 30>(7);
   const [data, setData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -382,10 +380,10 @@ export default function AnalyticsContent() {
 
       {!loading && data && (
         <>
-          {/* Routine Performance */}
+          {/* Check Performance */}
           <section className="mb-10">
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
-              Routine Performance
+              Check Performance
             </p>
             <div className="space-y-3">
               {data.groups.filter((g) => g.totalItems > 0).map((group) => {
@@ -397,20 +395,12 @@ export default function AnalyticsContent() {
                   <div key={group._id} className="bg-card rounded-card px-4 pt-4 pb-3">
                     <div className="flex items-start justify-between mb-1">
                       <h3 className="font-heading text-base text-text">{group.name}</h3>
-                      <div className="flex items-center gap-2 flex-shrink-0 ml-3">
-                        <button
-                          onClick={() => router.push(`/routines/review?groupId=${group._id}&entryPoint=analytics_button&return=analytics`)}
-                          className="font-mono text-[10px] text-gold border border-gold/30 rounded-pill px-2.5 py-1 hover:bg-gold/10 transition-colors"
-                        >
-                          Review
-                        </button>
-                        <span
-                          className="font-mono text-lg font-semibold"
-                          style={{ color: completionBarColor(group.avgCompletionRate) }}
-                        >
-                          {completionPct}%
-                        </span>
-                      </div>
+                      <span
+                        className="font-mono text-lg font-semibold flex-shrink-0 ml-3"
+                        style={{ color: completionBarColor(group.avgCompletionRate) }}
+                      >
+                        {completionPct}%
+                      </span>
                     </div>
 
                     {group.avgStartMinutesUtc !== null && group.startTimeSampleSize >= 2 && (
@@ -438,7 +428,7 @@ export default function AnalyticsContent() {
                           {variance !== 0 && (
                             <span
                               className="font-mono text-[10px] ml-auto font-medium"
-                              style={{ color: variance > 0 ? "#8b5a2b" : "#c4a84a" }}
+                              style={{ color: variance > 0 ? "#78716c" : "#3b82f6" }}
                             >
                               {variance > 0 ? `+${fmtMins(variance)}` : `-${fmtMins(Math.abs(variance))}`}
                             </span>
@@ -467,10 +457,10 @@ export default function AnalyticsContent() {
             </div>
           </section>
 
-          {/* Habit Breakdown */}
+          {/* Check Breakdown */}
           <section>
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
-              Habit Breakdown
+              Check Breakdown
             </p>
             {habitsByGroup.filter(({ habits }) => habits.length > 0).map(({ group, habits }) => (
               <div key={group._id} className="mb-6">
@@ -487,7 +477,7 @@ export default function AnalyticsContent() {
             {data.habits.length === 0 && (
               <div className="bg-card rounded-card px-6 py-10 text-center">
                 <p className="font-mono text-dim text-sm">
-                  Log some routines to see habit data here.
+                  Log some checks to see check data here.
                 </p>
               </div>
             )}

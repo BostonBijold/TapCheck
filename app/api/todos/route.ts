@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-const DEV_USER_ID = "dev-local-user";
-
-function resolveUserId(sessionId?: string): string | null {
-  if (sessionId) return sessionId;
-  if (process.env.SKIP_AUTH === "true") return DEV_USER_ID;
-  return null;
-}
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, userId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const date = req.nextUrl.searchParams.get("date");
   const after = req.nextUrl.searchParams.get("after");
@@ -25,7 +19,7 @@ export async function GET(req: NextRequest) {
   // Future to-dos (scheduledDate strictly after `after`) — the Goals-page backlog.
   // Everything due today-or-earlier lives on the Routines page instead (see `date` below).
   if (after) {
-    const todos = await Todo.find({ userId, scheduledDate: { $gt: after } })
+    const todos = await Todo.find({ companyId, userId, scheduledDate: { $gt: after } })
       .sort({ scheduledDate: 1, order: 1, createdAt: 1 })
       .lean();
     return NextResponse.json(todos.map(serializeTodo));
@@ -33,16 +27,17 @@ export async function GET(req: NextRequest) {
 
   if (!date) return NextResponse.json({ error: "Missing date" }, { status: 400 });
 
-  const todos = await Todo.find(todosForDateQuery(userId, date))
+  const todos = await Todo.find(todosForDateQuery(companyId, userId, date))
     .sort({ scheduledDate: 1, order: 1, createdAt: 1 })
     .lean();
   return NextResponse.json(todos.map(serializeTodo));
 }
 
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, userId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const { name, scheduledDate, estimatedMinutes } = (await req.json()) as {
     name: string;
@@ -55,8 +50,9 @@ export async function POST(req: NextRequest) {
   }
 
   await connectDB();
-  const order = await Todo.countDocuments({ userId, scheduledDate });
+  const order = await Todo.countDocuments({ companyId, userId, scheduledDate });
   const todo = await Todo.create({
+    companyId,
     userId,
     name: name.trim(),
     scheduledDate,

@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import HabitIcon from "@/components/HabitIcon";
+import type { FormFieldDef } from "@/models/RoutineItem";
 
 export interface TimerItem {
   _id: string;
@@ -9,6 +10,7 @@ export interface TimerItem {
   icon: string;
   projectedMinutes: number;
   itemType?: string;
+  formFields?: FormFieldDef[]; // only meaningful when itemType === "form_check" — see FormCheckScreen.tsx
 }
 
 interface Props {
@@ -91,8 +93,8 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
     const r = 88;
     const circumference = 2 * Math.PI * r;
     const dashOffset = circumference * (1 - Math.min(ratio, 1));
-    const ringColor = isOver ? "#7a2e2e" : is75 ? "#c47a2a" : "#5a6b35";
-    const timeColor = isOver ? "#a03a3a" : "#e8e0cc";
+    const ringColor = isOver ? "#dc2626" : is75 ? "#d97706" : "#2563eb";
+    const timeColor = isOver ? "#ef4444" : "#0f172a";
     const remaining = Math.max(0, target - elapsed);
     const overAmount = Math.max(0, elapsed - target);
     const timeDisplay = isOver
@@ -122,7 +124,7 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
           <div className="flex-1 flex items-center justify-center">
             <div className="relative w-56 h-56">
               <svg className="w-full h-full -rotate-90" viewBox="0 0 200 200">
-                <circle cx="100" cy="100" r={r} fill="none" stroke="#2e2c22" strokeWidth="10" />
+                <circle cx="100" cy="100" r={r} fill="none" stroke="#dbe2ea" strokeWidth="10" />
                 <circle
                   cx="100" cy="100" r={r}
                   fill="none"
@@ -209,11 +211,11 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
         <div className="flex-1 flex items-center justify-center">
           <div className="relative w-56 h-56">
             <svg className="w-full h-full -rotate-90" viewBox="0 0 200 200">
-              <circle cx="100" cy="100" r={r} fill="none" stroke="#2e2c22" strokeWidth="10" />
+              <circle cx="100" cy="100" r={r} fill="none" stroke="#dbe2ea" strokeWidth="10" />
               <circle
                 cx="100" cy="100" r={r}
                 fill="none"
-                stroke="#5a6b35"
+                stroke="#2563eb"
                 strokeWidth="10"
                 strokeLinecap="round"
                 strokeDasharray={circumference}
@@ -225,7 +227,7 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
                 cx={100 + r * Math.cos(ratio * 2 * Math.PI)}
                 cy={100 + r * Math.sin(ratio * 2 * Math.PI)}
                 r={9}
-                fill="#5a6b35"
+                fill="#2563eb"
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">

@@ -1,23 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const DEV_USER_ID = "dev-local-user";
-
-function resolveUserId(id?: string) {
-  return id ?? (process.env.SKIP_AUTH === "true" ? DEV_USER_ID : null);
-}
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { groupId: string } }
 ) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const body = await req.json() as {
     name?: string;
@@ -31,7 +26,7 @@ export async function PATCH(
   if (body.startTime !== undefined) update.startTime = body.startTime || null;
 
   const group = await RoutineGroup.findOneAndUpdate(
-    { _id: params.groupId, userId },
+    { _id: params.groupId, companyId },
     { $set: update },
     { returnDocument: "after" }
   ).lean();

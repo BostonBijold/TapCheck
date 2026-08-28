@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import { findUserIdByApiKey } from "@/lib/api-key";
+import { findSessionByApiKey } from "@/lib/api-key";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
 
 export const dynamic = "force-dynamic";
 
-// GET-based, read-only sibling to trigger-habit — lists a user's active
+// GET-based, read-only sibling to trigger-habit — lists a company's active
 // habits so a caller can pick one before triggering it. Built for the
 // native App Intents HabitEntityQuery (ios/App/App/AppIntents), which needs
 // a live list to back a Shortcuts/Siri picker. See docs/features/app-intents.md.
@@ -22,16 +22,20 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const userId = await findUserIdByApiKey(apiKey);
-  if (!userId) {
+  const apiSession = await findSessionByApiKey(apiKey);
+  if (!apiSession) {
     return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
   }
+  const { companyId } = apiSession;
+  if (!companyId) {
+    return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  }
 
-  const groups = await RoutineGroup.find({ userId }).sort({ order: 1 }).lean();
+  const groups = await RoutineGroup.find({ companyId }).sort({ order: 1 }).lean();
   const groupOrder = new Map(groups.map((g, i) => [g._id.toString(), i]));
   const groupName = new Map(groups.map((g) => [g._id.toString(), g.name]));
 
-  const items = await RoutineItem.find({ userId, isActive: true }).sort({ order: 1 }).lean();
+  const items = await RoutineItem.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
 
   // Stable sort by group order — items within a group keep the item-order
   // sort the query above already applied.

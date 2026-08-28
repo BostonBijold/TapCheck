@@ -24,13 +24,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "A Good Man",
-  description: "Build your routines, build yourself.",
+  title: "TapCheck",
+  description: "Shift checks, done right, every time.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
-    statusBarStyle: "black-translucent",
-    title: "A Good Man",
+    statusBarStyle: "default",
+    title: "TapCheck",
   },
   icons: {
     icon: [
@@ -46,7 +46,7 @@ export const viewport: Viewport = {
   initialScale: 1,
   maximumScale: 1,
   viewportFit: "cover",
-  themeColor: "#18160f",
+  themeColor: "#ffffff",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

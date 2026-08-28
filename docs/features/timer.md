@@ -2,12 +2,13 @@
 
 # Timer
 
-There are two separate timer UIs, both driving the same underlying `RoutineLog` state machine (see [routines-api.md](../api/routines-api.md)):
+There are three full-screen UIs a single item can open, all driving the same underlying `RoutineLog` state machine (see [routines-api.md](../api/routines-api.md)):
 
-- **`components/TimerScreen.tsx`** — a standalone, full-screen timer for a single habit, opened by tapping "Start Timer" anywhere in [routines.md](routines.md)/[habits.md](habits.md).
-- **`components/RoutineSession.tsx`** — a sequential, full-screen flow that steps through every item in a group one at a time, opened via "Start Routine".
+- **`components/FormCheckScreen.tsx`** — the primary one today. Opened by tapping "Start Check" on a `form_check` item (the only creatable item type, see [routines.md](routines.md#item-types)); renders one control per `formFields` entry (number input or yes/no) instead of a ring, but tracks elapsed time the same wall-clock way described below and completes through the same `PATCH /api/routine-logs`, just with a `formData` payload attached.
+- **`components/TimerScreen.tsx`** — the ring-based countdown/stopwatch timer this doc mostly describes below. Only reachable for a `standard`/`stopwatch` item — the pre-pivot personal-habit types kept in the schema for compatibility but no longer creatable (see [routines.md](routines.md#item-types)) — so on current data this path is effectively legacy, exercised only by any old items that predate the pivot.
+- **`components/RoutineSession.tsx`** — a sequential, full-screen flow that steps through every item in a group one at a time, opened via "Start Checks". Internally it renders `FormCheckScreen` for a `form_check` step and its own ring markup for a `standard`/`stopwatch` step — see "Form checks inside a session" below.
 
-Both are orchestrated by `components/RoutinesView.tsx`.
+All three are orchestrated by `components/RoutinesView.tsx` (or, for the session case, by `RoutineSession.tsx` itself once opened). The elapsed-time/wall-clock mechanics below apply to `TimerScreen` and `RoutineSession`'s own ring rendering; `FormCheckScreen` tracks elapsed time the same way (for the `actualMinutes` fallback) but has no ring/drag UI of its own.
 
 ## How elapsed time is computed
 
@@ -34,6 +35,8 @@ Dragging never changes whether the timer is running — it only ever moves the `
 
 "Done" computes `actualMinutes = max(1, round(elapsed / 60))` from the local wall-clock value and passes it to the parent; "Missed" passes nothing. Neither button makes an API call directly — `TimerScreen` itself is purely presentational and delegates persistence to callbacks from `RoutinesView`.
 
+**`FormCheckScreen` has no ring, no countdown/stopwatch color states, and no drag gesture** — it's a plain vertical form (one control per `formFields` entry) with the same elapsed-time tracking running silently in the background purely to compute a fallback `actualMinutes`. Its "Save" button requires every field to have a value, then calls `onComplete(formData, actualMinutes)`; "Missed" behaves the same as elsewhere.
+
 ## Server-authoritative start time, and a single-active-timer invariant
 
 `RoutinesView.handleStartTimer` does **not** just open the timer locally. On a fresh start it first `POST`s `{ state: "in_progress" }` to `/api/routine-logs`, which stamps `startedAt` server-side, *then* opens `TimerScreen` — so the source of truth for "when did this start" always lives on the server before the UI even appears. If the item already has an `in_progress` log (resuming), no new POST is made; elapsed time is simply recomputed locally from the existing `startedAt`.
@@ -58,13 +61,17 @@ The FAB (`components/BottomNav.tsx`) surfaces whichever timer is active app-wide
 
 ## The sequential session (`RoutineSession.tsx`)
 
-`RoutineSession` steps through a group's items, but only one item's timer is ever actually running at a time — including across jumps. `startIndex` — which item it opens on — comes from wherever it was opened: manually tapping "Start Routine" computes the group's first not-yet-`done` item; resuming a `sessionGroupId`-anchored log (see above) instead lands on whichever specific item the anchor points at, regardless of whether earlier items in the group are complete.
+`RoutineSession` steps through a group's items, but only one item's timer is ever actually running at a time — including across jumps. `startIndex` — which item it opens on — comes from wherever it was opened: manually tapping "Start Checks" computes the group's first not-yet-`done` item; resuming a `sessionGroupId`-anchored log (see above) instead lands on whichever specific item the anchor points at, regardless of whether earlier items in the group are complete.
+
+### Form checks inside a session
+
+When the current item is `form_check`, `RoutineSession` returns `FormCheckScreen` as a full-screen takeover instead of its own ring markup — same component, same props shape `RoutinesView`'s standalone path uses (`item`, `initialElapsed`, `onComplete`, `onMissed`, `onClose`). Completing it (`handleFormCheckDone`) calls `advance("done", actualMinutes, formData)` — `advance`/`saveLog` route through `PATCH /api/routine-logs` (not the usual `POST`) whenever `formData` is present, so the captured field values persist the same way they would outside a session (see routines-api.md's `PATCH /api/routine-logs`). Returning to the session view for the next item happens automatically once `advance()` moves `currentIndex` forward, the same as any other completion.
 
 ### Single active timer, pause instead of complete or run concurrently
 
 `RoutineLog` has a `paused` state (distinct from `in_progress`) and a `pausedSeconds` field banking elapsed time from earlier running segments. Whenever the current item changes — advancing, or tapping a row to jump — an effect keyed on the current index calls `switchActiveLog` (`lib/routine-log-actions.ts`, via `POST /api/routine-logs` with `sessionNav: true`): whatever was `in_progress` gets flipped to `paused` (elapsed banked, `startedAt` cleared), and the new current item is stamped `in_progress` — resuming from its own banked `pausedSeconds` if it was paused earlier, or starting fresh otherwise. Nothing here ever sets a terminal state (`done`/`missed`/`rest`) — jumping away from an item never marks it done or missed, only Done/Missed/Rest (app button or the external API) does that. This is deliberately different from `startInProgressLog` (used by the standalone timer and the external API), which still auto-*completes* whatever else is `in_progress` — moving your attention to a different item inside an already-open session isn't the same signal as "I've started doing something else in real life."
 
-Checkbox items are skipped entirely (no timer to track), but still trigger the same switch-and-pause call so whatever else was running gets paused while you're on them. This per-item call always passes `sessionGroupId`, so closing the app mid-session (without tapping X) resumes straight back into the session on reopen, not the standalone timer. It's also what opens (or reuses) the group's persisted `RoutineSession` record and counts a jump — see "A persisted session record" below.
+Checkbox and `form_check` items are skipped by this in-progress-timer step entirely (no ring timer to track — `form_check` gets its own elapsed tracking inside `FormCheckScreen` instead, see "Form checks inside a session" above), but still trigger the same switch-and-pause call so whatever else was running gets paused while you're on them. This per-item call always passes `sessionGroupId`, so closing the app mid-session (without tapping X) resumes straight back into the session on reopen, not the standalone timer. It's also what opens (or reuses) the group's persisted `RoutineSession` record and counts a jump — see "A persisted session record" below.
 
 Tapping Done/Missed/Rest calls `advance()`, which `POST`s a terminal-state log for the current item, then **re-fetches the day's logs from the server** and moves to the next item that isn't `done`/`missed`/`rest` — `paused` and `in_progress` items are deliberately not treated as "handled." That search (`nextUnfinishedIndex`) walks forward from the current index first, then **wraps back to the start of the list** rather than stopping at the end — so an earlier item left `paused` (jumped away from) or never touched (jumped over) still gets revisited instead of the session silently reaching the summary screen while it's still outstanding. The summary phase is only reached once every item in the group is truly finished. The same wrap-around search is used by the foreground-revalidation effect below.
 
@@ -93,7 +100,7 @@ Nothing here is persisted — it's a pure client-side derived value recomputed f
 
 Directly under the "Projected finish" line, a thin horizontal bar renders one segment per item, left to right in routine order, with the group's actual start time on the left and the live projected finish time (same value as the line above) on the right. The math lives in `lib/routine-timeline.ts`'s `computeTimeline`, kept separate from the component the same way `lib/projected-finish.ts` is — it consumes the *same* per-item `ItemProjection[]` array the projected-finish line already builds each render (`done`/`missed`/`rest`/`active`/`pending`, via the same `sessionLogs` → `latestLogs` → `externalLogs` → pending precedence), so the timeline and the finish-time label can never disagree about what state an item is in.
 
-The bar itself (the row of colored segments plus the start/end labels underneath) is a shared presentational component, `components/TimelineBar.tsx` — it just renders whatever `{id, pct, color}[]` segments and labels it's handed, with no notion of live/done/pending state of its own. `RoutineSession.tsx` is the one that maps its `TimelineColorState` segments to hex via `TIMELINE_COLOR` before passing them in. The Routine Review flow's goal-vs-average comparison (see [routine-review.md](routine-review.md)) reuses this same component with its own flat two-color scheme, rather than the live pacing palette below.
+The bar itself (the row of colored segments plus the start/end labels underneath) is a shared presentational component, `components/TimelineBar.tsx` — it just renders whatever `{id, pct, color}[]` segments and labels it's handed, with no notion of live/done/pending state of its own. `RoutineSession.tsx` is the one that maps its `TimelineColorState` segments to hex via `TIMELINE_COLOR` before passing them in.
 
 - Each item resolves to a segment width in **minutes**, not a fixed original allocation: `done` contributes its real `actualMinutes` (falling back to `projectedMinutes` if that's somehow missing); `pending` contributes its full `projectedMinutes`; `missed`/`rest` contribute `0` and are dropped from the bar entirely (`segments` filters out zero-width entries) — the same "terminal-but-zero" treatment `remainingMinutes` in `lib/projected-finish.ts` gives them, so skipping an item shrinks the bar instead of leaving a dead segment in it.
 - The **active** item's width is derived from the same `targetInstant` anchor the projected-finish line uses (`elapsed = (nowMs - (targetInstant - projectedMinutes * 60000)) / 60000`), not a separately-tracked elapsed value — one source of truth for "how far into this item are we really," recomputed on every render including the once-a-second tick. Its width is normally exactly its `projectedMinutes` (matching the bar's other segments' "planned" widths) and only grows past that once it runs over — which is what visibly makes the active segment eat into the rest of the bar's share as the minutes tick by, rather than the bar just growing off the end.
@@ -110,19 +117,20 @@ The bar itself (the row of colored segments plus the start/end labels underneath
 - **Updated** every time an item tied to an open session reaches `done`/`missed`/`rest` — `completeInProgressLog`, `startImmediateLog`, and both `POST`/`PATCH /api/routine-logs`'s terminal branches all call `recordSessionCompletion`, which appends to `completionSequence`, folds `actualMinutes` into `totalActualMinutes` for `done` (zero for `missed`/`rest`, same as the live-projection math above), and closes the session (`status: "completed"`, `completedAt: now`) the moment every active item in the group has a terminal log.
 - **`pauseOrJumpCount`** increments whenever `switchActiveLog` actually pauses another item (not on the session's opening move, which has nothing to switch away from) or when [external-api.md](../api/external-api.md)'s `trigger-habit` Case 3 completes a different item out from under its session via an external jump.
 
-This is purely additive — nothing about the in-app rendering above changed, and there's no read endpoint for these records yet. See [routines-api.md](../api/routines-api.md#routine-sessions) for the full shape and a known gap around checkbox-first groups triggered externally.
+This is purely additive — nothing about the in-app rendering above changed, and there's no read endpoint for these records yet. See [routines-api.md](../api/routines-api.md#routine-sessions) for the full shape and a known gap around checkbox/`form_check`-first groups triggered externally.
 
 ## Files
 
-- `components/TimerScreen.tsx` — standalone single-habit timer.
-- `components/RoutineSession.tsx` — sequential multi-habit session: the pause/resume-on-jump effect, `advance()`, the foreground-revalidation effect, and the shared `nextUnfinishedIndex` wrap-around search.
+- `components/FormCheckScreen.tsx` — the primary single-item full-screen UI today; field-based, no ring.
+- `components/TimerScreen.tsx` — the ring-based countdown/stopwatch timer, now effectively legacy (see above).
+- `components/RoutineSession.tsx` — sequential multi-item session: the pause/resume-on-jump effect, `advance()`/`saveLog` (including the `form_check`/`formData` PATCH branch), the foreground-revalidation effect, and the shared `nextUnfinishedIndex` wrap-around search.
 - `components/RoutinesView.tsx` — `handleStartTimer`, `handleTimerComplete`, `handleTimerMissed`, `handleSessionFinish`, `openInProgressTimer`, and the effects that call it (mount-time auto-resume, and the `autoResumeTimer`/`?resumeTimer=1` effect for the FAB). `handleStartTimer` treats `paused` the same as `in_progress` for the purpose of resuming into a session.
 - `components/BottomNav.tsx` — the FAB's active-timer indicator and resume tap; the elapsed display adds `pausedSeconds` on top of `now - startedAt`.
 - `lib/routine-log-actions.ts` — `startInProgressLog` (sweep-to-done, used by the standalone timer and the external API) and `switchActiveLog` (pause-not-complete, used only by in-session navigation); both now also drive `RoutineSession` document bookkeeping (see below).
 - `lib/useRingDrag.ts` — the drag-to-set-time gesture shared by both rings.
 - `lib/projected-finish.ts` — the live projected-finish-time math (`remainingMinutes`, `projectedFinishTime`, `staticBaselineFinish`), used only by `RoutineSession.tsx`.
 - `lib/routine-timeline.ts` — the live routine-timeline bar's math (`computeTimeline`), consuming the same per-item `ItemProjection[]` as `lib/projected-finish.ts` — see "Live routine timeline" above.
-- `components/TimelineBar.tsx` — the shared presentational segment bar, also reused by the Routine Review flow (see [routine-review.md](routine-review.md)).
+- `components/TimelineBar.tsx` — the shared presentational segment bar.
 - `models/RoutineSession.ts` — the persisted session record's schema.
 - `lib/routine-session-actions.ts` — `ensureOpenSession`, `recordSessionCompletion`, `incrementSessionPauseOrJump`, `findNextItemInGroup`, `isGroupFullyResolved`; see [routines-api.md](../api/routines-api.md#routine-sessions) for the full picture of which write paths call each.
 

@@ -24,27 +24,29 @@ Response: array of
 Request body: `{ name?: string; startTime?: string | null }`. Updates `RoutineGroup.findOneAndUpdate({ _id: groupId, userId }, { $set: { name, startTime } })`. `404` if not found. Response: `{ _id, name, startTime }`.
 
 ### `GET /api/routines/start-next`
-Used by the FAB's "Start/Continue Routine" action. Query param `date` (defaults to today, `YYYY-MM-DD`). Read-only: loads all non-habit groups (`timeOfDay !== "habit"`, sorted by `order`), their active items, and that date's logs; **any** log for an item — regardless of state, including `in_progress` and `paused` — counts as "already logged" (skipped, not re-offered). Walks groups in order and returns the first item in the first group that has no log yet for that date.
+Query param `date` (defaults to today, `YYYY-MM-DD`). Read-only: loads all non-habit groups (`timeOfDay !== "habit"`, sorted by `order`), their active items, and that date's logs; **any** log for an item — regardless of state, including `in_progress` and `paused` — counts as "already logged" (skipped, not re-offered). Walks groups in order and returns the first item in the first group that has no log yet for that date.
 
-Response: `{ hasNext: boolean, hasLogs: boolean }` — `hasLogs` is true if *any* log exists for the user/date at all (used to decide whether the FAB button reads "Start Routine" or "Continue Routine").
+Response: `{ hasNext: boolean, hasLogs: boolean }`.
+
+> ⚠️ **Known issue**: nothing in the current app calls this route — it's dead code. The FAB (`components/BottomNav.tsx`) today is purely an active-timer resume indicator; "Start Checks"/"Continue Checks" is a per-group button on `RoutineGroupCard.tsx` that doesn't call this endpoint. Left in place rather than removed since deleting it isn't part of any active work.
 
 ## Routine Items
 
-Collection: `routineitems`. Schema (`models/RoutineItem.ts`): `groupId` (ref), `userId`, `templateId: ObjectId | null` (ref `HabitTemplate`), `name`, `icon` (default `"✓"`), `projectedMinutes` (default `0`), `order`, `isActive` (default `true`), `linkedGoalId: ObjectId | null`, `itemType: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review" | "routine_review"` (default `"standard"`), `scheduledDays: number[]` (0=Sun..6=Sat, default `[0,1,2,3,4,5,6]`), `successThreshold: number` (how many of this week's *scheduled* days count as a win, default `7`).
+Collection: `routineitems`. Schema (`models/RoutineItem.ts`): `groupId` (ref), `userId`, `templateId: ObjectId | null` (ref `HabitTemplate`), `name`, `icon` (default `"✓"`), `projectedMinutes` (default `0`), `order`, `isActive` (default `true`), `itemType: "standard" | "stopwatch" | "checkbox" | "form_check"` (default `"form_check"` — `standard`/`stopwatch`/`checkbox` are kept for schema compatibility with pre-pivot data, but nothing in the UI creates them anymore), `scheduledDays: number[]` (0=Sun..6=Sat, default `[0,1,2,3,4,5,6]`), `successThreshold: number` (how many of this week's *scheduled* days count as a win, default `7`), `formFields: FormFieldDef[]` (only meaningful when `itemType === "form_check"`; each entry is `{ key, label, type: "number" | "text" | "boolean", unit?, min?, max? }` — default `[]`).
 
 `scheduledDays`/`successThreshold` are purely a weekly analytics/streak concept (see [`features/routines.md`](../features/routines.md#streaks--variance) and [`features/analytics.md`](../features/analytics.md)) — they never affect whether an item appears in the Today view or whether a `RoutineGroup` reads as complete for the day; an item still shows and still needs an explicit Done/Missed/Rest every day regardless of its schedule.
 
 **Backward compatibility**: these two fields were added after many items already existed. Mongoose schema defaults only apply on document creation, so a `.lean()` read of a pre-existing item can come back with them `undefined` — every server read site that builds an item for the client falls back explicitly (`scheduledDays ?? [0,1,2,3,4,5,6]`, `successThreshold ?? (scheduledDays?.length ?? 7)`) rather than trusting the field is present.
 
 ### `POST /api/routine-items`
-Adds an item to any group (routine or habit — there is no separate habit-item endpoint). Request body: `{ groupId, templateId?, name, icon, projectedMinutes?, itemType?, scheduledDays?, successThreshold? }` — `400` if `groupId`/`name`/`icon` are missing.
+Adds an item to any group (routine or habit — there is no separate habit-item endpoint). Request body: `{ groupId, templateId?, name, icon, projectedMinutes?, itemType?, scheduledDays?, successThreshold?, formFields? }` — `400` if `groupId`/`name`/`icon` are missing.
 
-Behavior: appends at the end of the group (`order` = current max + 1). Forces `projectedMinutes: 0` when `itemType === "checkbox"`, regardless of what was sent; otherwise uses the provided value or defaults to `15`. `scheduledDays` defaults to every day when omitted or empty; `successThreshold` defaults to `scheduledDays.length` and is **clamped** (not rejected) to never exceed it — a request asking for a mathematically impossible threshold is silently capped rather than erroring.
+Behavior: appends at the end of the group (`order` = current max + 1). Forces `projectedMinutes: 0` when `itemType === "checkbox"`, regardless of what was sent; otherwise uses the provided value or defaults to `15`. `scheduledDays` defaults to every day when omitted or empty; `successThreshold` defaults to `scheduledDays.length` and is **clamped** (not rejected) to never exceed it — a request asking for a mathematically impossible threshold is silently capped rather than erroring. `formFields`, if present, is validated shape-first — each entry must have a `key`/`label` string and a `type` of `"number" | "text" | "boolean"`; malformed entries are dropped rather than stored as-is.
 
-Response: `{ _id, name, icon, projectedMinutes, order, scheduledDays, successThreshold }`.
+Response: `{ _id, name, icon, projectedMinutes, order, scheduledDays, successThreshold, formFields }`.
 
 ### `PATCH /api/routine-items/[id]`
-Request body: any subset of `{ name, icon, projectedMinutes, itemType, scheduledDays, successThreshold }` — only these six keys are read and applied via `$set`; anything else in the body is ignored. `404` if not found.
+Request body: any subset of `{ name, icon, projectedMinutes, itemType, scheduledDays, successThreshold, formFields }` — only these seven keys are read and applied via `$set`; anything else in the body is ignored. `404` if not found. `formFields` gets the same shape validation as `POST` above.
 
 If either `scheduledDays` or `successThreshold` is present, the threshold is re-clamped against whichever `scheduledDays` is now in effect (the one just sent, or the item's existing one if only the threshold changed) — same silent-clamp behavior as `POST`. Clamping only ever lowers the threshold to fit a shrunk schedule; it never bumps a deliberately-lowered threshold back up just because `scheduledDays` changed for an unrelated reason (e.g. a day was re-added).
 
@@ -58,19 +60,9 @@ Request body: `{ items: Array<{ _id: string; order: number }> }` — `400` if mi
 
 ## Routine Logs
 
-Collection: `routinelogs`. Schema (`models/RoutineLog.ts`): `userId`, `routineItemId` (ref), `date` (`YYYY-MM-DD`), `actualMinutes?`, `startedAt?: Date` (null while `paused`), `completedAt?: Date`, `pausedSeconds` (default `0`), `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, `note?`, `isBackEntry` (default `false`), `sessionGroupId?: ObjectId | null` (ref `RoutineGroup`, see below), `reviewMetadata?` (see below), plus timestamps. A **unique** compound index on `{ userId, routineItemId, date }` means there is always exactly one log per item per day — every write below is an upsert against that key, never a duplicate insert.
+Collection: `routinelogs`. Schema (`models/RoutineLog.ts`): `userId`, `routineItemId` (ref), `date` (`YYYY-MM-DD`), `actualMinutes?`, `startedAt?: Date` (null while `paused`), `completedAt?: Date`, `pausedSeconds` (default `0`), `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, `note?`, `isBackEntry` (default `false`), `sessionGroupId?: ObjectId | null` (ref `RoutineGroup`, see below), `formData?: Record<string, string | number | boolean> | null` (see below), `tagId?: string | null`, plus timestamps. A **unique** compound index on `{ userId, routineItemId, date }` means there is always exactly one log per item per day — every write below is an upsert against that key, never a duplicate insert.
 
-`reviewMetadata` is set only on the terminal log for a `routine_review` item (see [routine-review.md](../features/routine-review.md)) — every other log leaves it `null`. Shape:
-```ts
-{
-  entryPoint: "sunday_prompt" | "analytics_button" | "notification";
-  groupId: ObjectId;       // which routine group this session actually reviewed
-  changesMade: boolean;
-  itemGoalChanges?: Array<{ routineItemId: ObjectId; oldMinutes: number; newMinutes: number }>;
-  startTimeChange?: { old: string | null; new: string | null };
-  reorder?: { old: ObjectId[]; new: ObjectId[] };
-}
-```
+`formData` is set only on the terminal log for a `form_check` item (see `components/FormCheckScreen.tsx`) — the captured values, keyed by each field's `key` from the item's `formFields`. Every other item type leaves it `null`.
 
 `pausedSeconds` banks elapsed time accumulated in an earlier running segment of the same log — total elapsed while `in_progress` is `pausedSeconds + (now - startedAt)`. It's only meaningful while `in_progress` or `paused`; every write below that transitions a log to a terminal state (`done`/`missed`/`rest`) resets it to `0` after folding it into `actualMinutes`.
 
@@ -80,7 +72,7 @@ Collection: `routinelogs`. Schema (`models/RoutineLog.ts`): `userId`, `routineIt
 Returns all logs for the user on that date (defaults to today, computed **server-side in UTC** via `toISOString()` — not the client's local date).
 
 ### `POST /api/routine-logs`
-Request body: `{ routineItemId, date, state, actualMinutes?, isBackEntry?, sessionGroupId?, sessionNav?, reviewMetadata? }`. `reviewMetadata` (see above) is passed straight into the upsert's `$set` when present — used only by the Routine Review flow's finish/decline write (see [routine-review.md](../features/routine-review.md)), never by any other caller of this route.
+Request body: `{ routineItemId, date, state, actualMinutes?, isBackEntry?, sessionGroupId?, sessionNav? }`.
 
 - **`state: "in_progress"`** — branches on `sessionNav` in `lib/routine-log-actions.ts`:
   - `sessionNav` **not set** (the default — standalone timer, and this route's only mode when called from outside a Routine Session) — delegates to `startInProgressLog(userId, routineItemId, date, sessionGroupId)`. This enforces a **single-active-timer invariant** before writing anything: it queries for any other `RoutineLog` for this user with `state: "in_progress"` and a different `routineItemId` (any date), and for each one found, **auto-completes** it (`state: "done"`, `completedAt: now`, `actualMinutes` derived from its `startedAt` plus any `pausedSeconds` it had banked, minimum 1, `pausedSeconds` reset to `0`, `sessionGroupId` cleared) before proceeding. This is enforced server-side unconditionally — it does not trust the client to have closed out whatever it left running.
@@ -91,12 +83,12 @@ Request body: `{ routineItemId, date, state, actualMinutes?, isBackEntry?, sessi
 Response: the upserted log, serialized. Note the response only reflects the log that was requested — any other log resolved as a side effect (auto-completed or paused) is not included, so callers that need the UI to reflect that resolution (e.g. `RoutinesView.handleStartTimer`, `RoutineSession`'s per-item effect) re-fetch the full day's logs afterward rather than relying on this response alone.
 
 ### `PATCH /api/routine-logs`
-Request body: `{ routineItemId, date, state: "done" | "missed", actualMinutes?, startedAt?, completedAt? }`.
+Request body: `{ routineItemId, date, state: "done" | "missed", actualMinutes?, startedAt?, completedAt?, formData? }`.
 
 Every branch also sets `sessionGroupId: null` and `pausedSeconds: 0` — once a log reaches a terminal state it's no longer session-anchored or resumable, regardless of which branch below handled it.
 
-- If the client supplies **both** `startedAt` and `completedAt` (the manual time-entry path in `RoutineItemRow`) — those are trusted directly, and `actualMinutes` is computed from their difference.
-- Else if `state === "done"` (the normal timer-completion path) — `completedAt` is set to now, and `actualMinutes` is derived from **the existing log's server-recorded `startedAt`, plus any `pausedSeconds` it had banked** — not the client-sent value. The client's `actualMinutes` is only used as a fallback if the existing log has no `startedAt` and no banked `pausedSeconds` at all.
+- If the client supplies **both** `startedAt` and `completedAt` (the manual time-entry path in `RoutineItemRow`/`HabitItemCard`) — those are trusted directly, `actualMinutes` is computed from their difference, and `formData` (if the item being back-logged is a `form_check`) is stored alongside.
+- Else if `state === "done"` (the normal timer-completion path) — `completedAt` is set to now, and `actualMinutes` is derived from **the existing log's server-recorded `startedAt`, plus any `pausedSeconds` it had banked** — not the client-sent value. The client's `actualMinutes` is only used as a fallback if the existing log has no `startedAt` and no banked `pausedSeconds` at all. `formData` is stored as sent — no validation against the item's `formFields` shape.
 - `state === "missed"` with no time overrides — only `state` (and `sessionGroupId`/`pausedSeconds`) is updated.
 - Also an upsert (`upsert: true`) — a PATCH against a log that doesn't exist yet will create one.
 
@@ -122,27 +114,10 @@ This is a session-scoped wrapper around a routine *as a whole* — real start/fi
 - **`incrementSessionPauseOrJump(userId, groupId, date)`** — `$inc`s `pauseOrJumpCount` on the open session. Called by `switchActiveLog` (only when it actually paused another item — the very first item of a session has nothing to switch away from, so that opening move doesn't count), and by [`external-api.md`](external-api.md)'s `trigger-habit` Case 3 (a different item was active when the tapped one fired, so the previously-active item gets completed out from under its session rather than deliberately finished by the user). Both represent the same thing: attention moved to a different item without the one that was running getting marked done.
 - **`findNextItemInGroup(userId, groupId, date)`** — first item (by group `order`) with no log at all for that date; used by `trigger-habit`'s Case 2 auto-advance, not directly by session bookkeeping, but lives alongside it since it shares the same underlying group/date/logs fetch as `isGroupFullyResolved`.
 
-One known gap, inherent to the creation rule above rather than a bug: a routine group whose very first *tapped* item (via `trigger-habit`) is a checkbox/`virtue_checkin`/`weekly_review` item never creates a session for that tap, since those items complete immediately via `startImmediateLog` without ever passing through the `in_progress` step that `ensureOpenSession` hooks into. If a later item in the same group starts a real timer, a session opens then (anchored slightly after the routine's true start) but that first checkbox completion is never retroactively added to its `completionSequence`. Flagging rather than fixing, since it only matters once this data feeds analytics (out of scope for now — see below).
+One known gap, inherent to the creation rule above rather than a bug: a routine group whose very first *tapped* item (via `trigger-habit`) is a checkbox item never creates a session for that tap, since those items complete immediately via `startImmediateLog` without ever passing through the `in_progress` step that `ensureOpenSession` hooks into. If a later item in the same group starts a real timer, a session opens then (anchored slightly after the routine's true start) but that first checkbox completion is never retroactively added to its `completionSequence`. Flagging rather than fixing, since it only matters once this data feeds analytics (out of scope for now — see below).
 
 **Not yet exposed anywhere** — no `GET /api/routine-sessions`, and no UI reads these records. This story only lays the data foundation; surfacing `completionSequence`/`pauseOrJumpCount`/real start-to-finish duration in analytics (e.g. "you keep starting fifteen minutes late") is future work.
 
-## Routine Review
-
-### `GET /api/routine-review?groupId=X&localDate=YYYY-MM-DD`
-Backs the Routine Review flow's timeline/goal-editing screens (see [routine-review.md](../features/routine-review.md)) — a sibling to `GET /api/analytics`, not a parameter on it. Scoped to one group and a fixed 28-day trailing window (not the 7/30-day windows `/api/analytics` offers), long enough for a rolling average to be stable without outlier rejection or a trimmed mean.
-
-Only "timeable" items are included — `checkbox`, `virtue_checkin`, `weekly_review`, and `routine_review` items are filtered out, since none of them carry a real time goal to review.
-
-Response:
-```ts
-{
-  group: { _id, name, startTime: string | null };
-  items: Array<{ _id, name, icon, order, projectedMinutes, avgActualMins: number | null }>; // null = no done logs in the window yet
-  avgStartMinutesUtc: number | null; // earliest startedAt per day, averaged, same math as /api/analytics's groupAvgStart — null if no startedAt in the window
-  startTimeSampleSize: number;
-}
-```
-
 ## Consumed by
 
-[`features/routines.md`](../features/routines.md), [`features/habits.md`](../features/habits.md), [`features/timer.md`](../features/timer.md), [`features/analytics.md`](../features/analytics.md) (`RoutineLog` states and the `RoutineItem` schedule/threshold fields it aggregates over), [`features/routine-review.md`](../features/routine-review.md) (the `routine_review` item type, `reviewMetadata`, and `GET /api/routine-review`).
+[`features/routines.md`](../features/routines.md), [`features/habits.md`](../features/habits.md), [`features/timer.md`](../features/timer.md), [`features/analytics.md`](../features/analytics.md) (`RoutineLog` states and the `RoutineItem` schedule/threshold fields it aggregates over).

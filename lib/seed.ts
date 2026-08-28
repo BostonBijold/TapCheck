@@ -3,193 +3,159 @@ import RoutineItem from "@/models/RoutineItem";
 import HabitTemplate from "@/models/HabitTemplate";
 import {
   ensureSystemTemplates,
-  DEFAULT_MORNING_NAMES,
-  DEFAULT_EVENING_NAMES,
+  DEFAULT_OPENING_NAMES,
+  DEFAULT_MIDSHIFT_NAMES,
+  DEFAULT_CLOSING_NAMES,
 } from "@/lib/seed-templates";
 
-export async function seedDefaultRoutines(userId: string) {
+export async function seedDefaultRoutines(companyId: string) {
   // Ensure the catalog exists before referencing it
   await ensureSystemTemplates();
 
-  const morning = await RoutineGroup.create({
-    userId,
-    name: "Morning Routine",
+  const opening = await RoutineGroup.create({
+    companyId,
+    name: "Opening Shift",
     timeOfDay: "morning",
-    startTime: "06:00",
+    startTime: "08:00",
     order: 0,
     isDefault: true,
   });
 
-  // Afternoon is seeded empty — user builds it out over time
-  await RoutineGroup.create({
-    userId,
-    name: "Afternoon Routine",
+  const midShift = await RoutineGroup.create({
+    companyId,
+    name: "Mid-Shift",
     timeOfDay: "custom",
-    startTime: "12:00",
+    startTime: "13:00",
     order: 1,
     isDefault: true,
   });
 
-  const evening = await RoutineGroup.create({
-    userId,
-    name: "Evening Routine",
+  const closing = await RoutineGroup.create({
+    companyId,
+    name: "Closing Shift",
     timeOfDay: "evening",
-    startTime: "18:00",
+    startTime: "21:00",
     order: 2,
     isDefault: true,
   });
 
   // Pull templates from DB by name so order + IDs are correct
-  const morningTemplates = await HabitTemplate.find({
-    name: { $in: DEFAULT_MORNING_NAMES },
-    isSystem: true,
-  }).lean();
-
-  const eveningTemplates = await HabitTemplate.find({
-    name: { $in: DEFAULT_EVENING_NAMES },
-    isSystem: true,
-  }).lean();
+  const [openingTemplates, midShiftTemplates, closingTemplates] = await Promise.all([
+    HabitTemplate.find({ name: { $in: DEFAULT_OPENING_NAMES }, isSystem: true }).lean(),
+    HabitTemplate.find({ name: { $in: DEFAULT_MIDSHIFT_NAMES }, isSystem: true }).lean(),
+    HabitTemplate.find({ name: { $in: DEFAULT_CLOSING_NAMES }, isSystem: true }).lean(),
+  ]);
 
   // Preserve the canonical order defined in DEFAULT_*_NAMES
-  const sortByDefault = (templates: typeof morningTemplates, names: readonly string[]) =>
+  const sortByDefault = (templates: typeof openingTemplates, names: readonly string[]) =>
     [...templates].sort((a, b) => names.indexOf(a.name) - names.indexOf(b.name));
 
-  await RoutineItem.insertMany(
-    sortByDefault(morningTemplates, DEFAULT_MORNING_NAMES).map((t, i) => ({
-      userId,
-      groupId: morning._id,
-      templateId: t._id,
-      name: t.name,
-      icon: t.icon,
-      projectedMinutes: t.defaultProjectedMinutes,
-      order: i,
-      isActive: true,
-      linkedGoalId: null,
-    }))
-  );
+  const insertForGroup = (
+    groupId: typeof opening._id,
+    templates: typeof openingTemplates,
+    names: readonly string[]
+  ) =>
+    RoutineItem.insertMany(
+      sortByDefault(templates, names).map((t, i) => ({
+        companyId,
+        groupId,
+        templateId: t._id,
+        name: t.name,
+        icon: t.icon,
+        itemType: "form_check",
+        projectedMinutes: t.defaultProjectedMinutes,
+        formFields: t.formFields ?? [],
+        order: i,
+        isActive: true,
+      }))
+    );
 
-  await RoutineItem.insertMany(
-    sortByDefault(eveningTemplates, DEFAULT_EVENING_NAMES).map((t, i) => ({
-      userId,
-      groupId: evening._id,
-      templateId: t._id,
-      name: t.name,
-      icon: t.icon,
-      projectedMinutes: t.defaultProjectedMinutes,
-      order: i,
-      isActive: true,
-      linkedGoalId: null,
-    }))
-  );
+  await Promise.all([
+    insertForGroup(opening._id, openingTemplates, DEFAULT_OPENING_NAMES),
+    insertForGroup(midShift._id, midShiftTemplates, DEFAULT_MIDSHIFT_NAMES),
+    insertForGroup(closing._id, closingTemplates, DEFAULT_CLOSING_NAMES),
+  ]);
 }
 
-// Idempotent — creates a standalone Habits group (timeOfDay: 'habit') if none exists.
-export async function ensureHabitsGroup(userId: string) {
-  const existing = await RoutineGroup.findOne({ userId, timeOfDay: "habit" });
+// Idempotent — creates a standalone "Facility Checks" group (timeOfDay:
+// 'habit' — same standalone-group mechanics as any user-created habit group,
+// just seeded with example form_check items) if none exists. These are
+// anytime/recurring checks (fridge/freezer temps, restroom checklists) that
+// don't belong to a single shift window.
+export async function ensureHabitsGroup(companyId: string) {
+  const existing = await RoutineGroup.findOne({ companyId, timeOfDay: "habit" });
   if (existing) return;
 
-  const topGroup = await RoutineGroup.findOne({ userId }).sort({ order: -1 }).lean();
+  const topGroup = await RoutineGroup.findOne({ companyId }).sort({ order: -1 }).lean();
   const nextOrder = topGroup ? topGroup.order + 1 : 10;
 
-  await RoutineGroup.create({
-    userId,
-    name: "Habits",
+  const group = await RoutineGroup.create({
+    companyId,
+    name: "Facility Checks",
     timeOfDay: "habit",
     startTime: null,
     order: nextOrder,
     isDefault: false,
   });
-}
-
-// Idempotent — adds Virtue Check-in + Weekly Review items to evening routine.
-export async function ensureVirtueCheckInItems(userId: string) {
-  const alreadyDone = await RoutineItem.findOne({ userId, itemType: { $in: ["virtue_checkin", "weekly_review"] } }).lean();
-  if (alreadyDone) return;
-
-  const eveningGroup = await RoutineGroup.findOne({ userId, timeOfDay: "evening" }).lean();
-  if (!eveningGroup) return;
-
-  const lastItem = await RoutineItem.findOne({ groupId: eveningGroup._id, userId })
-    .sort({ order: -1 }).lean();
-  const nextOrder = lastItem ? lastItem.order + 1 : 0;
 
   await RoutineItem.insertMany([
     {
-      userId,
-      groupId: eveningGroup._id,
+      companyId,
+      groupId: group._id,
       templateId: null,
-      name: "Virtue Check-in",
-      icon: "compass",
-      projectedMinutes: 5,
-      order: nextOrder,
+      name: "Fridge",
+      icon: "🧊",
+      itemType: "form_check",
+      projectedMinutes: 2,
+      order: 0,
       isActive: true,
-      itemType: "virtue_checkin",
-      linkedGoalId: null,
+      formFields: [
+        { key: "temperature", label: "Fridge temperature", type: "number", unit: "°F", min: 33, max: 40 },
+      ],
     },
     {
-      userId,
-      groupId: eveningGroup._id,
+      companyId,
+      groupId: group._id,
       templateId: null,
-      name: "Weekly Review",
-      icon: "shield",
-      projectedMinutes: 10,
-      order: nextOrder + 1,
+      name: "Freezer",
+      icon: "❄️",
+      itemType: "form_check",
+      projectedMinutes: 2,
+      order: 1,
       isActive: true,
-      itemType: "weekly_review",
-      linkedGoalId: null,
+      formFields: [
+        { key: "temperature", label: "Freezer temperature", type: "number", unit: "°F", max: 0 },
+      ],
+    },
+    {
+      companyId,
+      groupId: group._id,
+      templateId: null,
+      name: "Men's Room",
+      icon: "🚹",
+      itemType: "form_check",
+      projectedMinutes: 3,
+      order: 2,
+      isActive: true,
+      formFields: [
+        { key: "clean", label: "Clean", type: "boolean" },
+        { key: "stocked", label: "Stocked (soap, paper towels, TP)", type: "boolean" },
+      ],
+    },
+    {
+      companyId,
+      groupId: group._id,
+      templateId: null,
+      name: "Women's Room",
+      icon: "🚺",
+      itemType: "form_check",
+      projectedMinutes: 3,
+      order: 3,
+      isActive: true,
+      formFields: [
+        { key: "clean", label: "Clean", type: "boolean" },
+        { key: "stocked", label: "Stocked (soap, paper towels, TP)", type: "boolean" },
+      ],
     },
   ]);
-}
-
-// Idempotent — adds the Routine Review item to the evening routine. Kept
-// separate from ensureVirtueCheckInItems (rather than folded into it) since
-// this item type shipped later and the two are independently toggleable.
-export async function ensureRoutineReviewItem(userId: string) {
-  const alreadyDone = await RoutineItem.findOne({ userId, itemType: "routine_review" }).lean();
-  if (alreadyDone) return;
-
-  const eveningGroup = await RoutineGroup.findOne({ userId, timeOfDay: "evening" }).lean();
-  if (!eveningGroup) return;
-
-  const lastItem = await RoutineItem.findOne({ groupId: eveningGroup._id, userId })
-    .sort({ order: -1 }).lean();
-  const nextOrder = lastItem ? lastItem.order + 1 : 0;
-
-  await RoutineItem.create({
-    userId,
-    groupId: eveningGroup._id,
-    templateId: null,
-    name: "Routine Review",
-    icon: "list-checks",
-    projectedMinutes: 10,
-    order: nextOrder,
-    isActive: true,
-    itemType: "routine_review",
-    linkedGoalId: null,
-  });
-}
-
-// Idempotent — adds Afternoon Routine for users seeded before it existed.
-// Slots it between morning (order 0) and evening, shifting evening up if needed.
-export async function ensureAfternoonGroup(userId: string) {
-  const existing = await RoutineGroup.findOne({ userId, name: "Afternoon Routine" });
-  if (existing) return;
-
-  const evening = await RoutineGroup.findOne({ userId, timeOfDay: "evening" });
-  const afternoonOrder = evening ? evening.order : 1;
-
-  // Shift evening (and anything else at or above that order) up by 1
-  await RoutineGroup.updateMany(
-    { userId, order: { $gte: afternoonOrder } },
-    { $inc: { order: 1 } }
-  );
-
-  await RoutineGroup.create({
-    userId,
-    name: "Afternoon Routine",
-    timeOfDay: "custom",
-    startTime: "12:00",
-    order: afternoonOrder,
-    isDefault: true,
-  });
 }

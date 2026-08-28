@@ -1,13 +1,12 @@
 import { Schema, Document, model, models } from "mongoose";
+import { FormFieldDefSchema, type FormFieldDef } from "@/models/RoutineItem";
 
 export type HabitCategory =
-  | "hygiene"
-  | "fitness"
-  | "nutrition"
-  | "mindfulness"
-  | "reading"
-  | "family"
-  | "productivity"
+  | "food_safety"
+  | "cleaning"
+  | "cash_handling"
+  | "equipment"
+  | "opening_closing"
   | "custom";
 
 export interface IHabitTemplate extends Document {
@@ -18,8 +17,9 @@ export interface IHabitTemplate extends Document {
   timeOfDay: "morning" | "evening" | "any";
   description?: string;
   isSystem: boolean;       // true = admin-seeded, visible to all
-  createdBy: string | null; // userId for user-created, null for system
+  companyId: string | null; // owning company for a company-created template, null for system
   isActive: boolean;
+  formFields: FormFieldDef[]; // carried onto the RoutineItem created from this template
 }
 
 const HabitTemplateSchema = new Schema<IHabitTemplate>(
@@ -29,14 +29,15 @@ const HabitTemplateSchema = new Schema<IHabitTemplate>(
     defaultProjectedMinutes: { type: Number, default: 15 },
     category: {
       type: String,
-      enum: ["hygiene", "fitness", "nutrition", "mindfulness", "reading", "family", "productivity", "custom"],
+      enum: ["food_safety", "cleaning", "cash_handling", "equipment", "opening_closing", "custom"],
       required: true,
     },
     timeOfDay: { type: String, enum: ["morning", "evening", "any"], default: "any" },
     description: { type: String, default: null },
     isSystem: { type: Boolean, default: false },
-    createdBy: { type: String, default: null, index: true },
+    companyId: { type: String, default: null, index: true },
     isActive: { type: Boolean, default: true },
+    formFields: { type: [FormFieldDefSchema], default: [] },
   },
   { timestamps: true }
 );

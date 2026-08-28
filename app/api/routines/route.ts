@@ -1,26 +1,26 @@
 import { NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const session = await auth();
-  if (!session?.user?.id) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   await connectDB();
 
-  const groups = await RoutineGroup.find({ userId: session.user.id }).sort({ order: 1 }).lean();
+  const groups = await RoutineGroup.find({ companyId }).sort({ order: 1 }).lean();
 
   const groupsWithItems = await Promise.all(
     groups.map(async (group) => {
       const items = await RoutineItem.find({
         groupId: group._id,
-        userId: session.user.id,
+        companyId,
         isActive: true,
       })
         .sort({ order: 1 })
@@ -29,7 +29,7 @@ export async function GET() {
       return {
         _id: group._id.toString(),
         name: group.name,
-        type: group.type,
+        timeOfDay: group.timeOfDay,
         order: group.order,
         items: items.map((item) => ({
           _id: item._id.toString(),

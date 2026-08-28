@@ -24,6 +24,8 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import HabitIcon, { IconPicker } from "@/components/HabitIcon";
 import AddHabitSheet from "@/components/AddHabitSheet";
+import CheckFieldsEditor from "@/components/CheckFieldsEditor";
+import type { ItemType, FormFieldDef } from "@/models/RoutineItem";
 
 export interface EditItem {
   _id: string;
@@ -31,7 +33,8 @@ export interface EditItem {
   icon: string;
   projectedMinutes: number;
   order: number;
-  itemType: "standard" | "stopwatch" | "checkbox";
+  itemType: ItemType;
+  formFields: FormFieldDef[];
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
   appIntentLastTriggeredAt: string | null; // last time a Siri/Shortcuts App Intent triggered this item, if ever
@@ -60,7 +63,7 @@ function SortableRow({
     name: string,
     icon: string,
     projectedMinutes: number,
-    itemType: "standard" | "stopwatch" | "checkbox",
+    formFields: FormFieldDef[],
     scheduledDays: number[],
     successThreshold: number
   ) => Promise<void>;
@@ -79,7 +82,7 @@ function SortableRow({
   const [editName, setEditName] = useState(item.name);
   const [editIcon, setEditIcon] = useState(item.icon);
   const [editMins, setEditMins] = useState(String(item.projectedMinutes));
-  const [editType, setEditType] = useState<"standard" | "stopwatch" | "checkbox">(item.itemType);
+  const [editFields, setEditFields] = useState<FormFieldDef[]>(item.formFields);
   const [editScheduledDays, setEditScheduledDays] = useState<number[]>(item.scheduledDays);
   const [editThreshold, setEditThreshold] = useState(item.successThreshold);
   const [saving, setSaving] = useState(false);
@@ -94,8 +97,8 @@ function SortableRow({
 
   const handleSave = async () => {
     setSaving(true);
-    const mins = editType === "standard" ? (parseInt(editMins) || item.projectedMinutes) : 0;
-    await onSave(editName.trim() || item.name, editIcon || item.icon, mins, editType, editScheduledDays, editThreshold);
+    const mins = parseInt(editMins) || item.projectedMinutes;
+    await onSave(editName.trim() || item.name, editIcon || item.icon, mins, editFields, editScheduledDays, editThreshold);
     setSaving(false);
   };
 
@@ -119,7 +122,7 @@ function SortableRow({
         <span className="flex-1 font-body text-sm text-text truncate">{item.name}</span>
 
         <span className="font-mono text-dim text-xs flex-shrink-0 mr-2">
-          {item.itemType === "checkbox" ? "✓" : `${item.projectedMinutes}m`}
+          {item.formFields.length} field{item.formFields.length === 1 ? "" : "s"}
         </span>
 
         <button
@@ -142,41 +145,6 @@ function SortableRow({
       {/* Inline edit form */}
       {isEditing && (
         <div className="px-4 pb-4 pt-1 border-t border-border space-y-3">
-          {/* Type toggle */}
-          <div>
-            <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
-              Type
-            </label>
-            <div className="flex bg-bg border border-border rounded-card p-0.5">
-              <button
-                type="button"
-                onClick={() => setEditType("standard")}
-                className={`flex-1 py-1.5 rounded-card font-mono text-xs transition-colors ${
-                  editType === "standard" ? "bg-olive text-text" : "text-dim"
-                }`}
-              >
-                ▶ Countdown
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditType("stopwatch")}
-                className={`flex-1 py-1.5 rounded-card font-mono text-xs transition-colors ${
-                  editType === "stopwatch" ? "bg-olive text-text" : "text-dim"
-                }`}
-              >
-                ⏱ Stopwatch
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditType("checkbox")}
-                className={`flex-1 py-1.5 rounded-card font-mono text-xs transition-colors ${
-                  editType === "checkbox" ? "bg-olive text-text" : "text-dim"
-                }`}
-              >
-                ✓ Checkbox
-              </button>
-            </div>
-          </div>
           {/* Name + Minutes */}
           <div className="flex gap-3">
             <div className="flex-1">
@@ -190,20 +158,18 @@ function SortableRow({
                 className="w-full bg-bg border border-border rounded-card px-3 py-2 font-body text-sm text-text outline-none focus:border-olive"
               />
             </div>
-            {editType === "standard" && (
-              <div className="flex-shrink-0 w-20">
-                <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
-                  Minutes
-                </label>
-                <input
-                  type="number"
-                  value={editMins}
-                  onChange={(e) => setEditMins(e.target.value)}
-                  min={1}
-                  className="w-full bg-bg border border-border rounded-card px-3 py-2 font-mono text-sm text-text outline-none focus:border-olive"
-                />
-              </div>
-            )}
+            <div className="flex-shrink-0 w-20">
+              <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
+                Est. min
+              </label>
+              <input
+                type="number"
+                value={editMins}
+                onChange={(e) => setEditMins(e.target.value)}
+                min={1}
+                className="w-full bg-bg border border-border rounded-card px-3 py-2 font-mono text-sm text-text outline-none focus:border-olive"
+              />
+            </div>
           </div>
           {/* Icon picker */}
           <div>
@@ -212,6 +178,8 @@ function SortableRow({
             </label>
             <IconPicker selected={editIcon} onSelect={setEditIcon} />
           </div>
+          {/* Fields */}
+          <CheckFieldsEditor fields={editFields} onChange={setEditFields} />
           {/* Schedule */}
           <div>
             <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-1.5">
@@ -257,7 +225,7 @@ function SortableRow({
           </div>
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || editFields.length === 0}
             className="flex items-center gap-1.5 bg-olive/15 border border-olive/30 text-olive font-mono text-xs px-4 py-2 rounded-pill disabled:opacity-50"
           >
             <Check size={12} />
@@ -347,18 +315,18 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     name: string,
     icon: string,
     projectedMinutes: number,
-    itemType: "standard" | "stopwatch" | "checkbox",
+    formFields: FormFieldDef[],
     scheduledDays: number[],
     successThreshold: number
   ) => {
     setItems((prev) =>
-      prev.map((it) => (it._id === id ? { ...it, name, icon, projectedMinutes, itemType, scheduledDays, successThreshold } : it))
+      prev.map((it) => (it._id === id ? { ...it, name, icon, projectedMinutes, formFields, scheduledDays, successThreshold } : it))
     );
     setEditingId(null);
     await fetch(`/api/routine-items/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, icon, projectedMinutes, itemType, scheduledDays, successThreshold }),
+      body: JSON.stringify({ name, icon, projectedMinutes, formFields, scheduledDays, successThreshold }),
     });
     router.refresh(); // invalidate routines page cache
   };
@@ -374,14 +342,15 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     name: string,
     icon: string,
     projectedMinutes: number,
-    itemType: "standard" | "stopwatch" | "checkbox" = "standard",
+    itemType: "form_check",
     scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
-    successThreshold: number = 7
+    successThreshold: number = 7,
+    formFields: FormFieldDef[] = []
   ) => {
     const res = await fetch("/api/routine-items", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ groupId: group._id, templateId, name, icon, projectedMinutes, itemType, scheduledDays, successThreshold }),
+      body: JSON.stringify({ groupId: group._id, templateId, name, icon, projectedMinutes, itemType, scheduledDays, successThreshold, formFields }),
     });
     const newItem = await res.json();
     // Push directly into local state — don't wait for a server round-trip
@@ -392,7 +361,8 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
         name: newItem.name,
         icon: newItem.icon,
         projectedMinutes: newItem.projectedMinutes,
-        itemType: (newItem.itemType ?? "standard") as "standard" | "stopwatch" | "checkbox",
+        itemType: (newItem.itemType ?? "form_check") as ItemType,
+        formFields: newItem.formFields ?? formFields,
         order: prev.length,
         scheduledDays: newItem.scheduledDays ?? scheduledDays,
         successThreshold: newItem.successThreshold ?? successThreshold,
@@ -403,7 +373,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
     router.refresh(); // invalidate routines page cache for when user navigates back
   };
 
-  const totalMins = items.filter((i) => i.itemType !== "checkbox").reduce((s, i) => s + i.projectedMinutes, 0);
+  const totalMins = items.reduce((s, i) => s + i.projectedMinutes, 0);
   const fmtTotal = totalMins < 60
     ? `${totalMins}m`
     : `${Math.floor(totalMins / 60)}h ${totalMins % 60 > 0 ? `${totalMins % 60}m` : ""}`.trim();
@@ -417,11 +387,11 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
             href="/routines"
             className="font-mono text-dim text-sm flex items-center gap-1 min-h-[44px] pr-2"
           >
-            ← Routines
+            ← Checks
           </Link>
           <div className="flex-1 text-center">
             <h1 className="font-heading text-lg text-text">{group.name}</h1>
-            <p className="font-mono text-dim text-xs">{items.length} habits · {fmtTotal}</p>
+            <p className="font-mono text-dim text-xs">{items.length} checks · {fmtTotal}</p>
           </div>
           <div className="w-20" /> {/* balance the back link */}
         </header>
@@ -444,7 +414,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
           </div>
           {startTime && (
             <p className="font-mono text-[10px] text-dim mb-3">
-              Opens at {startTime} · closes after all habits are done
+              Opens at {startTime} · closes after all checks are done
             </p>
           )}
           {scheduleChanged && (
@@ -490,7 +460,7 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
                     onToggleEdit={() =>
                       setEditingId((prev) => (prev === item._id ? null : item._id))
                     }
-                    onSave={(name, icon, mins, type, days, threshold) => handleSaveItem(item._id, name, icon, mins, type, days, threshold)}
+                    onSave={(name, icon, mins, fields, days, threshold) => handleSaveItem(item._id, name, icon, mins, fields, days, threshold)}
                     onRemove={() => handleRemove(item._id)}
                   />
                 ))}
@@ -500,16 +470,16 @@ export default function RoutineEditView({ group, items: initialItems }: Props) {
 
           {items.length === 0 && (
             <div className="text-center py-10">
-              <p className="text-dim font-mono text-xs">No habits yet. Add one below.</p>
+              <p className="text-dim font-mono text-xs">No checks yet. Add one below.</p>
             </div>
           )}
 
-          {/* Add habit */}
+          {/* Add check */}
           <button
             onClick={() => setShowAddSheet(true)}
             className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-4 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
           >
-            + Add habit to {group.name}
+            + Add check to {group.name}
           </button>
         </div>
       </div>

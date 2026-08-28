@@ -1,78 +1,202 @@
 import HabitTemplate from "@/models/HabitTemplate";
+import type { FormFieldDef } from "@/models/RoutineItem";
 
-const SYSTEM_TEMPLATES = [
-  // ── Morning ──────────────────────────────────────────────────────────────
-  { name: "Morning Shower",                   icon: "droplets",   defaultProjectedMinutes: 10, category: "hygiene",      timeOfDay: "morning" },
-  { name: "Get Dressed",                       icon: "shirt",      defaultProjectedMinutes: 10, category: "hygiene",      timeOfDay: "morning" },
-  { name: "Cook Breakfast",                    icon: "flame",      defaultProjectedMinutes: 20, category: "nutrition",    timeOfDay: "morning" },
-  { name: "Eat Breakfast",                     icon: "utensils",   defaultProjectedMinutes: 20, category: "nutrition",    timeOfDay: "morning" },
-  { name: "Morning Workout",                   icon: "dumbbell",   defaultProjectedMinutes: 45, category: "fitness",      timeOfDay: "morning" },
-  { name: "Meditate",                          icon: "wind",       defaultProjectedMinutes: 10, category: "mindfulness",  timeOfDay: "morning" },
-  { name: "Read Scriptures / Morning Reading", icon: "book-open",  defaultProjectedMinutes: 15, category: "reading",      timeOfDay: "morning" },
-  { name: "Cold Shower",                       icon: "zap",        defaultProjectedMinutes: 5,  category: "hygiene",      timeOfDay: "morning" },
-  { name: "Morning Walk",                      icon: "sun",        defaultProjectedMinutes: 20, category: "fitness",      timeOfDay: "morning" },
-  { name: "Gratitude Journal",                 icon: "star",       defaultProjectedMinutes: 10, category: "mindfulness",  timeOfDay: "morning" },
-  { name: "Review Day's Plan",                 icon: "list-checks",defaultProjectedMinutes: 10, category: "productivity", timeOfDay: "morning" },
-  { name: "Vitamins / Supplements",            icon: "pill",       defaultProjectedMinutes: 2,  category: "hygiene",      timeOfDay: "morning" },
+interface SystemTemplate {
+  name: string;
+  icon: string;
+  defaultProjectedMinutes: number;
+  category: string;
+  timeOfDay: "morning" | "evening" | "any";
+  formFields: FormFieldDef[];
+}
 
-  // ── Evening ───────────────────────────────────────────────────────────────
-  { name: "Evening Workout",                   icon: "dumbbell",   defaultProjectedMinutes: 45, category: "fitness",      timeOfDay: "evening" },
-  { name: "Cook Dinner",                       icon: "flame",      defaultProjectedMinutes: 30, category: "nutrition",    timeOfDay: "evening" },
-  { name: "Eat Dinner",                        icon: "utensils",   defaultProjectedMinutes: 30, category: "nutrition",    timeOfDay: "evening" },
-  { name: "Family Time",                       icon: "users",      defaultProjectedMinutes: 60, category: "family",       timeOfDay: "evening" },
-  { name: "Evening Walk",                      icon: "footprints", defaultProjectedMinutes: 20, category: "fitness",      timeOfDay: "evening" },
-  { name: "Wind Down / Stretch",               icon: "wind",       defaultProjectedMinutes: 15, category: "fitness",      timeOfDay: "evening" },
-  { name: "Read",                              icon: "book-open",  defaultProjectedMinutes: 20, category: "reading",      timeOfDay: "evening" },
-  { name: "Journal",                           icon: "pen-line",   defaultProjectedMinutes: 15, category: "mindfulness",  timeOfDay: "evening" },
-  { name: "Brush Teeth / Hygiene",             icon: "sparkles",   defaultProjectedMinutes: 10, category: "hygiene",      timeOfDay: "evening" },
-  { name: "Review the Day",                    icon: "moon",       defaultProjectedMinutes: 10, category: "productivity", timeOfDay: "evening" },
-  { name: "Prepare Tomorrow",                  icon: "list-checks",defaultProjectedMinutes: 10, category: "productivity", timeOfDay: "evening" },
-  { name: "Evening Prayer / Reflection",       icon: "cross",      defaultProjectedMinutes: 10, category: "mindfulness",  timeOfDay: "evening" },
+const bool = (key: string, label: string): FormFieldDef => ({ key, label, type: "boolean" });
+const num = (key: string, label: string, extra: Partial<FormFieldDef> = {}): FormFieldDef => ({
+  key,
+  label,
+  type: "number",
+  ...extra,
+});
 
-  // ── Any time ──────────────────────────────────────────────────────────────
-  { name: "Drink Water",                       icon: "droplets",   defaultProjectedMinutes: 2,  category: "nutrition",    timeOfDay: "any" },
-  { name: "Run",                               icon: "activity",   defaultProjectedMinutes: 30, category: "fitness",      timeOfDay: "any" },
-  { name: "Pray",                              icon: "cross",      defaultProjectedMinutes: 10, category: "mindfulness",  timeOfDay: "any" },
-  { name: "Call Family / Friend",              icon: "phone",      defaultProjectedMinutes: 15, category: "family",       timeOfDay: "any" },
-  { name: "Read Non-Fiction",                  icon: "book-open",  defaultProjectedMinutes: 20, category: "reading",      timeOfDay: "any" },
-  { name: "Practice Skill",                    icon: "target",     defaultProjectedMinutes: 30, category: "productivity", timeOfDay: "any" },
-] as const;
+const SYSTEM_TEMPLATES: SystemTemplate[] = [
+  // ── Opening ──────────────────────────────────────────────────────────────
+  {
+    name: "Walk-in Fridge Temp", icon: "🧊", defaultProjectedMinutes: 2,
+    category: "food_safety", timeOfDay: "morning",
+    formFields: [num("temperature", "Fridge temperature", { unit: "°F", min: 33, max: 40 })],
+  },
+  {
+    name: "Walk-in Freezer Temp", icon: "❄️", defaultProjectedMinutes: 2,
+    category: "food_safety", timeOfDay: "morning",
+    formFields: [num("temperature", "Freezer temperature", { unit: "°F", max: 0 })],
+  },
+  {
+    name: "Handwashing Stations Stocked", icon: "🧼", defaultProjectedMinutes: 3,
+    category: "cleaning", timeOfDay: "morning",
+    formFields: [
+      bool("soap", "Soap stocked"),
+      bool("paper_towels", "Paper towels stocked"),
+      bool("sanitizer", "Hand sanitizer available"),
+    ],
+  },
+  {
+    name: "Floors & Surfaces Clean", icon: "🧹", defaultProjectedMinutes: 5,
+    category: "cleaning", timeOfDay: "morning",
+    formFields: [bool("clean", "Floors and surfaces clean")],
+  },
+  {
+    name: "Opening Cash Count", icon: "💵", defaultProjectedMinutes: 5,
+    category: "cash_handling", timeOfDay: "morning",
+    formFields: [num("starting_cash", "Starting cash amount", { unit: "$" })],
+  },
+  {
+    name: "Staff Uniform & Hygiene", icon: "👕", defaultProjectedMinutes: 3,
+    category: "cleaning", timeOfDay: "morning",
+    formFields: [
+      bool("uniform_ok", "Uniforms clean and worn correctly"),
+      bool("hygiene_ok", "Hair restraints / hand hygiene followed"),
+    ],
+  },
+  {
+    name: "Opening Walkthrough", icon: "📋", defaultProjectedMinutes: 5,
+    category: "opening_closing", timeOfDay: "morning",
+    formFields: [
+      bool("lights", "Lights on"),
+      bool("signage", "Signage / A-frame out"),
+      bool("music", "Music / ambiance on"),
+    ],
+  },
 
-export const DEFAULT_MORNING_NAMES = [
-  "Morning Shower",
-  "Get Dressed",
-  "Cook Breakfast",
-  "Eat Breakfast",
-  "Morning Workout",
-  "Meditate",
-  "Read Scriptures / Morning Reading",
+  // ── Mid-shift ────────────────────────────────────────────────────────────
+  {
+    name: "Line Temp Check", icon: "🌡️", defaultProjectedMinutes: 3,
+    category: "food_safety", timeOfDay: "any",
+    formFields: [num("temperature", "Hot-holding line temperature", { unit: "°F", min: 135 })],
+  },
+  {
+    name: "Restock Check", icon: "📦", defaultProjectedMinutes: 5,
+    category: "opening_closing", timeOfDay: "any",
+    formFields: [bool("restocked", "Line and supplies restocked")],
+  },
+  {
+    name: "Restroom Check", icon: "🚻", defaultProjectedMinutes: 3,
+    category: "cleaning", timeOfDay: "any",
+    formFields: [bool("clean", "Clean"), bool("stocked", "Stocked (soap, paper towels, TP)")],
+  },
+  {
+    name: "Trash & Recycling", icon: "🗑️", defaultProjectedMinutes: 5,
+    category: "cleaning", timeOfDay: "any",
+    formFields: [bool("emptied", "Bins emptied")],
+  },
+
+  // ── Closing ──────────────────────────────────────────────────────────────
+  {
+    name: "Walk-in Fridge Temp (Close)", icon: "🧊", defaultProjectedMinutes: 2,
+    category: "food_safety", timeOfDay: "evening",
+    formFields: [num("temperature", "Fridge temperature", { unit: "°F", min: 33, max: 40 })],
+  },
+  {
+    name: "Walk-in Freezer Temp (Close)", icon: "❄️", defaultProjectedMinutes: 2,
+    category: "food_safety", timeOfDay: "evening",
+    formFields: [num("temperature", "Freezer temperature", { unit: "°F", max: 0 })],
+  },
+  {
+    name: "Equipment Powered Down", icon: "🔌", defaultProjectedMinutes: 5,
+    category: "equipment", timeOfDay: "evening",
+    formFields: [
+      bool("fryers", "Fryers off"),
+      bool("grill", "Grill / oven off"),
+      bool("small_appliances", "Small appliances unplugged"),
+    ],
+  },
+  {
+    name: "Deep Clean Kitchen", icon: "🧽", defaultProjectedMinutes: 15,
+    category: "cleaning", timeOfDay: "evening",
+    formFields: [bool("clean", "Kitchen deep-cleaned")],
+  },
+  {
+    name: "Closing Cash Reconciliation", icon: "💵", defaultProjectedMinutes: 10,
+    category: "cash_handling", timeOfDay: "evening",
+    formFields: [
+      num("ending_cash", "Ending cash amount", { unit: "$" }),
+      num("variance", "Variance from expected", { unit: "$" }),
+    ],
+  },
+  {
+    name: "Trash Taken Out", icon: "🗑️", defaultProjectedMinutes: 5,
+    category: "cleaning", timeOfDay: "evening",
+    formFields: [bool("taken_out", "Trash taken to dumpster")],
+  },
+  {
+    name: "Doors Locked / Alarm Set", icon: "🔒", defaultProjectedMinutes: 3,
+    category: "opening_closing", timeOfDay: "evening",
+    formFields: [bool("doors_locked", "All doors locked"), bool("alarm_set", "Alarm set")],
+  },
+
+  // ── Any time (browsable catalog only, not auto-seeded) ──────────────────
+  {
+    name: "Prep Cooler Temp Log", icon: "🧊", defaultProjectedMinutes: 2,
+    category: "food_safety", timeOfDay: "any",
+    formFields: [num("temperature", "Prep cooler temperature", { unit: "°F", min: 33, max: 40 })],
+  },
+  {
+    name: "Delivery Temperature Check", icon: "🚚", defaultProjectedMinutes: 3,
+    category: "food_safety", timeOfDay: "any",
+    formFields: [num("temperature", "Delivery temperature", { unit: "°F" })],
+  },
+  {
+    name: "Pest Control Check", icon: "🐜", defaultProjectedMinutes: 5,
+    category: "cleaning", timeOfDay: "any",
+    formFields: [bool("clear", "No signs of pest activity")],
+  },
+  {
+    name: "Manager Walkthrough", icon: "📋", defaultProjectedMinutes: 10,
+    category: "opening_closing", timeOfDay: "any",
+    formFields: [bool("floor_ok", "Floor looks presentable"), bool("staff_ok", "Staff on task")],
+  },
 ];
 
-export const DEFAULT_EVENING_NAMES = [
-  "Evening Workout",
-  "Cook Dinner",
-  "Eat Dinner",
-  "Family Time",
-  "Evening Walk",
-  "Wind Down / Stretch",
-  "Read",
-  "Journal",
-  "Brush Teeth / Hygiene",
+export const DEFAULT_OPENING_NAMES = [
+  "Walk-in Fridge Temp",
+  "Walk-in Freezer Temp",
+  "Handwashing Stations Stocked",
+  "Floors & Surfaces Clean",
+  "Opening Cash Count",
+  "Staff Uniform & Hygiene",
+  "Opening Walkthrough",
 ];
 
-// Idempotent — always updates icon so changes propagate to existing data
+export const DEFAULT_MIDSHIFT_NAMES = [
+  "Line Temp Check",
+  "Restock Check",
+  "Restroom Check",
+  "Trash & Recycling",
+];
+
+export const DEFAULT_CLOSING_NAMES = [
+  "Walk-in Fridge Temp (Close)",
+  "Walk-in Freezer Temp (Close)",
+  "Equipment Powered Down",
+  "Deep Clean Kitchen",
+  "Closing Cash Reconciliation",
+  "Trash Taken Out",
+  "Doors Locked / Alarm Set",
+];
+
+// Idempotent — always updates icon/fields so changes propagate to existing data
 export async function ensureSystemTemplates() {
   await HabitTemplate.bulkWrite(
     SYSTEM_TEMPLATES.map((t) => ({
       updateOne: {
         filter: { name: t.name, isSystem: true },
         update: {
-          $setOnInsert: { createdBy: null, isActive: true },
+          $setOnInsert: { companyId: null, isActive: true },
           $set: {
             icon: t.icon,
             defaultProjectedMinutes: t.defaultProjectedMinutes,
             category: t.category,
             timeOfDay: t.timeOfDay,
+            formFields: t.formFields,
           },
         },
         upsert: true,

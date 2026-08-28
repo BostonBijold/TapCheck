@@ -1,29 +1,29 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineLog from "@/models/RoutineLog";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-const DEV_USER_ID = "dev-local-user";
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  const userId = session?.user?.id ?? (process.env.SKIP_AUTH === "true" ? DEV_USER_ID : null);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const date = req.nextUrl.searchParams.get("date") ?? new Date().toISOString().split("T")[0];
 
   await connectDB();
 
-  const groups = await RoutineGroup.find({ userId, timeOfDay: { $ne: "habit" } })
+  const groups = await RoutineGroup.find({ companyId, timeOfDay: { $ne: "habit" } })
     .sort({ order: 1 }).lean();
 
   const groupIds = groups.map((g) => g._id);
   const [items, logs] = await Promise.all([
-    RoutineItem.find({ groupId: { $in: groupIds }, userId, isActive: true }).lean(),
-    RoutineLog.find({ userId, date }).lean(),
+    RoutineItem.find({ groupId: { $in: groupIds }, companyId, isActive: true }).lean(),
+    RoutineLog.find({ companyId, date }).lean(),
   ]);
 
   const hasLogs = logs.length > 0;

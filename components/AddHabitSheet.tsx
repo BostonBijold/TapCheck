@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from "react";
 import { X, Search, ChevronLeft } from "lucide-react";
 import HabitIcon, { IconPicker } from "@/components/HabitIcon";
+import CheckFieldsEditor from "@/components/CheckFieldsEditor";
+import type { FormFieldDef } from "@/models/RoutineItem";
 
 interface Template {
   _id: string;
@@ -12,6 +14,7 @@ interface Template {
   category: string;
   timeOfDay: string;
   isSystem: boolean;
+  formFields: FormFieldDef[];
 }
 
 interface Props {
@@ -22,9 +25,10 @@ interface Props {
     name: string,
     icon: string,
     projectedMinutes: number,
-    itemType: "standard" | "stopwatch" | "checkbox",
+    itemType: "form_check",
     scheduledDays: number[],
-    successThreshold: number
+    successThreshold: number,
+    formFields: FormFieldDef[]
   ) => Promise<void>;
   onClose: () => void;
 }
@@ -33,13 +37,11 @@ const DAY_LABELS = ["S", "M", "T", "W", "T", "F", "S"]; // Sun..Sat, matches cal
 const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 
 const CATEGORY_LABELS: Record<string, string> = {
-  hygiene: "Hygiene",
-  fitness: "Fitness",
-  nutrition: "Nutrition",
-  mindfulness: "Mindfulness",
-  reading: "Reading",
-  family: "Family",
-  productivity: "Productivity",
+  food_safety: "Food Safety",
+  cleaning: "Cleaning",
+  cash_handling: "Cash Handling",
+  equipment: "Equipment",
+  opening_closing: "Opening & Closing",
   custom: "Custom",
 };
 
@@ -53,8 +55,8 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
   // Custom form state
   const [customIcon, setCustomIcon] = useState("star");
   const [customName, setCustomName] = useState("");
-  const [customMins, setCustomMins] = useState("15");
-  const [customType, setCustomType] = useState<"standard" | "stopwatch" | "checkbox">("standard");
+  const [customMins, setCustomMins] = useState("5");
+  const [customFields, setCustomFields] = useState<FormFieldDef[]>([]);
   const [customScheduledDays, setCustomScheduledDays] = useState<number[]>(ALL_DAYS);
   const [customThreshold, setCustomThreshold] = useState(7);
   const [saving, setSaving] = useState(false);
@@ -96,13 +98,14 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
   const handleAddTemplate = async (t: Template) => {
     setAdding(t._id);
     // Browsing a template skips the schedule/threshold prompt — every day,
-    // full threshold — same as today's behavior; editable afterward.
-    await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "standard", ALL_DAYS, 7);
+    // full threshold — same as today's behavior; editable afterward. The
+    // template's own formFields come along unedited.
+    await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "form_check", ALL_DAYS, 7, t.formFields ?? []);
     setAdding(null);
   };
 
   const handleSaveCustom = async () => {
-    if (!customName.trim() || !customIcon) return;
+    if (!customName.trim() || !customIcon || customFields.length === 0) return;
     setSaving(true);
     // First create the template in the catalog
     const res = await fetch("/api/habit-templates", {
@@ -111,13 +114,23 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
       body: JSON.stringify({
         name: customName.trim(),
         icon: customIcon,
-        defaultProjectedMinutes: customType === "standard" ? (parseInt(customMins) || 15) : 0,
+        defaultProjectedMinutes: parseInt(customMins) || 5,
         category: "custom",
         timeOfDay: "any",
+        formFields: customFields,
       }),
     });
     const template = await res.json();
-    await onAdd(template._id, template.name, template.icon, template.defaultProjectedMinutes, customType, customScheduledDays, customThreshold);
+    await onAdd(
+      template._id,
+      template.name,
+      template.icon,
+      template.defaultProjectedMinutes,
+      "form_check",
+      customScheduledDays,
+      customThreshold,
+      template.formFields ?? customFields
+    );
     setSaving(false);
   };
 
@@ -163,7 +176,7 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
                   className="w-full flex items-center gap-3 bg-olive/10 border border-olive/30 text-olive py-3 px-4 rounded-card font-body text-sm"
                 >
                   <span className="text-lg">+</span>
-                  Create custom habit
+                  Create custom check
                 </button>
               </div>
 
@@ -174,7 +187,7 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
                   <input
                     ref={searchRef}
                     type="text"
-                    placeholder="Search habits..."
+                    placeholder="Search checks..."
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
                     className="flex-1 bg-transparent font-body text-sm text-text placeholder:text-dim outline-none"
@@ -190,7 +203,7 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
 
                 {!loading && filtered.length === 0 && (
                   <p className="text-dim font-mono text-xs text-center py-8">
-                    No habits match &ldquo;{search}&rdquo;
+                    No checks match &ldquo;{search}&rdquo;
                   </p>
                 )}
 
@@ -207,7 +220,7 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
                           </div>
                           <span className="flex-1 font-body text-sm text-text">{t.name}</span>
                           <span className="font-mono text-dim text-xs flex-shrink-0">
-                            {t.defaultProjectedMinutes}m
+                            {t.formFields?.length ?? 0} field{(t.formFields?.length ?? 0) === 1 ? "" : "s"}
                           </span>
                           <button
                             onClick={() => handleAddTemplate(t)}
@@ -227,53 +240,10 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
             /* Create custom form */
             <div className="px-4 pb-8 overflow-y-auto">
               <p className="font-mono text-dim text-xs mb-6">
-                This habit will be saved to your personal catalog.
+                This check will be saved to your personal catalog.
               </p>
 
               <div className="space-y-4">
-                {/* Type */}
-                <div>
-                  <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
-                    Type
-                  </label>
-                  <div className="flex bg-bg border border-border rounded-card p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => setCustomType("standard")}
-                      className={`flex-1 py-2 rounded-card font-mono text-xs transition-colors ${
-                        customType === "standard" ? "bg-olive text-text" : "text-dim"
-                      }`}
-                    >
-                      ▶ Countdown
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCustomType("stopwatch")}
-                      className={`flex-1 py-2 rounded-card font-mono text-xs transition-colors ${
-                        customType === "stopwatch" ? "bg-olive text-text" : "text-dim"
-                      }`}
-                    >
-                      ⏱ Stopwatch
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setCustomType("checkbox")}
-                      className={`flex-1 py-2 rounded-card font-mono text-xs transition-colors ${
-                        customType === "checkbox" ? "bg-olive text-text" : "text-dim"
-                      }`}
-                    >
-                      ✓ Checkbox
-                    </button>
-                  </div>
-                  <p className="font-mono text-[9px] text-dim mt-1.5">
-                    {customType === "standard"
-                      ? "Set a target. Timer counts down. Tracks projected vs actual."
-                      : customType === "stopwatch"
-                      ? "No target. Counts up. Builds a picture of how long things actually take."
-                      : "No timer. Tap to mark done. Simple ✓/✗ tracking."}
-                  </p>
-                </div>
-
                 {/* Icon */}
                 <div>
                   <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
@@ -285,32 +255,33 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
                 {/* Name */}
                 <div>
                   <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
-                    Habit name
+                    Check name
                   </label>
                   <input
                     type="text"
                     value={customName}
                     onChange={(e) => setCustomName(e.target.value)}
-                    placeholder="e.g. Drink creatine"
+                    placeholder="e.g. Walk-in Fridge Temp"
                     className="w-full bg-bg border border-border rounded-card px-3 py-2.5 font-body text-sm text-text placeholder:text-dim outline-none focus:border-olive"
                   />
                 </div>
 
-                {/* Time — timed only */}
-                {customType === "standard" && ( // minutes only for countdown
-                  <div>
-                    <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
-                      Target minutes
-                    </label>
-                    <input
-                      type="number"
-                      value={customMins}
-                      onChange={(e) => setCustomMins(e.target.value)}
-                      min={1}
-                      className="w-28 bg-bg border border-border rounded-card px-3 py-2.5 font-mono text-sm text-text outline-none focus:border-olive"
-                    />
-                  </div>
-                )}
+                {/* Fields */}
+                <CheckFieldsEditor fields={customFields} onChange={setCustomFields} />
+
+                {/* Estimated minutes */}
+                <div>
+                  <label className="font-mono text-[10px] uppercase tracking-widest text-dim block mb-2">
+                    Est. minutes
+                  </label>
+                  <input
+                    type="number"
+                    value={customMins}
+                    onChange={(e) => setCustomMins(e.target.value)}
+                    min={1}
+                    className="w-28 bg-bg border border-border rounded-card px-3 py-2.5 font-mono text-sm text-text outline-none focus:border-olive"
+                  />
+                </div>
 
                 {/* Schedule */}
                 <div>
@@ -359,10 +330,10 @@ export default function AddHabitSheet({ groupId, groupName, onAdd, onClose }: Pr
 
                 <button
                   onClick={handleSaveCustom}
-                  disabled={!customName.trim() || saving}
+                  disabled={!customName.trim() || customFields.length === 0 || saving}
                   className="w-full py-4 rounded-card bg-olive text-text font-body font-medium disabled:opacity-40 mt-4"
                 >
-                  {saving ? "Saving…" : "Save & Add to Routine"}
+                  {saving ? "Saving…" : "Save & Add to Checklist"}
                 </button>
               </div>
             </div>

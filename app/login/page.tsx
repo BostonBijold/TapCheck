@@ -15,10 +15,10 @@ export default async function LoginPage({
       <div className="w-full max-w-mobile">
         <div className="mb-16">
           <h1 className="font-heading text-5xl text-text leading-tight mb-3">
-            A Good Man
+            TapCheck
           </h1>
           <p className="text-muted font-body text-base">
-            Build your routines. Build yourself.
+            Shift checks, done right, every time.
           </p>
         </div>
 

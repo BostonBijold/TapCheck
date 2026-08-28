@@ -1,25 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import HabitTemplate from "@/models/HabitTemplate";
 import RoutineItem from "@/models/RoutineItem";
+import { sanitizeFormFields } from "@/lib/form-fields";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const DEV_USER_ID = "dev-local-user";
-
-function resolveUserId(sessionId?: string) {
-  if (sessionId) return sessionId;
-  if (process.env.SKIP_AUTH === "true") return DEV_USER_ID;
-  return null;
-}
-
 // GET /api/habit-templates?groupId=<id>
-// Returns system templates + user's custom templates, minus any already in the group
+// Returns system templates + the company's custom templates, minus any already in the group
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const groupId = req.nextUrl.searchParams.get("groupId");
 
@@ -28,7 +22,7 @@ export async function GET(req: NextRequest) {
   // Find template IDs already used in this group (if filtering)
   let excludedTemplateIds: string[] = [];
   if (groupId) {
-    const existing = await RoutineItem.find({ groupId, userId, isActive: true }).lean();
+    const existing = await RoutineItem.find({ groupId, companyId, isActive: true }).lean();
     excludedTemplateIds = existing
       .map((i) => i.templateId?.toString())
       .filter(Boolean) as string[];
@@ -37,7 +31,7 @@ export async function GET(req: NextRequest) {
   const templates = await HabitTemplate.find({
     isActive: true,
     _id: { $nin: excludedTemplateIds },
-    $or: [{ isSystem: true }, { createdBy: userId }],
+    $or: [{ isSystem: true }, { companyId }],
   })
     .sort({ timeOfDay: 1, category: 1, name: 1 })
     .lean();
@@ -51,17 +45,19 @@ export async function GET(req: NextRequest) {
       category: t.category,
       timeOfDay: t.timeOfDay,
       isSystem: t.isSystem,
+      formFields: t.formFields ?? [],
     }))
   );
 }
 
-// POST /api/habit-templates — create a custom user template
+// POST /api/habit-templates — create a custom company template
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
-  const { name, icon, defaultProjectedMinutes, category, timeOfDay, description } =
+  const { name, icon, defaultProjectedMinutes, category, timeOfDay, description, formFields } =
     await req.json();
 
   if (!name?.trim() || !icon) {
@@ -78,8 +74,9 @@ export async function POST(req: NextRequest) {
     timeOfDay: timeOfDay ?? "any",
     description: description ?? null,
     isSystem: false,
-    createdBy: userId,
+    companyId,
     isActive: true,
+    formFields: sanitizeFormFields(formFields),
   });
 
   return NextResponse.json({
@@ -90,5 +87,6 @@ export async function POST(req: NextRequest) {
     category: template.category,
     timeOfDay: template.timeOfDay,
     isSystem: false,
+    formFields: template.formFields,
   });
 }

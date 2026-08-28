@@ -2,22 +2,13 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 
 export type LogState = "in_progress" | "paused" | "done" | "missed" | "rest";
 
-// Where a routine_review session was triggered from — see docs/features/routine-review.md.
-// "notification" isn't wired up to anything yet (a future "it's been a month" nudge),
-// but the value exists now so that work doesn't need another schema change.
-export type ReviewEntryPoint = "sunday_prompt" | "analytics_button" | "notification";
-
-export interface IReviewMetadata {
-  entryPoint: ReviewEntryPoint;
-  groupId: mongoose.Types.ObjectId; // which routine group this session reviewed
-  changesMade: boolean;
-  itemGoalChanges?: Array<{ routineItemId: mongoose.Types.ObjectId; oldMinutes: number; newMinutes: number }>;
-  startTimeChange?: { old: string | null; new: string | null };
-  reorder?: { old: mongoose.Types.ObjectId[]; new: mongoose.Types.ObjectId[] };
-}
-
 export interface IRoutineLog extends Document {
-  userId: string;
+  companyId: string;
+  // Which specific user actually did the check — an attribute, not part of
+  // the uniqueness key: any employee on shift might complete a given check,
+  // so the meaningful uniqueness is one log per item per day for the whole
+  // company (see the index below), not per user.
+  performedByUserId: string;
   routineItemId: mongoose.Types.ObjectId;
   date: string;              // YYYY-MM-DD
   actualMinutes?: number;    // null if missed/rest; derived from timestamps on timer completions
@@ -37,48 +28,21 @@ export interface IRoutineLog extends Document {
   // a RoutineSession for that group on resume, instead of the standalone
   // timer. Cleared whenever the log leaves in_progress.
   sessionGroupId?: mongoose.Types.ObjectId | null;
-  // Only set on the terminal log for a routine_review item (see
-  // components/RoutineReviewFlow.tsx) — every other log leaves this undefined.
-  reviewMetadata?: IReviewMetadata | null;
+  // Set only on the terminal log for a form_check item (see
+  // components/FormCheckScreen.tsx) — every other log leaves this null.
+  formData?: Record<string, string | number | boolean> | null;
+  // NFC/card identifier that triggered this log, if any — populated when a
+  // log is started via a tag-triggered external path; null for an in-app
+  // manual start. Field exists ahead of the NFC reader itself (separate
+  // work) so this isn't a later migration.
+  tagId?: string | null;
   createdAt: Date;
 }
 
-const ReviewMetadataSchema = new Schema<IReviewMetadata>(
-  {
-    entryPoint: { type: String, enum: ["sunday_prompt", "analytics_button", "notification"], required: true },
-    groupId: { type: Schema.Types.ObjectId, ref: "RoutineGroup", required: true },
-    changesMade: { type: Boolean, required: true },
-    itemGoalChanges: {
-      type: [
-        {
-          routineItemId: { type: Schema.Types.ObjectId, ref: "RoutineItem", required: true },
-          oldMinutes: { type: Number, required: true },
-          newMinutes: { type: Number, required: true },
-        },
-      ],
-      default: undefined,
-    },
-    startTimeChange: {
-      type: new Schema({ old: { type: String, default: null }, new: { type: String, default: null } }, { _id: false }),
-      default: undefined,
-    },
-    reorder: {
-      type: new Schema(
-        {
-          old: { type: [Schema.Types.ObjectId], default: undefined },
-          new: { type: [Schema.Types.ObjectId], default: undefined },
-        },
-        { _id: false }
-      ),
-      default: undefined,
-    },
-  },
-  { _id: false }
-);
-
 const RoutineLogSchema = new Schema<IRoutineLog>(
   {
-    userId: { type: String, required: true, index: true },
+    companyId: { type: String, required: true, index: true },
+    performedByUserId: { type: String, required: true },
     routineItemId: { type: Schema.Types.ObjectId, ref: "RoutineItem", required: true },
     date: { type: String, required: true },
     actualMinutes: { type: Number, default: null },
@@ -89,12 +53,16 @@ const RoutineLogSchema = new Schema<IRoutineLog>(
     note: { type: String, default: null },
     isBackEntry: { type: Boolean, default: false },
     sessionGroupId: { type: Schema.Types.ObjectId, ref: "RoutineGroup", default: null },
-    reviewMetadata: { type: ReviewMetadataSchema, default: null },
+    formData: { type: Schema.Types.Mixed, default: null },
+    tagId: { type: String, default: null },
   },
   { timestamps: true }
 );
 
-RoutineLogSchema.index({ userId: 1, date: 1 });
-RoutineLogSchema.index({ userId: 1, routineItemId: 1, date: 1 }, { unique: true });
+RoutineLogSchema.index({ companyId: 1, date: 1 });
+// One log per item per day for the whole company — not per user, since any
+// employee on shift might complete a given check (performedByUserId is
+// stored as an attribute on that single log, not part of this key).
+RoutineLogSchema.index({ companyId: 1, routineItemId: 1, date: 1 }, { unique: true });
 
 export default models.RoutineLog || model<IRoutineLog>("RoutineLog", RoutineLogSchema);

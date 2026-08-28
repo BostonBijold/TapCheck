@@ -1,13 +1,13 @@
 {
-  "name": "A Good Man",
-  "short_name": "A Good Man",
-  "description": "Build your routines, build yourself.",
+  "name": "TapCheck",
+  "short_name": "TapCheck",
+  "description": "Shift checks, done right, every time.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#18160f",
-  "theme_color": "#18160f",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
   "icons": [
     {
       "src": "/icons/icon-192.png",

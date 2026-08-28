@@ -31,7 +31,7 @@ Params (accepted via JSON body or query string, body takes precedence when both 
 |---|---|---|
 | `routineItemId` | yes | Raw Mongo `_id` of the `RoutineItem` to start. Displayed read-only (`select-all`, no copy button) on that item's inline edit panel in `components/RoutineEditView.tsx`. |
 | `routineGroupId` | no | Raw Mongo `_id` of the `RoutineGroup` the item belongs to. Displayed read-only the same way on the group's edit page. If given, the item must actually belong to that group (validated — see below). |
-| `date` | no | `YYYY-MM-DD`. Defaults to **server UTC date** (`new Date().toISOString().split("T")[0]`) — there's no client to supply a local timezone for an out-of-band caller. Same caveat as `GET /api/habits` in [habits-api.md](habits-api.md); can matter near midnight. |
+| `date` | no | `YYYY-MM-DD`. Defaults to **server UTC date** (`new Date().toISOString().split("T")[0]`) — there's no client to supply a local timezone for an out-of-band caller; can matter near midnight. |
 
 Validation, in order: item must exist and belong to this user (`404` otherwise); if `routineGroupId` given, that group must exist and belong to this user (`404`), and the item's `groupId` must match it exactly (`400 "Item does not belong to that group"` otherwise). Malformed ids (not valid ObjectId strings) return `400`, not a 500.
 
@@ -72,7 +72,9 @@ Which case applies is determined by looking up this user's single active (`in_pr
 
 **Case 1 — no active log exists anywhere for this user.** Starts the tapped item:
 - `standard`/`stopwatch` items → `startInProgressLog` (identical to `start-timer`'s own effect, including `sessionGroupId` anchoring if `routineGroupId` was passed).
-- `checkbox`, `virtue_checkin`, `weekly_review` (anything with no timer) → `startImmediateLog` writes a terminal `done` log immediately, `actualMinutes: 0` — it never passes through `in_progress` at all.
+- `checkbox`, `form_check` (anything with no timer, per `isTimerItem` in `lib/habit-trigger.ts`) → `startImmediateLog` writes a terminal `done` log immediately, `actualMinutes: 0` — it never passes through `in_progress` at all.
+
+> ⚠️ **Known gap for `form_check`**: since it's the app's primary item type (see `CLAUDE.md`) but isn't a timer item, triggering a `form_check` check via this endpoint (Siri/Shortcuts/NFC) instant-completes it with `formData: null` — there's no way for an out-of-band caller to supply field readings, so a temperature check "done" this way records no temperature. Building a real "trigger opens the app to fill in the check" flow is unscheduled future work, not a bug in the dispatch logic above — flagging so it's a conscious, known limitation.
 
 Both halves call through `completeStrayInProgressLogs` first regardless (unconditional server-side enforcement of the single-active-timer invariant, not trusted to the caller) — in Case 1 that's a no-op since we already know nothing's active, but it's the same code path Cases 2 and 3 rely on.
 

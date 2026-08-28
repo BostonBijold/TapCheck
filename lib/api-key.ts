@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import mongoose from "mongoose";
 import User from "@/models/User";
+import { DEV_COMPANY_ID } from "@/lib/session";
 
 export function generateApiKey(): string {
   return `boak_${crypto.randomBytes(24).toString("hex")}`;
@@ -27,12 +28,18 @@ export async function getOrCreateApiKey(userId: string): Promise<string> {
   return apiKey;
 }
 
-// Resolves an external request's API key back to the userId it belongs to,
-// or null if it doesn't match anyone.
-export async function findUserIdByApiKey(apiKey: string): Promise<string | null> {
+// Resolves an external request's API key back to the userId + companyId it
+// belongs to, or null if it doesn't match anyone.
+export async function findSessionByApiKey(
+  apiKey: string
+): Promise<{ userId: string; companyId: string | null } | null> {
   if (apiKey.startsWith("boak_dev_")) {
-    return apiKey.slice("boak_dev_".length);
+    return { userId: apiKey.slice("boak_dev_".length), companyId: DEV_COMPANY_ID };
   }
-  const user = await User.findOne({ apiKey }).lean<{ _id: { toString(): string } }>();
-  return user ? user._id.toString() : null;
+  const user = await User.findOne({ apiKey }).lean<{
+    _id: { toString(): string };
+    companyId?: { toString(): string } | null;
+  }>();
+  if (!user) return null;
+  return { userId: user._id.toString(), companyId: user.companyId ? user.companyId.toString() : null };
 }

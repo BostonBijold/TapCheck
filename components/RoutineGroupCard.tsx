@@ -34,9 +34,6 @@ interface Props {
   ) => void;
   onStartTimer: (item: RowItem) => void;
   onStartRoutine: (group: GroupCardGroup, startIndex: number) => void;
-  onOpenCheckIn: (item: RowItem) => void;
-  onOpenReview: (item: RowItem) => void;
-  onOpenRoutineReview: (item: RowItem) => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -107,7 +104,6 @@ export default function RoutineGroupCard({
   group, logs, weekLogs, weekDates,
   isPastDate = false, selectedDate, today,
   onStateChange, onStartTimer, onStartRoutine,
-  onOpenCheckIn, onOpenReview, onOpenRoutineReview,
 }: Props) {
   // Derive end time once we know what items are in this group
   const timedItemsAll = group.items.filter((i) => i.itemType !== "checkbox");
@@ -338,9 +334,6 @@ export default function RoutineGroupCard({
                   }
                   onStartTimer={() => onStartTimer(item)}
                   onStateChange={(s, opts) => onStateChange(item._id, s, opts)}
-                  onOpenCheckIn={() => onOpenCheckIn(item)}
-                  onOpenReview={() => onOpenReview(item)}
-                  onOpenRoutineReview={() => onOpenRoutineReview(item)}
                 />
               ))}
             </div>
@@ -355,7 +348,7 @@ export default function RoutineGroupCard({
                 className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
               >
                 <Play size={15} fill="currentColor" />
-                {hasStarted ? "Continue Routine" : "Start Routine"}
+                {hasStarted ? "Continue Checks" : "Start Checks"}
               </button>
             );
           })()}

@@ -1,9 +1,7 @@
-// Presentational segment bar shared by the live Routine Session timeline
-// (components/RoutineSession.tsx, green/amber pacing) and the Routine
-// Review flow's goal-vs-average timelines (components/RoutineReviewFlow.tsx,
-// gold/blue-muted comparison) — same layout, different callers own their own
-// color meaning entirely. See lib/routine-timeline.ts and
-// lib/routine-review-timeline.ts for how each caller's segments are built.
+// Presentational segment bar for the live Routine Session timeline
+// (components/RoutineSession.tsx, green/amber pacing) — just renders
+// whatever {id, pct, color}[] segments it's handed. See lib/routine-timeline.ts
+// for how the segments are built.
 
 export interface TimelineBarSegment {
   id: string;
@@ -27,7 +25,7 @@ export default function TimelineBar({ segments, startLabel, endLabel }: Props) {
             style={{
               flex: `0 0 ${seg.pct}%`,
               backgroundColor: seg.color,
-              borderRight: i < segments.length - 1 ? "2px solid #18160f" : undefined,
+              borderRight: i < segments.length - 1 ? "2px solid #ffffff" : undefined,
               transition: "flex-basis 0.6s ease, background-color 0.4s ease",
             }}
           />

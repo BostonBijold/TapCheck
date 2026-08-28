@@ -10,25 +10,25 @@ const config: Config = {
     extend: {
       colors: {
         // Backgrounds
-        bg: "#18160f",
-        card: "#211f17",
-        "card-hover": "#2a2720",
+        bg: "#ffffff",
+        card: "#eef2f7",
+        "card-hover": "#e4e9f0",
         // Text
-        text: "#e8e0cc",
-        muted: "#9a9280",
-        dim: "#5a5548",
+        text: "#0f172a",
+        muted: "#64748b",
+        dim: "#94a3b8",
         // Accents
-        olive: "#7a9248",
-        "olive-light": "#8aaa55",
-        gold: "#c4a84a",
-        tobacco: "#8b5a2b",
-        burgundy: "#7a2e2e",
-        "burgundy-light": "#a03a3a",
-        amber: "#c47a2a",
-        "blue-muted": "#4a7a9a",
+        olive: "#2563eb",
+        "olive-light": "#3b82f6",
+        gold: "#3b82f6",
+        tobacco: "#78716c",
+        burgundy: "#dc2626",
+        "burgundy-light": "#ef4444",
+        amber: "#d97706",
+        "blue-muted": "#71717a",
         // Borders
-        border: "#2e2c22",
-        "border-light": "#3d3b2e",
+        border: "#dbe2ea",
+        "border-light": "#c7d1dc",
       },
       fontFamily: {
         heading: ["var(--font-playfair)", "serif"],

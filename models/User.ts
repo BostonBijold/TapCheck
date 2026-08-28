@@ -4,19 +4,18 @@ import { Schema, model, models } from "mongoose";
 // Do not redeclare fields the adapter owns (email, name, image, emailVerified).
 const UserSchema = new Schema(
   {
-    virtueWalkthroughSeen: { type: Boolean, default: false },
-    // Which Philosophy (virtue set) this user has picked as their active
-    // focus — null until they choose one via the Virtues-page marketplace.
-    selectedPhilosophyId: { type: Schema.Types.ObjectId, ref: "Philosophy", default: null },
-    // Monday (YYYY-MM-DD, see lib/virtue-dates.ts weekStartDate) of the week
-    // this user's personal virtue-stacking epoch began — reset to "this
-    // week" on first use, on an explicit Virtue Reset, or whenever
-    // selectedPhilosophyId changes. Drives how many virtues appear in this
-    // user's daily check-in (see lib/virtue-dates.ts personalStackSize) —
-    // entirely separate from the shared, calendar-driven "this week's
-    // virtue" highlight, which every user sees identically regardless of
-    // this field.
-    virtueStackStartWeek: { type: String, default: null },
+    // Tenant this user belongs to. Null until a developer manually attaches
+    // a pre-created Company doc by hand in MongoDB — v1 has no self-serve
+    // company creation or invitation flow. A null companyId means "not yet
+    // provisioned," never "shared across every unassigned user" — every
+    // company-scoped query must treat it as no access, not as its own tenant.
+    companyId: { type: Schema.Types.ObjectId, ref: "Company", default: null },
+    // Freely editable by hand in MongoDB for manual testing until a real
+    // invitation/role-assignment flow exists. Defaults to "manager" on
+    // signup (stamped explicitly in lib/auth.ts's createUser event, since
+    // the MongoDB adapter inserts the user doc directly and never applies
+    // Mongoose schema defaults).
+    role: { type: String, enum: ["manager", "employee"], default: "manager" },
     // Long-lived token for external triggers (e.g. an iPhone Shortcut fired by
     // an NFC tag) — see app/api/external/start-timer. Generated once, lazily,
     // the first time it's requested; never rotated automatically.

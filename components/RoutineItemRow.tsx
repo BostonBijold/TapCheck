@@ -6,6 +6,7 @@ import StreakDots from "@/components/StreakDots";
 import HabitIcon from "@/components/HabitIcon";
 import type { RoutineLogEntry } from "@/components/RoutinesView";
 import type { LogState } from "@/models/RoutineLog";
+import type { FormFieldDef } from "@/models/RoutineItem";
 
 export interface RowItem {
   _id: string;
@@ -13,9 +14,10 @@ export interface RowItem {
   icon: string;
   projectedMinutes: number;
   order: number;
-  itemType?: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review" | "routine_review";
+  itemType?: "standard" | "stopwatch" | "checkbox" | "form_check";
   scheduledDays: number[];   // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number;  // how many of this week's scheduled days = 100%
+  formFields?: FormFieldDef[]; // only meaningful when itemType === "form_check"
 }
 
 interface Props {
@@ -29,10 +31,16 @@ interface Props {
   today: string; // YYYY-MM-DD — marks today's dot and what counts as "future" in StreakDots
   onToggleExpand: () => void;
   onStartTimer: () => void;
-  onStateChange: (state: LogState | null, opts?: { actualMinutes?: number; isBackEntry?: boolean; startedAt?: string; completedAt?: string }) => void;
-  onOpenCheckIn?: () => void;
-  onOpenReview?: () => void;
-  onOpenRoutineReview?: () => void;
+  onStateChange: (
+    state: LogState | null,
+    opts?: {
+      actualMinutes?: number;
+      isBackEntry?: boolean;
+      startedAt?: string;
+      completedAt?: string;
+      formData?: Record<string, string | number | boolean>;
+    }
+  ) => void;
 }
 
 function fmtMins(mins: number) {
@@ -86,7 +94,6 @@ export default function RoutineItemRow({
   item, log, weekLogs, weekDates,
   isExpanded, isBackEntry, selectedDate, today,
   onToggleExpand, onStartTimer, onStateChange,
-  onOpenCheckIn, onOpenReview, onOpenRoutineReview,
 }: Props) {
   const state = log?.state ?? null;
   const [backMins, setBackMins] = useState(
@@ -95,13 +102,72 @@ export default function RoutineItemRow({
   const [editingTime, setEditingTime] = useState(false);
   const [startTime, setStartTime] = useState("");
   const [endTime, setEndTime] = useState("");
+  // Back-entry field capture for a form_check item — a retroactive log still
+  // needs its readings, not just a duration (see FormCheckScreen.tsx for the
+  // live-session equivalent of this same field shape).
+  const [backFormValues, setBackFormValues] = useState<Record<string, string | number | boolean>>({});
 
-  const dow = new Date(selectedDate + "T12:00:00").getDay();
-  const isSunday = dow === 0;
   const isCheckbox = item.itemType === "checkbox";
   const isStopwatch = item.itemType === "stopwatch";
-  const isSpecial = item.itemType === "virtue_checkin" || item.itemType === "weekly_review" || item.itemType === "routine_review";
-  const isTimeable = !isCheckbox && !isSpecial;
+  const isFormCheck = item.itemType === "form_check";
+  const isTimeable = !isCheckbox;
+  const formFields = item.formFields ?? [];
+  const backFormComplete =
+    !isFormCheck || formFields.every((f) => {
+      const v = backFormValues[f.key];
+      return f.type === "boolean" ? v !== undefined : v !== undefined && v !== "";
+    });
+
+  function setBackField(key: string, value: string | number | boolean) {
+    setBackFormValues((v) => ({ ...v, [key]: value }));
+  }
+
+  // Compact inline field inputs for logging a form_check item back-dated —
+  // same field shape FormCheckScreen renders full-screen for a live session,
+  // just condensed to fit inside this row's expanded action panel.
+  const backEntryFields = isFormCheck && (
+    <div className="space-y-2 mb-2">
+      {formFields.map((f) => (
+        <div key={f.key} className="flex items-center justify-between gap-2">
+          <span className="font-mono text-[10px] text-dim uppercase tracking-widest">
+            {f.label}{f.unit ? ` (${f.unit})` : ""}
+          </span>
+          {f.type === "boolean" ? (
+            <div className="flex gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onClick={() => setBackField(f.key, true)}
+                className={`px-3 py-1.5 rounded-card border font-mono text-xs ${
+                  backFormValues[f.key] === true ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                }`}
+              >
+                Yes
+              </button>
+              <button
+                type="button"
+                onClick={() => setBackField(f.key, false)}
+                className={`px-3 py-1.5 rounded-card border font-mono text-xs ${
+                  backFormValues[f.key] === false ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                }`}
+              >
+                No
+              </button>
+            </div>
+          ) : (
+            <input
+              type={f.type === "number" ? "number" : "text"}
+              inputMode={f.type === "number" ? "decimal" : undefined}
+              value={(backFormValues[f.key] as string | number) ?? ""}
+              onChange={(e) =>
+                setBackField(f.key, f.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value)
+              }
+              className="w-24 flex-shrink-0 bg-bg border border-border rounded-card px-2 py-1.5 font-mono text-xs text-text outline-none focus:border-olive text-right"
+            />
+          )}
+        </div>
+      ))}
+    </div>
+  );
 
   const variance =
     !isCheckbox && !isStopwatch && state === "done" && log?.actualMinutes != null
@@ -219,7 +285,7 @@ export default function RoutineItemRow({
               viewingDate={selectedDate}
               scheduledDays={item.scheduledDays}
               successThreshold={item.successThreshold}
-              targetMinutes={!isCheckbox && !isStopwatch && !isSpecial ? item.projectedMinutes : null}
+              targetMinutes={!isCheckbox && !isStopwatch ? item.projectedMinutes : null}
             />
           </div>
         </div>
@@ -279,49 +345,6 @@ export default function RoutineItemRow({
             </>
           ) : !state ? (
             <>
-              {/* Special item types */}
-              {item.itemType === "virtue_checkin" && (
-                <button
-                  onClick={onOpenCheckIn}
-                  className="w-full flex items-center justify-between bg-gold/10 hover:bg-gold/20 border border-gold/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
-                >
-                  <span className="font-body text-sm font-medium">✦ Check In</span>
-                  <span className="font-mono text-gold text-xs">{fmtMins(item.projectedMinutes)}</span>
-                </button>
-              )}
-
-              {item.itemType === "weekly_review" && (
-                isSunday ? (
-                  <button
-                    onClick={onOpenReview}
-                    className="w-full flex items-center justify-between bg-gold/10 hover:bg-gold/20 border border-gold/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
-                  >
-                    <span className="font-body text-sm font-medium">☰ Weekly Review</span>
-                    <span className="font-mono text-gold text-xs">{fmtMins(item.projectedMinutes)}</span>
-                  </button>
-                ) : (
-                  <div className="px-4 py-3 rounded-card bg-bg border border-border">
-                    <p className="font-mono text-xs text-dim">Sunday habit — skip or rest for today</p>
-                  </div>
-                )
-              )}
-
-              {item.itemType === "routine_review" && (
-                isSunday ? (
-                  <button
-                    onClick={onOpenRoutineReview}
-                    className="w-full flex items-center justify-between bg-gold/10 hover:bg-gold/20 border border-gold/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
-                  >
-                    <span className="font-body text-sm font-medium">☰ Routine Review</span>
-                    <span className="font-mono text-gold text-xs">{fmtMins(item.projectedMinutes)}</span>
-                  </button>
-                ) : (
-                  <div className="px-4 py-3 rounded-card bg-bg border border-border">
-                    <p className="font-mono text-xs text-dim">Sunday habit — skip or rest for today</p>
-                  </div>
-                )
-              )}
-
               {/* Checkbox: simple done, no timer */}
               {isCheckbox && (
                 <button
@@ -332,30 +355,37 @@ export default function RoutineItemRow({
                 </button>
               )}
 
-              {/* Standard / Stopwatch */}
+              {/* Standard / Stopwatch / Form check */}
               {isTimeable && (
                 isBackEntry ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        onStateChange("done", {
-                          actualMinutes: Math.max(1, parseInt(backMins) || item.projectedMinutes),
-                          isBackEntry: true,
-                        })
-                      }
-                      className="flex-1 flex items-center justify-center gap-2 bg-olive/10 hover:bg-olive/20 border border-olive/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
-                    >
-                      <span className="font-body text-sm font-medium">✓ Done</span>
-                    </button>
-                    <div className="flex items-center gap-1 bg-bg border border-border rounded-card px-3 py-2 min-h-[44px]">
-                      <input
-                        type="number"
-                        min={1}
-                        value={backMins}
-                        onChange={(e) => setBackMins(e.target.value)}
-                        className="w-10 bg-transparent font-mono text-sm text-text outline-none text-right"
-                      />
-                      <span className="font-mono text-dim text-xs">m</span>
+                  <div className="space-y-2">
+                    {backEntryFields}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          onStateChange("done", {
+                            actualMinutes: Math.max(1, parseInt(backMins) || item.projectedMinutes),
+                            isBackEntry: true,
+                            formData: isFormCheck ? backFormValues : undefined,
+                          })
+                        }
+                        disabled={!backFormComplete}
+                        className="flex-1 flex items-center justify-center gap-2 bg-olive/10 hover:bg-olive/20 border border-olive/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px] disabled:opacity-40"
+                      >
+                        <span className="font-body text-sm font-medium">✓ Done</span>
+                      </button>
+                      {!isFormCheck && (
+                        <div className="flex items-center gap-1 bg-bg border border-border rounded-card px-3 py-2 min-h-[44px]">
+                          <input
+                            type="number"
+                            min={1}
+                            value={backMins}
+                            onChange={(e) => setBackMins(e.target.value)}
+                            className="w-10 bg-transparent font-mono text-sm text-text outline-none text-right"
+                          />
+                          <span className="font-mono text-dim text-xs">m</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -404,27 +434,34 @@ export default function RoutineItemRow({
               {/* Retimer for missed/rest items */}
               {state !== "done" && isTimeable && (
                 isBackEntry ? (
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() =>
-                        onStateChange("done", {
-                          actualMinutes: Math.max(1, parseInt(backMins) || item.projectedMinutes),
-                          isBackEntry: true,
-                        })
-                      }
-                      className="flex-1 border border-olive/40 text-olive py-2.5 rounded-card text-sm font-body min-h-[44px]"
-                    >
-                      ✓ Done
-                    </button>
-                    <div className="flex items-center gap-1 bg-bg border border-border rounded-card px-3 py-2 min-h-[44px]">
-                      <input
-                        type="number"
-                        min={1}
-                        value={backMins}
-                        onChange={(e) => setBackMins(e.target.value)}
-                        className="w-10 bg-transparent font-mono text-sm text-text outline-none text-right"
-                      />
-                      <span className="font-mono text-dim text-xs">m</span>
+                  <div className="space-y-2">
+                    {backEntryFields}
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={() =>
+                          onStateChange("done", {
+                            actualMinutes: Math.max(1, parseInt(backMins) || item.projectedMinutes),
+                            isBackEntry: true,
+                            formData: isFormCheck ? backFormValues : undefined,
+                          })
+                        }
+                        disabled={!backFormComplete}
+                        className="flex-1 border border-olive/40 text-olive py-2.5 rounded-card text-sm font-body min-h-[44px] disabled:opacity-40"
+                      >
+                        ✓ Done
+                      </button>
+                      {!isFormCheck && (
+                        <div className="flex items-center gap-1 bg-bg border border-border rounded-card px-3 py-2 min-h-[44px]">
+                          <input
+                            type="number"
+                            min={1}
+                            value={backMins}
+                            onChange={(e) => setBackMins(e.target.value)}
+                            className="w-10 bg-transparent font-mono text-sm text-text outline-none text-right"
+                          />
+                          <span className="font-mono text-dim text-xs">m</span>
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (

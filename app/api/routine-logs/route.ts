@@ -1,29 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineLog from "@/models/RoutineLog";
-import type { LogState, IReviewMetadata } from "@/models/RoutineLog";
+import type { LogState } from "@/models/RoutineLog";
 import { completeInProgressLog, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/routine-log-actions";
 import { recordSessionCompletion } from "@/lib/routine-session-actions";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const DEV_USER_ID = "dev-local-user";
-
-function resolveUserId(sessionId?: string): string | null {
-  if (sessionId) return sessionId;
-  if (process.env.SKIP_AUTH === "true") return DEV_USER_ID;
-  return null;
-}
-
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const date = req.nextUrl.searchParams.get("date") ?? todayString();
   await connectDB();
-  const logs = await RoutineLog.find({ userId, date }).lean();
+  const logs = await RoutineLog.find({ companyId, date }).lean();
   return NextResponse.json(logs.map(serializeLog));
 }
 
@@ -34,11 +27,12 @@ export async function GET(req: NextRequest) {
 // Uses $set only — DO NOT put filter fields in $setOnInsert, MongoDB rejects it as
 // conflicting mods and the write silently fails on the client.
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, userId: performedByUserId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
-  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId, sessionNav, reviewMetadata } = (await req.json()) as {
+  const { routineItemId, date, actualMinutes, state, isBackEntry, sessionGroupId, sessionNav } = (await req.json()) as {
     routineItemId: string;
     date: string;
     actualMinutes?: number;
@@ -52,9 +46,6 @@ export async function POST(req: NextRequest) {
     // since navigating within an already-open session isn't "I've started
     // doing something else." See switchActiveLog in lib/routine-log-actions.ts.
     sessionNav?: boolean;
-    // Set only by RoutineReviewFlow when completing/declining the
-    // routine_review item's log for the day — see models/RoutineLog.ts.
-    reviewMetadata?: IReviewMetadata;
   };
 
   if (!routineItemId || !date || !state) {
@@ -65,8 +56,8 @@ export async function POST(req: NextRequest) {
 
   if (state === "in_progress") {
     const log = sessionNav
-      ? await switchActiveLog(userId, routineItemId, date, sessionGroupId ?? null)
-      : await startInProgressLog(userId, routineItemId, date, sessionGroupId ?? null);
+      ? await switchActiveLog(companyId, performedByUserId, routineItemId, date, sessionGroupId ?? null)
+      : await startInProgressLog(companyId, performedByUserId, routineItemId, date, sessionGroupId ?? null);
     return NextResponse.json(serializeLog(log));
   }
 
@@ -77,11 +68,11 @@ export async function POST(req: NextRequest) {
   // belongs to (see lib/routine-session-actions.ts). Covers RoutineSession's
   // own advance()/handleMissed/handleRest (via saveLog), which write terminal
   // states through this route rather than PATCH.
-  const priorLog = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
+  const priorLog = await RoutineLog.findOne({ companyId, routineItemId, date }).lean();
   const priorSessionGroupId = priorLog?.sessionGroupId ? priorLog.sessionGroupId.toString() : null;
 
   const log = await RoutineLog.findOneAndUpdate(
-    { userId, routineItemId, date },
+    { companyId, routineItemId, date },
     {
       $set: {
         state,
@@ -89,14 +80,14 @@ export async function POST(req: NextRequest) {
         isBackEntry: isBackEntry ?? false,
         sessionGroupId: null,
         pausedSeconds: 0,
-        reviewMetadata: reviewMetadata ?? null,
+        performedByUserId,
       },
     },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
   if (priorSessionGroupId && (state === "done" || state === "missed" || state === "rest")) {
-    await recordSessionCompletion(userId, priorSessionGroupId, date, routineItemId, state, actualMinutes ?? 0);
+    await recordSessionCompletion(companyId, priorSessionGroupId, date, routineItemId, state, actualMinutes ?? 0);
   }
 
   return NextResponse.json(serializeLog(log));
@@ -106,15 +97,17 @@ export async function POST(req: NextRequest) {
 // For state 'done': sets completedAt = now, derives actualMinutes from startedAt.
 // For state 'missed': just updates state.
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, userId: performedByUserId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const {
     routineItemId, date, state,
     actualMinutes: fallbackMins,
     startedAt: startOverride,
     completedAt: endOverride,
+    formData,
   } = (await req.json()) as {
     routineItemId: string;
     date: string;
@@ -122,6 +115,11 @@ export async function PATCH(req: NextRequest) {
     actualMinutes?: number;
     startedAt?: string;   // ISO — manual time edit from client
     completedAt?: string; // ISO — manual time edit from client
+    // Filled values from a form_check item's save action — see
+    // components/FormCheckScreen.tsx. No validation against the item's
+    // formFields shape yet — trusted as sent. Only meaningful with
+    // state: "done"; ignored for "missed".
+    formData?: Record<string, string | number | boolean>;
   };
 
   await connectDB();
@@ -130,7 +128,7 @@ export async function PATCH(req: NextRequest) {
     // Timer completion: derive duration from server-recorded startedAt, plus
     // any time banked from earlier paused segments of this same log — shared
     // with the external trigger-habit endpoint's complete-the-active-item half.
-    const log = await completeInProgressLog(userId, routineItemId, date, fallbackMins ?? 1);
+    const log = await completeInProgressLog(companyId, performedByUserId, routineItemId, date, fallbackMins ?? 1, formData ?? null);
     return NextResponse.json(serializeLog(log));
   }
 
@@ -140,10 +138,10 @@ export async function PATCH(req: NextRequest) {
   // Read the prior sessionGroupId before it's cleared, same as POST's terminal
   // branch — this path is reached by the standalone timer's "Missed" button
   // and by a manual time-edit "done", both of which can still be session-anchored.
-  const priorLog = await RoutineLog.findOne({ userId, routineItemId, date }).lean();
+  const priorLog = await RoutineLog.findOne({ companyId, routineItemId, date }).lean();
   const priorSessionGroupId = priorLog?.sessionGroupId ? priorLog.sessionGroupId.toString() : null;
 
-  const setData: Record<string, unknown> = { state, sessionGroupId: null, pausedSeconds: 0 };
+  const setData: Record<string, unknown> = { state, sessionGroupId: null, pausedSeconds: 0, performedByUserId };
 
   if (startOverride && endOverride) {
     // Manual time edit: client supplied explicit start + end in local time converted to ISO
@@ -154,23 +152,32 @@ export async function PATCH(req: NextRequest) {
     setData.actualMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
   }
 
+  // A retroactive ("log with specific times") completion of a form_check
+  // item still carries its captured field values — same formData shape as
+  // the timer-derived completion above, just not routed through
+  // completeInProgressLog since there's no in_progress log to complete.
+  if (state === "done" && formData) {
+    setData.formData = formData;
+  }
+
   const log = await RoutineLog.findOneAndUpdate(
-    { userId, routineItemId, date },
+    { companyId, routineItemId, date },
     { $set: setData },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
   if (priorSessionGroupId) {
-    await recordSessionCompletion(userId, priorSessionGroupId, date, routineItemId, state, (setData.actualMinutes as number | undefined) ?? 0);
+    await recordSessionCompletion(companyId, priorSessionGroupId, date, routineItemId, state, (setData.actualMinutes as number | undefined) ?? 0);
   }
 
   return NextResponse.json(serializeLog(log));
 }
 
 export async function DELETE(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const { routineItemId, date } = (await req.json()) as {
     routineItemId: string;
@@ -178,7 +185,7 @@ export async function DELETE(req: NextRequest) {
   };
 
   await connectDB();
-  await RoutineLog.deleteOne({ userId, routineItemId, date });
+  await RoutineLog.deleteOne({ companyId, routineItemId, date });
   return NextResponse.json({ ok: true });
 }
 

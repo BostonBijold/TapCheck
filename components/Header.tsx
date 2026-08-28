@@ -29,10 +29,9 @@ export default function Header({ userName, today, skipAuth }: Props) {
         <div className="flex items-center justify-start">
           <Image
             src="/logo.png"
-            alt="A Good Man"
+            alt="TapCheck"
             width={38}
             height={38}
-            style={{ filter: "invert(1)", opacity: 0.9 }}
             priority
           />
         </div>
@@ -40,7 +39,7 @@ export default function Header({ userName, today, skipAuth }: Props) {
         {/* Title */}
         <div className="text-center">
           <h1 className="font-heading text-xl tracking-wide text-text leading-tight">
-            Be One
+            TapCheck
           </h1>
           <p className="font-mono text-dim text-[10px] mt-0.5 tracking-widest uppercase">
             {dayName}, {monthName} {dayNum}

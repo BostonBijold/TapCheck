@@ -1,15 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import { calendarWeekDates } from "@/lib/week-dates";
 import { computeWeeklyProgress } from "@/lib/routine-progress";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineLog from "@/models/RoutineLog";
-
-const DEV_USER_ID = "dev-local-user";
 
 // anchorDate: client's local today (YYYY-MM-DD). Never derive from server UTC.
 // The 7-day view is a fixed Sunday–Saturday calendar week containing
@@ -27,10 +25,10 @@ function getDates(days: number, anchorDate: string): string[] {
 }
 
 export async function GET(req: NextRequest) {
-  const session = await auth();
-  const userId =
-    session?.user?.id ?? (process.env.SKIP_AUTH === "true" ? DEV_USER_ID : null);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const { searchParams } = req.nextUrl;
   const days = Math.min(30, Math.max(7, parseInt(searchParams.get("days") ?? "7")));
@@ -44,9 +42,9 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const groups = await RoutineGroup.find({ userId }).sort({ order: 1 }).lean();
-  const allItems = await RoutineItem.find({ userId, isActive: true }).lean();
-  const logs = await RoutineLog.find({ userId, date: { $in: dates } }).lean();
+  const groups = await RoutineGroup.find({ companyId }).sort({ order: 1 }).lean();
+  const allItems = await RoutineItem.find({ companyId, isActive: true }).lean();
+  const logs = await RoutineLog.find({ companyId, date: { $in: dates } }).lean();
 
   // Fast lookup: itemId → date → log
   const logMap: Record<string, Record<string, (typeof logs)[0]>> = {};

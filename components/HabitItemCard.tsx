@@ -16,7 +16,10 @@ interface Props {
   selectedDate: string; // YYYY-MM-DD — the date being browsed; gets the StreakDots ring
   isBackEntry: boolean;
   onStartTimer: () => void;
-  onStateChange: (state: LogState | null, opts?: { actualMinutes?: number; isBackEntry?: boolean }) => void;
+  onStateChange: (
+    state: LogState | null,
+    opts?: { actualMinutes?: number; isBackEntry?: boolean; formData?: Record<string, string | number | boolean> }
+  ) => void;
 }
 
 function fmtMins(mins: number) {
@@ -33,6 +36,7 @@ export default function HabitItemCard({
   const state = log?.state ?? null;
   const isCheckbox = item.itemType === "checkbox";
   const isStopwatch = item.itemType === "stopwatch";
+  const isFormCheck = item.itemType === "form_check";
   const isTimed = !isCheckbox && !isStopwatch;
   const hasDuration = item.projectedMinutes > 0;
   const actual = log?.actualMinutes ?? null;
@@ -44,6 +48,19 @@ export default function HabitItemCard({
     isStopwatch ? "30" : String(item.projectedMinutes || 15)
   );
   const [showSkips, setShowSkips] = useState(false);
+  // Back-entry field capture for a form_check item — see RoutineItemRow.tsx
+  // for the same pattern in the timed-groups row.
+  const [backFormValues, setBackFormValues] = useState<Record<string, string | number | boolean>>({});
+  const formFields = item.formFields ?? [];
+  const backFormComplete =
+    !isFormCheck || formFields.every((f) => {
+      const v = backFormValues[f.key];
+      return f.type === "boolean" ? v !== undefined : v !== undefined && v !== "";
+    });
+
+  function setBackField(key: string, value: string | number | boolean) {
+    setBackFormValues((v) => ({ ...v, [key]: value }));
+  }
 
   // ── Completed state ────────────────────────────────────────────────────────
   if (state === "done") {
@@ -216,7 +233,7 @@ export default function HabitItemCard({
           </button>
         )}
 
-        {!isCheckbox && isBackEntry && (
+        {!isCheckbox && isBackEntry && !isFormCheck && (
           <div className="flex items-center gap-2 flex-shrink-0">
             <button
               onClick={() =>
@@ -244,6 +261,65 @@ export default function HabitItemCard({
           </div>
         )}
       </div>
+
+      {/* Form check back-entry: fields replace the plain minutes input above —
+          a retroactive check still needs its readings, not just a duration. */}
+      {isFormCheck && isBackEntry && (
+        <div className="ml-10 space-y-2">
+          {formFields.map((f) => (
+            <div key={f.key} className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] text-dim uppercase tracking-widest">
+                {f.label}{f.unit ? ` (${f.unit})` : ""}
+              </span>
+              {f.type === "boolean" ? (
+                <div className="flex gap-1 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setBackField(f.key, true)}
+                    className={`px-3 py-1.5 rounded-card border font-mono text-xs ${
+                      backFormValues[f.key] === true ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                    }`}
+                  >
+                    Yes
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setBackField(f.key, false)}
+                    className={`px-3 py-1.5 rounded-card border font-mono text-xs ${
+                      backFormValues[f.key] === false ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                    }`}
+                  >
+                    No
+                  </button>
+                </div>
+              ) : (
+                <input
+                  type={f.type === "number" ? "number" : "text"}
+                  inputMode={f.type === "number" ? "decimal" : undefined}
+                  value={(backFormValues[f.key] as string | number) ?? ""}
+                  onChange={(e) =>
+                    setBackField(f.key, f.type === "number" ? (e.target.value === "" ? "" : Number(e.target.value)) : e.target.value)
+                  }
+                  className="w-24 flex-shrink-0 bg-bg border border-border rounded-card px-2 py-1.5 font-mono text-xs text-text outline-none focus:border-olive text-right"
+                />
+              )}
+            </div>
+          ))}
+          <button
+            onClick={() =>
+              onStateChange("done", {
+                actualMinutes: Math.max(1, item.projectedMinutes || 1),
+                isBackEntry: true,
+                formData: backFormValues,
+              })
+            }
+            disabled={!backFormComplete}
+            className="w-full flex items-center justify-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors disabled:opacity-40"
+          >
+            ✓ Done
+          </button>
+        </div>
+      )}
 
       {/* Skip options — shown inline when toggled */}
       {!showSkips ? (

@@ -3,53 +3,64 @@ import { connectDB } from "@/lib/mongoose";
 import RoutineGroup from "@/models/RoutineGroup";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineLog from "@/models/RoutineLog";
+import { DEV_USER_ID, DEV_COMPANY_ID } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const DEV_USER_ID = "dev-local-user";
+// Short representative cycles, repeated across the 30-day window via
+// `cyclic()` below — real per-day uniqueness isn't the point, plausible
+// day-to-day variance is.
+function cyclic(values: number[], dayIdx: number): number {
+  return values[dayIdx % values.length];
+}
 
-// Actual-minute offsets per morning habit (30 values, one per day oldest→today)
-// Workout runs consistently long — this is the interesting analytics signal
-const MORNING_ACTUALS: Record<string, number[]> = {
-  "Morning Shower":   [9,10, 8,12,10, 8,11, 9,10, 8,10,12, 9,10, 8,11,10, 9,10, 8,10,12, 9, 8,10,11, 9,10, 8,10],
-  "Get Dressed":      [10, 9,10,12, 9,10, 8,11,10, 9,10, 8,12,10, 9,10,11, 9,10, 8, 9,10,12,10, 9, 8,10,11,10, 9],
-  "Cook Breakfast":   [18,22,20,25,18,20,22,19,20,25,18,22,20,19,25,20,18,22,20,19,22,18,20,25,19,20,22,18,20,22],
-  "Eat Breakfast":    [20,18,22,20,15,20,22,18,20,22,15,20,18,22,20,18,20,22,15,20,18,20,22,18,15,20,22,18,20,20],
-  "Morning Workout":  [52,55,50,58,53,48,60,52,55,50,53,58,52,55,50,60,53,55,52,58,50,55,60,52,53,55,58,50,52,55],
-  "Meditate":         [10,12,10, 8,10,15,10,10, 8,12,10,10, 8,12,10,10,12, 8,10,10,12,10, 8,10,15,10, 8,12,10,10],
-  "Read Scriptures / Morning Reading": [15,18,20,15,17,20,15,18,22,15,17,20,18,15,20,17,15,18,20,15,17,15,20,18,15,22,17,15,18,20],
+// Actual-minute values per Opening/Mid-Shift check — these run clean every
+// day (the interesting signal is in Closing's misses/rests below), just
+// with realistic minute-to-minute variance around each check's time budget.
+const OPENING_ACTUALS: Record<string, number[]> = {
+  "Walk-in Fridge Temp":          [2, 3, 2, 1, 2, 3, 2, 1, 2, 3],
+  "Walk-in Freezer Temp":         [2, 1, 2, 3, 2, 1, 2, 3, 2, 1],
+  "Handwashing Stations Stocked": [3, 4, 3, 2, 3, 4, 3, 2, 3, 4],
+  "Floors & Surfaces Clean":      [5, 6, 4, 5, 7, 5, 4, 6, 5, 7],
+  "Opening Cash Count":           [5, 4, 6, 5, 4, 6, 5, 4, 6, 5],
+  "Staff Uniform & Hygiene":      [3, 2, 4, 3, 2, 4, 3, 2, 4, 3],
+  "Opening Walkthrough":          [5, 6, 4, 5, 6, 7, 5, 4, 6, 5],
 };
 
-// Evening habit miss/rest pattern — indexed 0 (30 days ago) → 29 (today)
-const EVENING_MISSED: Record<string, number[]> = {
-  "Evening Workout":      [2, 5, 9,14,17,21,25],
-  "Cook Dinner":          [18],
-  "Eat Dinner":           [],
-  "Family Time":          [],
-  "Evening Walk":         [0, 3, 6, 9,12,15,18,21,24,27],
-  "Wind Down / Stretch":  [1, 5,10,14,19,23,28],
-  "Read":                 [4,11,17,22,26],
-  // Journal is the hardest — missed every other night (even-indexed days)
-  "Journal":              [0,2,4,6,8,10,12,14,16,18,20,22,24,26,28],
-  "Brush Teeth / Hygiene": [],
+const MIDSHIFT_ACTUALS: Record<string, number[]> = {
+  "Line Temp Check":     [3, 4, 2, 3, 4, 3, 2, 4, 3, 2],
+  "Restock Check":       [5, 6, 4, 5, 7, 5, 4, 6, 5, 7],
+  "Restroom Check":      [3, 2, 4, 3, 2, 4, 3, 2, 4, 3],
+  "Trash & Recycling":   [5, 4, 6, 5, 4, 6, 5, 4, 6, 5],
 };
 
-const EVENING_REST: Record<string, number[]> = {
-  "Evening Workout": [26],    // intentional rest day
-  "Family Time":     [7, 21], // away from home
+// Closing check miss/rest pattern — indexed 0 (30 days ago) → 29 (today).
+// "rest" here reads as "restaurant closed that day" rather than a personal
+// day off, but protects the streak the same way.
+const CLOSING_MISSED: Record<string, number[]> = {
+  "Equipment Powered Down":         [2, 5, 9, 14, 17, 21, 25],
+  "Deep Clean Kitchen":             [18],
+  "Closing Cash Reconciliation":    [],
+  "Trash Taken Out":                [0, 3, 6, 9, 12, 15, 18, 21, 24, 27],
+  "Doors Locked / Alarm Set":       [],
+  "Walk-in Fridge Temp (Close)":    [4, 11, 17, 22, 26],
+  "Walk-in Freezer Temp (Close)":   [],
 };
 
-// Actual minutes for evening habits (when done) — vary around projected
-const EVENING_OFFSETS: Record<string, number[]> = {
-  "Evening Workout":      [5,10, 8,15, 7, 0,12, 5, 8,15, 3,10, 8, 5, 0,15, 7,10, 5,12, 0, 8,15, 5, 7,10,12, 0, 5,10],
-  "Cook Dinner":          [5,-2, 8, 3,-5, 5, 8,-2, 0, 5, 3,-2, 5, 8,-5, 5,-2, 3, 5,-2, 8, 5, 3,-2, 5, 8,-2, 5, 3,-2],
-  "Eat Dinner":           [5, 3, 8, 5, 0, 5, 8, 3, 5, 8, 0, 5, 3, 8, 5, 0, 5, 8, 3, 5, 8, 0, 5, 3, 8, 5, 0, 8, 3, 5],
-  "Family Time":          [20,10,15,30,-5,20,30,10,15,20, 5,30,10,15,20,-5,30,10,20,15,30, 5,10,20,15,30,10,20,15,20],
-  "Evening Walk":         [5,-2, 5,10,-5, 5,10,-2, 5,10, 0, 5,-2,10, 5, 0, 5,10,-2, 5,10,-5, 5, 0, 5,10,-2, 5, 0, 5],
-  "Wind Down / Stretch":  [2,-2, 5, 3, 0, 5, 3,-2, 5, 2, 0, 5,-2, 3, 5, 0, 5, 3,-2, 5, 2, 0, 5, 3,-2, 5, 0, 3, 5, 2],
-  "Read":                 [5, 8,15, 5, 0,10,15, 5, 8,15, 0, 5, 8,15, 5, 0,15, 5, 8,15, 5, 0, 8,15, 5, 8, 0, 5,15, 8],
-  "Journal":              [2, 3, 5, 2, 0, 5, 3, 2, 5, 3, 0, 5, 2, 3, 5, 0, 5, 3, 2, 5, 3, 0, 5, 2, 3, 5, 0, 3, 5, 2],
-  "Brush Teeth / Hygiene":[0, 2, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 0, 1, 2, 1, 0],
+const CLOSING_REST: Record<string, number[]> = {
+  "Equipment Powered Down": [26], // holiday closure
+  "Trash Taken Out":        [7, 21],
+};
+
+// Actual-minute deltas from projected for Closing checks (when done)
+const CLOSING_OFFSETS: Record<string, number[]> = {
+  "Equipment Powered Down":       [1, 2, 0, 3, 1, -1, 2, 1, 0, 3],
+  "Deep Clean Kitchen":           [5, -2, 8, 3, -5, 5, 8, -2, 0, 5],
+  "Closing Cash Reconciliation":  [2, -1, 3, 1, 0, 2, 3, -1, 1, 2],
+  "Trash Taken Out":              [1, -1, 1, 2, -1, 1, 2, -1, 1, 2],
+  "Doors Locked / Alarm Set":     [0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+  "Walk-in Fridge Temp (Close)":  [0, 1, 0, -1, 0, 1, 0, -1, 0, 1],
+  "Walk-in Freezer Temp (Close)": [0, -1, 0, 1, 0, -1, 0, 1, 0, -1],
 };
 
 function getDate(daysAgo: number): string {
@@ -65,8 +76,8 @@ export async function GET() {
 
   await connectDB();
 
-  const groups = await RoutineGroup.find({ userId: DEV_USER_ID }).sort({ order: 1 }).lean();
-  const items  = await RoutineItem.find({ userId: DEV_USER_ID, isActive: true }).lean();
+  const groups = await RoutineGroup.find({ companyId: DEV_COMPANY_ID }).sort({ order: 1 }).lean();
+  const items  = await RoutineItem.find({ companyId: DEV_COMPANY_ID, isActive: true }).lean();
 
   if (groups.length === 0) {
     return NextResponse.json(
@@ -75,24 +86,24 @@ export async function GET() {
     );
   }
 
-  const morningGroup = groups.find((g) => g.timeOfDay === "morning");
-  const eveningGroup = groups.find((g) => g.timeOfDay === "evening");
+  const openingGroup = groups.find((g) => g.timeOfDay === "morning");
+  const midShiftGroup = groups.find((g) => g.timeOfDay === "custom");
+  const closingGroup = groups.find((g) => g.timeOfDay === "evening");
 
-  if (!morningGroup || !eveningGroup) {
-    return NextResponse.json({ error: "Missing morning or evening group." }, { status: 400 });
+  if (!openingGroup || !midShiftGroup || !closingGroup) {
+    return NextResponse.json({ error: "Missing Opening, Mid-Shift, or Closing group." }, { status: 400 });
   }
 
-  const morningItems = items
-    .filter((i) => i.groupId.toString() === morningGroup._id.toString())
-    .sort((a, b) => a.order - b.order);
+  const byGroup = (groupId: string) =>
+    items.filter((i) => i.groupId.toString() === groupId).sort((a, b) => a.order - b.order);
 
-  const eveningItems = items
-    .filter((i) => i.groupId.toString() === eveningGroup._id.toString())
-    .sort((a, b) => a.order - b.order);
+  const openingItems = byGroup(openingGroup._id.toString());
+  const midShiftItems = byGroup(midShiftGroup._id.toString());
+  const closingItems = byGroup(closingGroup._id.toString());
 
   // Wipe existing logs for the past 30 days so this is idempotent
   const dates = Array.from({ length: 30 }, (_, i) => getDate(29 - i));
-  await RoutineLog.deleteMany({ userId: DEV_USER_ID, date: { $in: dates } });
+  await RoutineLog.deleteMany({ companyId: DEV_COMPANY_ID, date: { $in: dates } });
 
   const logs: object[] = [];
 
@@ -100,48 +111,53 @@ export async function GET() {
     const date = dates[dayIdx]; // dayIdx 0 = 30 days ago, 29 = today
     const isToday = dayIdx === 29;
 
-    // ── Morning: perfect every day ──────────────────────────────────────────
-    for (const item of morningItems) {
-      const offsets = MORNING_ACTUALS[item.name];
-      const actualMinutes = offsets
-        ? offsets[dayIdx]
-        : item.projectedMinutes;
+    // ── Opening + Mid-Shift: clean every day ────────────────────────────────
+    for (const [groupItems, actuals, createdAtTime] of [
+      [openingItems, OPENING_ACTUALS, "08:30:00"],
+      [midShiftItems, MIDSHIFT_ACTUALS, "13:30:00"],
+    ] as const) {
+      for (const item of groupItems) {
+        const offsets = actuals[item.name];
+        const actualMinutes = offsets ? cyclic(offsets, dayIdx) : item.projectedMinutes;
 
-      logs.push({
-        userId: DEV_USER_ID,
-        routineItemId: item._id,
-        date,
-        state: "done",
-        actualMinutes,
-        isBackEntry: !isToday,
-        createdAt: new Date(date + "T08:30:00"),
-      });
+        logs.push({
+          companyId: DEV_COMPANY_ID,
+          performedByUserId: DEV_USER_ID,
+          routineItemId: item._id,
+          date,
+          state: "done",
+          actualMinutes,
+          isBackEntry: !isToday,
+          createdAt: new Date(date + "T" + createdAtTime),
+        });
+      }
     }
 
-    // ── Evening: staggered ──────────────────────────────────────────────────
-    for (const item of eveningItems) {
-      const missedDays = EVENING_MISSED[item.name] ?? [];
-      const restDays   = EVENING_REST[item.name]   ?? [];
+    // ── Closing: staggered ───────────────────────────────────────────────────
+    for (const item of closingItems) {
+      const missedDays = CLOSING_MISSED[item.name] ?? [];
+      const restDays   = CLOSING_REST[item.name]   ?? [];
 
       let state: "done" | "missed" | "rest";
-      if (restDays.includes(dayIdx))   state = "rest";
+      if (restDays.includes(dayIdx))        state = "rest";
       else if (missedDays.includes(dayIdx)) state = "missed";
       else state = "done";
 
-      const offsets = EVENING_OFFSETS[item.name] ?? [];
+      const offsets = CLOSING_OFFSETS[item.name] ?? [];
       const actualMinutes =
         state === "done"
-          ? Math.max(1, item.projectedMinutes + (offsets[dayIdx] ?? 0))
+          ? Math.max(1, item.projectedMinutes + (offsets.length ? cyclic(offsets, dayIdx) : 0))
           : undefined;
 
       logs.push({
-        userId: DEV_USER_ID,
+        companyId: DEV_COMPANY_ID,
+        performedByUserId: DEV_USER_ID,
         routineItemId: item._id,
         date,
         state,
         actualMinutes,
         isBackEntry: !isToday,
-        createdAt: new Date(date + "T20:00:00"),
+        createdAt: new Date(date + "T21:30:00"),
       });
     }
   }
@@ -151,19 +167,18 @@ export async function GET() {
   const summary = {
     daysSeeded: 30,
     logsInserted: logs.length,
-    morning: `${morningItems.length} habits — all done every day`,
-    evening: {
-      totalHabits: eveningItems.length,
+    opening: `${openingItems.length} checks — clean every day`,
+    midShift: `${midShiftItems.length} checks — clean every day`,
+    closing: {
+      totalChecks: closingItems.length,
       patterns: {
-        "Evening Workout":     "7 misses, 1 rest day",
-        "Cook Dinner":         "1 miss (takeout night)",
-        "Family Time":         "2 rest days (away)",
-        "Evening Walk":        "10 misses (weather/tired)",
-        "Wind Down / Stretch": "7 misses",
-        "Read":                "5 misses",
-        "Journal":             "15 misses — hardest habit (every other night)",
-        "Eat Dinner":          "perfect",
-        "Brush Teeth / Hygiene": "perfect",
+        "Equipment Powered Down":       "7 misses, 1 holiday closure",
+        "Deep Clean Kitchen":           "1 miss",
+        "Closing Cash Reconciliation":  "perfect",
+        "Trash Taken Out":              "10 misses, 2 holiday closures",
+        "Doors Locked / Alarm Set":     "perfect",
+        "Walk-in Fridge Temp (Close)":  "5 misses",
+        "Walk-in Freezer Temp (Close)": "perfect",
       },
     },
   };

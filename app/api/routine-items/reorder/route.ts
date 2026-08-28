@@ -1,24 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import RoutineItem from "@/models/RoutineItem";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-
-const DEV_USER_ID = "dev-local-user";
-
-function resolveUserId(sessionId?: string) {
-  if (sessionId) return sessionId;
-  if (process.env.SKIP_AUTH === "true") return DEV_USER_ID;
-  return null;
-}
 
 // PATCH /api/routine-items/reorder
 // Body: { items: Array<{ _id: string; order: number }> }
 export async function PATCH(req: NextRequest) {
-  const session = await auth();
-  const userId = resolveUserId(session?.user?.id);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const { items } = (await req.json()) as { items: Array<{ _id: string; order: number }> };
 
@@ -30,7 +23,7 @@ export async function PATCH(req: NextRequest) {
 
   await Promise.all(
     items.map(({ _id, order }) =>
-      RoutineItem.updateOne({ _id, userId }, { $set: { order } })
+      RoutineItem.updateOne({ _id, companyId }, { $set: { order } })
     )
   );
 

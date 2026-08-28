@@ -1,12 +1,8 @@
 // Pure visibility rule — safe to import from client components.
-// Weekly Review and Routine Review only appear in the routine list on
-// Sundays — same weekly cadence, same evening slot.
-export function isItemVisibleOn(
-  item: { itemType?: "standard" | "stopwatch" | "checkbox" | "virtue_checkin" | "weekly_review" | "routine_review" },
-  dateStr: string
-): boolean {
-  if (item.itemType === "weekly_review" || item.itemType === "routine_review") {
-    return new Date(dateStr + "T12:00:00").getDay() === 0;
-  }
+// Retired the routine_review Sunday-only gate when that feature was removed;
+// every remaining item type is always visible. Kept as a named seam in case
+// a future item type needs date-based visibility again.
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+export function isItemVisibleOn(item: { itemType?: "standard" | "stopwatch" | "checkbox" | "form_check" }, dateStr: string): boolean {
   return true;
 }

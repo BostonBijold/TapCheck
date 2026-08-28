@@ -21,7 +21,7 @@ interface Props {
   title?: string;
   emptyLabel?: string;
   // Show each item's scheduled date instead of the overdue line — for lists
-  // (e.g. the Goals-page backlog) that span multiple future dates.
+  // that span multiple future dates.
   showDates?: boolean;
   // Replace the small header "+ Add" link with a full-width button pinned
   // above the list, always visible (not just on empty state).

@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import mongoose from "mongoose";
-import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
+import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-const DEV_USER_ID = "dev-local-user";
 
 // Session-authenticated (not the API key) — this comes from the app's own
 // logged-in JS, immediately after the native side receives a Live Activity
@@ -17,9 +16,9 @@ const DEV_USER_ID = "dev-local-user";
 // usable, and there's at most one relevant Live Activity per user at a time
 // (the single-active-timer invariant).
 export async function POST(req: NextRequest) {
-  const session = await auth();
-  const userId = session?.user?.id ?? (process.env.SKIP_AUTH === "true" ? DEV_USER_ID : null);
-  if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { userId } = sessionUser;
 
   const body = await req.json().catch(() => ({}));
   const token = typeof body.token === "string" ? body.token : null;

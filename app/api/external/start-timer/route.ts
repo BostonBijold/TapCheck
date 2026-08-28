@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import { findUserIdByApiKey } from "@/lib/api-key";
+import { findSessionByApiKey } from "@/lib/api-key";
 import { startInProgressLog, serializeLog } from "@/lib/routine-log-actions";
 import RoutineItem from "@/models/RoutineItem";
 import RoutineGroup from "@/models/RoutineGroup";
@@ -51,9 +51,13 @@ export async function POST(req: NextRequest) {
 
   await connectDB();
 
-  const userId = await findUserIdByApiKey(apiKey);
-  if (!userId) {
+  const apiSession = await findSessionByApiKey(apiKey);
+  if (!apiSession) {
     return NextResponse.json({ error: "Invalid API key" }, { status: 401 });
+  }
+  const { userId, companyId } = apiSession;
+  if (!companyId) {
+    return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   }
 
   const routineItemId = readParam(body, req.nextUrl.searchParams, "routineItemId");
@@ -65,7 +69,7 @@ export async function POST(req: NextRequest) {
 
   let item;
   try {
-    item = await RoutineItem.findOne({ _id: routineItemId, userId, isActive: true }).lean();
+    item = await RoutineItem.findOne({ _id: routineItemId, companyId, isActive: true }).lean();
   } catch {
     return NextResponse.json({ error: "Invalid routineItemId" }, { status: 400 });
   }
@@ -76,7 +80,7 @@ export async function POST(req: NextRequest) {
   if (routineGroupId) {
     let group;
     try {
-      group = await RoutineGroup.findOne({ _id: routineGroupId, userId }).lean();
+      group = await RoutineGroup.findOne({ _id: routineGroupId, companyId }).lean();
     } catch {
       return NextResponse.json({ error: "Invalid routineGroupId" }, { status: 400 });
     }
@@ -88,6 +92,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const log = await startInProgressLog(userId, routineItemId, date, routineGroupId);
+  const log = await startInProgressLog(companyId, userId, routineItemId, date, routineGroupId);
   return NextResponse.json({ ok: true, log: serializeLog(log) });
 }

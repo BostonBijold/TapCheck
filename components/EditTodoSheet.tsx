@@ -73,7 +73,7 @@ export default function EditTodoSheet({ todo, onSave, onDelete, onClose }: Props
                 value={scheduledDate}
                 onChange={(e) => setScheduledDate(e.target.value)}
                 className="w-full bg-bg border border-border rounded-card px-3 py-3 font-mono text-sm text-text outline-none focus:border-border-light"
-                style={{ colorScheme: "dark" }}
+                style={{ colorScheme: "light" }}
               />
             </div>
 
