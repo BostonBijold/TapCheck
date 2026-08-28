@@ -96,51 +96,15 @@ function SortableRow({
   const [editThreshold, setEditThreshold] = useState(task.successThreshold);
   const [saving, setSaving] = useState(false);
 
-  // NFC linking — see docs/features/nfc.md. Local state so a generate/link/
-  // unlink action reflects immediately without a full page refresh.
+  // Tap-to-trigger NFC status (see docs/features/nfc.md) — creating a NEW
+  // link this way is removed from the UI (Scan-to-Complete Tag below is now
+  // the only way to link a tag from this screen), but a task linked before
+  // that removal still shows its status here and can be unlinked, so an
+  // already-deployed physical tag or built Shortcut isn't silently orphaned.
   const [nfcTagCode, setNfcTagCode] = useState<string | null>(task.nfcTagCode);
-  const [nfcArmed, setNfcArmed] = useState(false);
   const [nfcBusy, setNfcBusy] = useState(false);
   const [nfcError, setNfcError] = useState<string | null>(null);
   const [showNfcSetup, setShowNfcSetup] = useState(false);
-
-  async function handleLinkPhysicalTag() {
-    setNfcBusy(true);
-    setNfcError(null);
-    try {
-      const res = await fetch("/api/nfc-tags", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: task._id }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to arm link");
-      setNfcArmed(true);
-    } catch (err) {
-      setNfcError(err instanceof Error ? err.message : "Failed to arm link");
-    } finally {
-      setNfcBusy(false);
-    }
-  }
-
-  async function handleGenerateSilentTrigger() {
-    setNfcBusy(true);
-    setNfcError(null);
-    try {
-      const res = await fetch("/api/nfc-tags/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: task._id }),
-      });
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to generate trigger");
-      const data: { tagCode: string } = await res.json();
-      setNfcTagCode(data.tagCode);
-      setShowNfcSetup(true);
-    } catch (err) {
-      setNfcError(err instanceof Error ? err.message : "Failed to generate trigger");
-    } finally {
-      setNfcBusy(false);
-    }
-  }
 
   async function handleUnlinkTag() {
     if (!nfcTagCode) return;
@@ -151,7 +115,6 @@ function SortableRow({
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unlink");
       setNfcTagCode(null);
       setShowNfcSetup(false);
-      setNfcArmed(false);
     } catch (err) {
       setNfcError(err instanceof Error ? err.message : "Failed to unlink");
     } finally {
@@ -178,7 +141,7 @@ function SortableRow({
     const result = await scanNfcTag();
     if (result.status !== "ok") {
       setBindBusy(false);
-      setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : "Scan cancelled — try again.");
+      setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : result.message);
       return;
     }
     try {
@@ -371,65 +334,45 @@ function SortableRow({
             </div>
           )}
 
-          {/* NFC tag — manager-only, same gate as the /api/nfc-tags routes.
-              See docs/features/nfc.md. */}
-          {isManager && (
+          {/* Tap-to-trigger NFC tag — manager-only, same gate as the
+              /api/nfc-tags routes. See docs/features/nfc.md. Only rendered
+              for a task already linked this way before "Link a Physical
+              Tag"/"Generate Silent Trigger" were removed from the UI — view
+              status and Unlink only, no way to create a new one from here
+              anymore (Scan-to-Complete Tag below is the only linking path
+              now). */}
+          {isManager && nfcTagCode && (
             <div className="pt-2 border-t border-border">
               <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
                 NFC Tag
               </p>
-              {nfcTagCode ? (
-                showNfcSetup ? (
-                  <NfcTagLinkedSetup
-                    tagCode={nfcTagCode}
-                    taskName={task.name}
-                    taskIcon={task.icon}
-                    onDone={() => setShowNfcSetup(false)}
-                    doneLabel="Close"
-                  />
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-olive flex-1">
-                      Linked · {nfcTagCode}
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setShowNfcSetup(true)}
-                      className="font-mono text-[11px] text-dim hover:text-muted px-2 py-1"
-                    >
-                      Setup Info
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleUnlinkTag}
-                      disabled={nfcBusy}
-                      className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-                    >
-                      Unlink
-                    </button>
-                  </div>
-                )
-              ) : nfcArmed ? (
-                <p className="font-mono text-[11px] text-olive">
-                  Armed — tap an unclaimed tag with your phone to finish linking.
-                </p>
+              {showNfcSetup ? (
+                <NfcTagLinkedSetup
+                  tagCode={nfcTagCode}
+                  taskName={task.name}
+                  taskIcon={task.icon}
+                  onDone={() => setShowNfcSetup(false)}
+                  doneLabel="Close"
+                />
               ) : (
-                <div className="flex flex-wrap gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] text-olive flex-1">
+                    Linked · {nfcTagCode}
+                  </span>
                   <button
                     type="button"
-                    onClick={handleLinkPhysicalTag}
-                    disabled={nfcBusy}
-                    className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
+                    onClick={() => setShowNfcSetup(true)}
+                    className="font-mono text-[11px] text-dim hover:text-muted px-2 py-1"
                   >
-                    Link a Physical Tag
+                    Setup Info
                   </button>
                   <button
                     type="button"
-                    onClick={handleGenerateSilentTrigger}
+                    onClick={handleUnlinkTag}
                     disabled={nfcBusy}
-                    className="font-mono text-[11px] text-gold border border-gold/30 bg-gold/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
+                    className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
                   >
-                    Generate Silent Trigger
+                    Unlink
                   </button>
                 </div>
               )}

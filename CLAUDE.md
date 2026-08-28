@@ -460,14 +460,14 @@ table is a quick reference, not authoritative.
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
 - NFC tap-to-trigger: BUILT — physical/generated tags linked to a task (manager-only), triggered via Universal Links or a silent Shortcuts Automation by any company user, see `docs/features/nfc.md`
 - NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
-- FAB button (center bottom nav): resumes the active timer when one exists; otherwise inert
+- FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task it's bound to (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.
 
 **Bottom nav:**
 1. Tasks (left) — Today view
-2. FAB (center) — active-timer resume indicator only
+2. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task directly
 3. Analytics (right) — task trends, variance, adherence
 
 **Top nav:**

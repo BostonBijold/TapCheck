@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams?: { startNext?: string; addTask?: string; date?: string; resumeTimer?: string };
+  searchParams?: { startNext?: string; addTask?: string; date?: string; resumeTimer?: string; openTaskId?: string };
 }) {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
@@ -142,6 +142,7 @@ export default async function TasksPage({
       autoStartNext={!!searchParams?.startNext}
       autoAddTask={!!searchParams?.addTask}
       autoResumeTimer={!!searchParams?.resumeTimer}
+      autoOpenTaskId={searchParams?.openTaskId ?? null}
     />
   );
 }

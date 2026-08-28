@@ -49,6 +49,7 @@ interface Props {
   autoStartNext?: boolean;
   autoAddTask?: boolean;
   autoResumeTimer?: boolean;
+  autoOpenTaskId?: string | null; // set by BottomNav.tsx's FAB "scan to open" shortcut
 }
 
 interface ActiveSession {
@@ -62,6 +63,7 @@ export default function TasksView({
   autoStartNext = false,
   autoAddTask = false,
   autoResumeTimer = false,
+  autoOpenTaskId = null,
 }: Props) {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -113,6 +115,11 @@ export default function TasksView({
     if (autoAddTask) {
       const target = anytimeTaskLists[0];
       if (target) setAddTaskSheetFor({ id: target._id, name: target.name });
+      router.replace("/tasks");
+    }
+    if (autoOpenTaskId) {
+      const found = taskLists.flatMap((tl) => tl.tasks).find((t) => t._id === autoOpenTaskId) ?? null;
+      if (found) { setTimerInitialElapsed(0); setTimerItem(found); }
       router.replace("/tasks");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps

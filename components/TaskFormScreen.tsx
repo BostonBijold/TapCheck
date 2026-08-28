@@ -111,7 +111,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
       return;
     }
     if (result.status === "cancelled") {
-      setError("Scan cancelled — try again.");
+      setError(result.message);
       return;
     }
     if (result.uid !== item.nfcTagUid) {

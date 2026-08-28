@@ -23,6 +23,7 @@ public class NfcScanPlugin: CAPPlugin, CAPBridgedPlugin, NFCTagReaderSessionDele
     private var pendingCall: CAPPluginCall?
 
     @objc func scan(_ call: CAPPluginCall) {
+        NSLog("[NfcScanPlugin] scan() called, readingAvailable=\(NFCTagReaderSession.readingAvailable)")
         guard NFCTagReaderSession.readingAvailable else {
             call.reject("NFC not available on this device")
             return
@@ -33,37 +34,71 @@ public class NfcScanPlugin: CAPPlugin, CAPBridgedPlugin, NFCTagReaderSessionDele
         session?.invalidate()
         pendingCall = call
 
-        let newSession = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693, .iso18092], delegate: self, queue: nil)
+        // .iso18092 (FeliCa) deliberately excluded — it requires a separate,
+        // restricted entitlement Apple grants on request
+        // (com.apple.developer.nfc.readersession.felica.systemcodes), not
+        // part of standard NFC Tag Reading. Requesting it without that
+        // approval throws NFCError code 2 ("Missing required entitlement")
+        // for the whole session, even though .iso14443/.iso15693 alone would
+        // have worked — confirmed by codesign/embedded.mobileprovision both
+        // showing a correctly-authorized com.apple.developer.nfc.
+        // readersession.formats entitlement, yet scanning still failing.
+        // ISO14443 (MiFare/NTAG) covers the tags this feature is actually
+        // meant for; add .iso18092 back only once FeliCa is separately
+        // approved for this Team ID.
+        let newSession = NFCTagReaderSession(pollingOption: [.iso14443, .iso15693], delegate: self, queue: nil)
         newSession?.alertMessage = "Hold your phone near the tag."
         session = newSession
         newSession?.begin()
+        NSLog("[NfcScanPlugin] session.begin() called")
+    }
+
+    // Required by NFCTagReaderSessionDelegate — nothing to do here since
+    // polling for a tag starts automatically once the session is active.
+    public func tagReaderSessionDidBecomeActive(_ session: NFCTagReaderSession) {
+        NSLog("[NfcScanPlugin] session became active — polling for a tag")
     }
 
     public func tagReaderSession(_ session: NFCTagReaderSession, didInvalidateWithError error: Error) {
         // Fires both for a genuine failure/cancel AND right after our own
         // success-path session.invalidate() call below — pendingCall is
         // already nil by then (cleared right after resolving), so this is a
-        // no-op in the success case.
-        pendingCall?.reject("Scan cancelled")
+        // no-op in the success case. Surface the REAL error (a missing
+        // entitlement, an unsupported session, a user-tapped Cancel, a
+        // timeout — these all look identical from JS otherwise, which makes
+        // "I can't scan it" impossible to diagnose without this).
+        let nsError = error as NSError
+        NSLog("[NfcScanPlugin] didInvalidateWithError: domain=\(nsError.domain) code=\(nsError.code) desc=\(error.localizedDescription)")
+        if let call = pendingCall {
+            if let readerError = error as? NFCReaderError, readerError.code == .readerSessionInvalidationErrorUserCanceled {
+                call.reject("Scan cancelled")
+            } else {
+                call.reject(error.localizedDescription)
+            }
+        }
         pendingCall = nil
         self.session = nil
     }
 
     public func tagReaderSession(_ session: NFCTagReaderSession, didDetect tags: [NFCTag]) {
+        NSLog("[NfcScanPlugin] didDetect \(tags.count) tag(s)")
         guard let tag = tags.first else {
             session.invalidate(errorMessage: "No tag detected")
             return
         }
         session.connect(to: tag) { [weak self] error in
             guard let self = self else { return }
-            if error != nil {
+            if let error = error {
+                NSLog("[NfcScanPlugin] connect(to:) failed: \(error.localizedDescription)")
                 session.invalidate(errorMessage: "Couldn't connect to tag")
                 return
             }
             guard let uid = Self.uidHex(for: tag) else {
+                NSLog("[NfcScanPlugin] uidHex(for:) returned nil for tag \(tag)")
                 session.invalidate(errorMessage: "Couldn't read tag ID")
                 return
             }
+            NSLog("[NfcScanPlugin] read uid=\(uid)")
             session.alertMessage = "Done"
             let call = self.pendingCall
             self.pendingCall = nil

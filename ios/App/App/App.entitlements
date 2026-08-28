@@ -2,44 +2,21 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)com.bostonbijold.tapcheck.shared</string>
-	</array>
-	<!-- Required to receive a Live Activity push token at all (see
-	     LiveActivityPlugin.swift's observePushToken and
-	     docs/features/live-activity.md's "Push-driven updates" section) —
-	     the same underlying aps-environment entitlement regular remote
-	     notifications would need, if this app ever adds those too.
-	     "development" matches this project's only build config today
-	     (Debug/Development-signed, per app-intents.md's deployment-target
-	     note); update to "production" alongside a Distribution-signed
-	     Release build. -->
 	<key>aps-environment</key>
 	<string>development</string>
-	<!-- Universal Links for the NFC feature (see docs/features/nfc.md) —
-	     lets a tap on https://tap-check.vercel.app/nfc/<tagCode> route
-	     straight into the app instead of Safari. Requires the paid Apple
-	     Developer Program team (free Personal Team accounts can't use this
-	     capability at all). Domain must match capacitor.config.ts's
-	     server.url and app/.well-known/apple-app-site-association's own
-	     scoping. -->
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>applinks:tap-check.vercel.app</string>
 	</array>
-	<!-- Required for NfcScanPlugin.swift's explicit, foreground "Scan NFC"
-	     action (see docs/features/nfc.md's "In-app scan-to-complete
-	     binding") — separate from the tap-to-trigger flow above, which
-	     never scans in-app and needs no NFC entitlement at all. "TAG" (not
-	     "NDEF") is required for NFCTagReaderSession, which reads a tag's raw
-	     UID regardless of its NDEF content. Also requires the "Near Field
-	     Communication Tag Reading" capability to be enabled once in Xcode's
-	     Signing & Capabilities (this entitlements file alone doesn't flip
-	     that on) and an NFCReaderUsageDescription in Info.plist. -->
 	<key>com.apple.developer.nfc.readersession.formats</key>
 	<array>
+		<string>PACE</string>
 		<string>TAG</string>
+		<string>NDEF</string>
+	</array>
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)com.bostonbijold.tapcheck.shared</string>
 	</array>
 </dict>
 </plist>

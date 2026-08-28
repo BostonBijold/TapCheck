@@ -1,12 +1,12 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
-import { ListChecks, BarChart3 } from "lucide-react";
+import { ListChecks, BarChart3, Nfc } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import { TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
+import { scanNfcTag } from "@/lib/native/nfc-scan";
 
 const LEFT_TABS = [
   { href: "/tasks",  label: "Tasks",  Icon: ListChecks },
@@ -108,6 +108,65 @@ export default function BottomNav() {
     }
   };
 
+  // ── FAB "scan to open" (inert state only — see docs/features/nfc.md's
+  // "In-app scan-to-complete binding") ────────────────────────────────────
+  // Reads a physical tag's UID, resolves it to whichever task it's bound to
+  // (GET /api/tasks/by-nfc-uid), and opens that task the same way the other
+  // FAB-driven navigations do (autoStartNext/autoAddTask/autoResumeTimer —
+  // see TasksView.tsx's "Handle URL params passed from FAB navigation"
+  // effect). This only opens the task — completing it still requires its
+  // own Scan NFC step inside TaskFormScreen, same tag, scanned again.
+  const [scanMessage, setScanMessage] = useState<string | null>(null);
+  const [scanning, setScanning] = useState(false);
+  const scanMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const flashScanMessage = (message: string) => {
+    setScanMessage(message);
+    if (scanMessageTimeout.current) clearTimeout(scanMessageTimeout.current);
+    scanMessageTimeout.current = setTimeout(() => setScanMessage(null), 3000);
+  };
+
+  useEffect(() => {
+    return () => {
+      if (scanMessageTimeout.current) clearTimeout(scanMessageTimeout.current);
+    };
+  }, []);
+
+  const handleScanToOpen = async () => {
+    if (scanning) return;
+    setScanning(true);
+    setScanMessage(null);
+    const result = await scanNfcTag();
+    if (result.status !== "ok") {
+      setScanning(false);
+      flashScanMessage(result.status === "unsupported" ? "Open the app on your phone to scan a tag." : result.message);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/tasks/by-nfc-uid?uid=${encodeURIComponent(result.uid)}`);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        flashScanMessage(body.error || "No task is linked to this tag.");
+        return;
+      }
+      const { taskId } = (await res.json()) as { taskId: string };
+      // Local date, not UTC — matches TasksView's own timezone-correction
+      // effect so it doesn't immediately overwrite this with a plain
+      // /tasks?date=... redirect before openTaskId gets consumed.
+      const localDate = new Date().toLocaleDateString("en-CA");
+      const url = `/tasks?openTaskId=${taskId}&date=${localDate}`;
+      if (pathname === "/tasks") {
+        router.replace(url);
+      } else {
+        router.push(url);
+      }
+    } catch {
+      flashScanMessage("Something went wrong — try again.");
+    } finally {
+      setScanning(false);
+    }
+  };
+
   const elapsedSeconds = activeTimer
     ? (activeTimer.pausedSeconds ?? 0) + Math.floor((nowTick - new Date(activeTimer.startedAt).getTime()) / 1000)
     : 0;
@@ -147,25 +206,29 @@ export default function BottomNav() {
             </button>
           )}
 
-          {/* FAB — resumes the active timer when one exists; otherwise inert */}
+          {/* Scan status pill — same anchor spot as the resume pill above,
+              only ever shown when there's no active timer (the two never
+              overlap: resuming a running task takes priority over scanning). */}
+          {!activeTimer && scanMessage && (
+            <div className="absolute bottom-[94px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-card border border-olive/40 text-text font-mono text-[11px] px-3 py-1.5 rounded-pill shadow-lg max-w-[240px] text-center">
+              {scanMessage}
+            </div>
+          )}
+
+          {/* FAB — resumes the active timer when one exists; otherwise scans
+              a tag and opens whichever task it's bound to. */}
           <button
-            onClick={activeTimer ? handleResumeTimer : undefined}
-            aria-label={activeTimer ? `Resume ${activeTimer.taskName}` : undefined}
-            className={`absolute left-1/2 -translate-x-1/2 -top-6 z-10 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center transition-all duration-200 ${
+            onClick={activeTimer ? handleResumeTimer : handleScanToOpen}
+            disabled={!activeTimer && scanning}
+            aria-label={activeTimer ? `Resume ${activeTimer.taskName}` : "Scan NFC tag to open its task"}
+            className={`absolute left-1/2 -translate-x-1/2 -top-6 z-10 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center transition-all duration-200 disabled:opacity-70 ${
               activeTimer ? "bg-amber" : "bg-olive"
             }`}
           >
             {activeTimer ? (
               <AppIcon name={activeTimer.taskIcon} size={26} className="text-bg relative" />
             ) : (
-              <Image
-                src="/logo.jpeg"
-                alt=""
-                width={40}
-                height={40}
-                priority
-                className="rounded-full object-cover"
-              />
+              <Nfc size={26} strokeWidth={1.75} className={`text-bg relative ${scanning ? "animate-pulse" : ""}`} />
             )}
           </button>
 
