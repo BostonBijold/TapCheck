@@ -6,7 +6,7 @@ import AppIntents
 // docs/features/app-intents.md.
 struct TriggerHabitIntent: AppIntent {
     static var title: LocalizedStringResource = "Trigger Habit"
-    static var description = IntentDescription("Starts, completes, or advances a Be One habit.")
+    static var description = IntentDescription("Starts, completes, or advances a TapCheck task.")
 
     // Runs without launching the app or showing any UI — parity with the
     // existing silent NFC Automation path (works with the phone locked).

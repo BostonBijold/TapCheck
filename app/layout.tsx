@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Playfair_Display, IBM_Plex_Mono, Inter } from "next/font/google";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import NativeBootstrap from "@/components/NativeBootstrap";
+import UniversalLinkHandler from "@/components/UniversalLinkHandler";
 import "./globals.css";
 
 const playfair = Playfair_Display({
@@ -59,6 +60,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         {children}
         <ServiceWorkerRegister />
         <NativeBootstrap />
+        <UniversalLinkHandler />
       </body>
     </html>
   );

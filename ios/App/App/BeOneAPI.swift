@@ -17,7 +17,7 @@ import Foundation
 // would fail to compile in the RoutineActivity target. fetchHabits stays
 // as an App-only extension on this enum in HabitEntityQuery.swift instead.
 enum BeOneAPI {
-    static let baseURL = URL(string: "https://be-one-nu.vercel.app")!
+    static let baseURL = URL(string: "https://tap-check.vercel.app")!
 
     struct TriggerResponse: Decodable {
         let ok: Bool
@@ -93,9 +93,9 @@ enum BeOneAPIError: Error, CustomLocalizedStringResourceConvertible {
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .notSignedIn:
-            return "Not signed in to Be One yet — open the app once and visit your Profile page, then try again."
+            return "Not signed in to TapCheck yet — open the app once and visit your Profile page, then try again."
         case .requestFailed:
-            return "Couldn't reach Be One. Check your connection and try again."
+            return "Couldn't reach TapCheck. Check your connection and try again."
         }
     }
 }

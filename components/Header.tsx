@@ -28,11 +28,12 @@ export default function Header({ userName, today, skipAuth }: Props) {
         {/* Logo */}
         <div className="flex items-center justify-start">
           <Image
-            src="/logo.png"
+            src="/logo.jpeg"
             alt="TapCheck"
             width={38}
             height={38}
             priority
+            className="rounded-full object-cover"
           />
         </div>
 

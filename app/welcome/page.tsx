@@ -61,12 +61,12 @@ export default function WelcomePage() {
         </div>
 
         <Image
-          src="/logo.png"
+          src="/logo.jpeg"
           alt="TapCheck"
           width={96}
           height={96}
           priority
-          className="splash-logo"
+          className="splash-logo rounded-full object-cover"
         />
 
         <ArrowButton

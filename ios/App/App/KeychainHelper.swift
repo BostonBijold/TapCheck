@@ -11,7 +11,7 @@ import Security
 // that session. WhenUnlocked* fails with errSecInteractionNotAllowed in
 // exactly that case. ThisDeviceOnly keeps it out of encrypted backups.
 enum KeychainHelper {
-    private static let service = "com.bostonbijold.beone.apikey"
+    private static let service = "com.bostonbijold.tapcheck.apikey"
     private static let account = "apiKey"
 
     // Explicit access group, not the implicit per-target default — needed
@@ -22,7 +22,7 @@ enum KeychainHelper {
     // The team-id prefix is hardcoded rather than read from
     // Bundle.main — same manual-sync tradeoff as BeOneAPI.baseURL, and
     // equally unlikely to change for a single-developer personal app.
-    private static let accessGroup = "X3DPK5Y29G.com.bostonbijold.beone.shared"
+    private static let accessGroup = "X3DPK5Y29G.com.bostonbijold.tapcheck.shared"
 
     static func save(_ value: String) {
         let data = Data(value.utf8)

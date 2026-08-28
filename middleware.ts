@@ -4,7 +4,10 @@ import authConfig from "@/lib/auth.config";
 // Edge-safe auth instance (no MongoDB adapter) — middleware runs on the Edge runtime.
 const { auth } = NextAuth(authConfig);
 
-const PUBLIC_PAGE_PATHS = new Set(["/login"]);
+// apple-app-site-association must be reachable with no session — Apple's
+// CDN fetches it directly to validate Universal Links (see
+// docs/features/nfc.md's "Native setup"), never carrying a login cookie.
+const PUBLIC_PAGE_PATHS = new Set(["/login", "/.well-known/apple-app-site-association"]);
 
 export default auth((req) => {
   // Local dev escape hatch — lets you work without Google OAuth creds configured.

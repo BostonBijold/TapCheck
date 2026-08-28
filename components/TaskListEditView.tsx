@@ -25,6 +25,7 @@ import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
+import NfcTagLinkedSetup from "@/components/NfcTagLinkedSetup";
 import type { TaskType, FormFieldDef } from "@/models/Task";
 
 export interface EditTask {
@@ -38,9 +39,11 @@ export interface EditTask {
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this task is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
   appIntentLastTriggeredAt: string | null; // last time a Siri/Shortcuts App Intent triggered this task, if ever
+  nfcTagCode: string | null; // tagCode of the NFC tag linked to this task, if any — see docs/features/nfc.md
 }
 
 interface Props {
+  isManager: boolean;
   taskList: { _id: string; name: string; startTime: string | null; scheduledDays: number[] };
   tasks: EditTask[];
 }
@@ -53,12 +56,14 @@ const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6];
 function SortableRow({
   task,
   isEditing,
+  isManager,
   onToggleEdit,
   onSave,
   onRemove,
 }: {
   task: EditTask;
   isEditing: boolean;
+  isManager: boolean;
   onToggleEdit: () => void;
   onSave: (
     name: string,
@@ -87,6 +92,69 @@ function SortableRow({
   const [editScheduledDays, setEditScheduledDays] = useState<number[]>(task.scheduledDays);
   const [editThreshold, setEditThreshold] = useState(task.successThreshold);
   const [saving, setSaving] = useState(false);
+
+  // NFC linking — see docs/features/nfc.md. Local state so a generate/link/
+  // unlink action reflects immediately without a full page refresh.
+  const [nfcTagCode, setNfcTagCode] = useState<string | null>(task.nfcTagCode);
+  const [nfcArmed, setNfcArmed] = useState(false);
+  const [nfcBusy, setNfcBusy] = useState(false);
+  const [nfcError, setNfcError] = useState<string | null>(null);
+  const [showNfcSetup, setShowNfcSetup] = useState(false);
+
+  async function handleLinkPhysicalTag() {
+    setNfcBusy(true);
+    setNfcError(null);
+    try {
+      const res = await fetch("/api/nfc-tags", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task._id }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to arm link");
+      setNfcArmed(true);
+    } catch (err) {
+      setNfcError(err instanceof Error ? err.message : "Failed to arm link");
+    } finally {
+      setNfcBusy(false);
+    }
+  }
+
+  async function handleGenerateSilentTrigger() {
+    setNfcBusy(true);
+    setNfcError(null);
+    try {
+      const res = await fetch("/api/nfc-tags/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task._id }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to generate trigger");
+      const data: { tagCode: string } = await res.json();
+      setNfcTagCode(data.tagCode);
+      setShowNfcSetup(true);
+    } catch (err) {
+      setNfcError(err instanceof Error ? err.message : "Failed to generate trigger");
+    } finally {
+      setNfcBusy(false);
+    }
+  }
+
+  async function handleUnlinkTag() {
+    if (!nfcTagCode) return;
+    setNfcBusy(true);
+    setNfcError(null);
+    try {
+      const res = await fetch(`/api/nfc-tags/${nfcTagCode}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unlink");
+      setNfcTagCode(null);
+      setShowNfcSetup(false);
+      setNfcArmed(false);
+    } catch (err) {
+      setNfcError(err instanceof Error ? err.message : "Failed to unlink");
+    } finally {
+      setNfcBusy(false);
+    }
+  }
 
   function toggleEditDay(day: number) {
     setEditScheduledDays((prev) => {
@@ -249,6 +317,74 @@ function SortableRow({
             </div>
           )}
 
+          {/* NFC tag — manager-only, same gate as the /api/nfc-tags routes.
+              See docs/features/nfc.md. */}
+          {isManager && (
+            <div className="pt-2 border-t border-border">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
+                NFC Tag
+              </p>
+              {nfcTagCode ? (
+                showNfcSetup ? (
+                  <NfcTagLinkedSetup
+                    tagCode={nfcTagCode}
+                    taskName={task.name}
+                    taskIcon={task.icon}
+                    onDone={() => setShowNfcSetup(false)}
+                    doneLabel="Close"
+                  />
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-olive flex-1">
+                      Linked · {nfcTagCode}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setShowNfcSetup(true)}
+                      className="font-mono text-[11px] text-dim hover:text-muted px-2 py-1"
+                    >
+                      Setup Info
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleUnlinkTag}
+                      disabled={nfcBusy}
+                      className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
+                    >
+                      Unlink
+                    </button>
+                  </div>
+                )
+              ) : nfcArmed ? (
+                <p className="font-mono text-[11px] text-olive">
+                  Armed — tap an unclaimed tag with your phone to finish linking.
+                </p>
+              ) : (
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={handleLinkPhysicalTag}
+                    disabled={nfcBusy}
+                    className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
+                  >
+                    Link a Physical Tag
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleGenerateSilentTrigger}
+                    disabled={nfcBusy}
+                    className="font-mono text-[11px] text-gold border border-gold/30 bg-gold/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
+                  >
+                    Generate Silent Trigger
+                  </button>
+                </div>
+              )}
+              {nfcError && (
+                <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{nfcError}</p>
+              )}
+            </div>
+          )}
+
           {/* For the external API (see Profile > External API Key) */}
           <div className="pt-2 border-t border-border">
             <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
@@ -264,7 +400,7 @@ function SortableRow({
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export default function TaskListEditView({ taskList, tasks: initialTasks }: Props) {
+export default function TaskListEditView({ isManager, taskList, tasks: initialTasks }: Props) {
   const router = useRouter();
   const [tasks, setTasks] = useState<EditTask[]>(initialTasks);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -405,6 +541,7 @@ export default function TaskListEditView({ taskList, tasks: initialTasks }: Prop
         scheduledDays: newTask.scheduledDays ?? taskScheduledDays,
         successThreshold: newTask.successThreshold ?? successThreshold,
         appIntentLastTriggeredAt: null,
+        nfcTagCode: null,
       },
     ]);
     setShowAddSheet(false);
@@ -543,6 +680,7 @@ export default function TaskListEditView({ taskList, tasks: initialTasks }: Prop
                     key={task._id}
                     task={task}
                     isEditing={editingId === task._id}
+                    isManager={isManager}
                     onToggleEdit={() =>
                       setEditingId((prev) => (prev === task._id ? null : task._id))
                     }

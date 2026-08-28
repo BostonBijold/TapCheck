@@ -110,6 +110,14 @@ Built specifically for the Live Activity's "Done" button (`CompleteHabitFromActi
 
 Response: `{ ok: true, completed: SerializedTaskLog | null, started: SerializedTaskLog | null }` — same shape as `trigger-task`.
 
+## `GET /api/external/nfc/[tagCode]`
+
+The Shortcuts-driven silent-trigger entry point for the NFC feature — see [`features/nfc.md`](../features/nfc.md) for the full picture (linking flow, Universal Links, Shortcut/Automation setup). Same auth as every other route on this surface (see [Auth](#auth) above); since it's a GET fired by Shortcuts' "Get Contents of URL" with no body, the API key only ever arrives via the `x-api-key` header or `?apiKey=` query string, never a JSON body field.
+
+Unlike `trigger-task` (caller supplies `routineItemId` directly), this route takes no task param at all — `tagCode` is a URL path segment, resolved to a `taskId` server-side on every call via the `NfcTag` collection, so relinking a tag to a different task in-app takes effect on the very next tap with zero Shortcut/Automation changes. A tag with no company yet (`companyId: null`) auto-claims against a fresh `PendingNfcLink` for the calling user, exactly like the in-app "arm, then tap" flow — if no pending link is armed (or it's gone stale, >5 minutes old), the response is `422 { error: "Tag is not linked to a task yet — link it in the app first" }`. A tag claimed by a *different* company returns the same generic `404 { error: "Tag not found" }` as a nonexistent tag — ownership is never revealed.
+
+Once resolved, this calls the same `triggerTask()` (`lib/task-trigger.ts`) as `trigger-task` and `complete-active-task` above, so the response shape is identical: `{ ok: true, completed: SerializedTaskLog | null, started: SerializedTaskLog | null }`.
+
 ## `GET /api/external/tasks`
 
 A read-only sibling to the two trigger endpoints — lists the caller's company's active tasks, with each task carrying its own list context inline, rather than the nested-list-array shape `GET /api/task-lists` (the session-authenticated, in-app equivalent) uses. Built for the native App Intents `HabitEntityQuery` (`ios/App/App/AppIntents/HabitEntityQuery.swift`) to back a live Shortcuts/Siri picker — see [`features/app-intents.md`](../features/app-intents.md). No Shortcut or URL-based flow calls this directly.

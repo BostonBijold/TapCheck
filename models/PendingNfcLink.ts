@@ -1,0 +1,26 @@
+import mongoose, { Schema, Document, model, models } from "mongoose";
+
+// "Arm, then tap" NFC linking: a manager tapping "Link a Physical Tag" in
+// Manage Task List upserts one of these, then physically taps an unclaimed
+// tag — app/nfc/[tagCode]/page.tsx checks for a fresh row here to know
+// which task a cold tap should claim the tag for. One per user (a manager
+// is only ever holding one tag at a time). Treated as stale and ignored if
+// armedAt is older than a few minutes at read time — see
+// PENDING_LINK_MAX_AGE_MS in app/nfc/[tagCode]/page.tsx and
+// app/api/external/nfc/[tagCode]/route.ts — no TTL index needed for
+// correctness, just hygiene.
+export interface IPendingNfcLink extends Document {
+  userId: string;
+  companyId: string;
+  taskId: mongoose.Types.ObjectId;
+  armedAt: Date;
+}
+
+const PendingNfcLinkSchema = new Schema<IPendingNfcLink>({
+  userId: { type: String, required: true, unique: true, index: true },
+  companyId: { type: String, required: true },
+  taskId: { type: Schema.Types.ObjectId, ref: "Task", required: true },
+  armedAt: { type: Date, required: true, default: () => new Date() },
+});
+
+export default models.PendingNfcLink || model<IPendingNfcLink>("PendingNfcLink", PendingNfcLinkSchema);

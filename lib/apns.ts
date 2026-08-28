@@ -56,7 +56,7 @@ export function toAppleReferenceSeconds(date: Date): number {
   return Math.floor(date.getTime() / 1000) - APPLE_REFERENCE_DATE_OFFSET_SECONDS;
 }
 
-const BUNDLE_ID = "com.bostonbijold.beone";
+const BUNDLE_ID = "com.bostonbijold.tapcheck";
 
 function requireEnv(name: string): string {
   const value = process.env[name];

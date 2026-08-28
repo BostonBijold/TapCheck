@@ -5,6 +5,7 @@ import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import type { TaskType } from "@/models/Task";
 import AppIntentLink from "@/models/AppIntentLink";
+import NfcTag from "@/models/NfcTag";
 import TaskListEditView from "@/components/TaskListEditView";
 import { resolveSessionUser } from "@/lib/session";
 
@@ -21,7 +22,7 @@ export default async function EditTaskListPage({
 
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
-  const { companyId, userId } = sessionUser;
+  const { companyId, userId, role } = sessionUser;
   if (!companyId) redirect("/tasks");
 
   await connectDB();
@@ -47,8 +48,17 @@ export default async function EditTaskListPage({
     appIntentLinks.map((l) => [l.taskId.toString(), l.lastTriggeredAt.toISOString()])
   );
 
+  // Company-scoped, unlike AppIntentLink above — an NFC tag is a shared
+  // physical object at the restaurant, not tied to whoever set it up.
+  const nfcTags = await NfcTag.find({
+    companyId,
+    taskId: { $in: tasks.map((t) => t._id) },
+  }).lean();
+  const nfcTagCodeByTaskId = new Map(nfcTags.map((t) => [t.taskId!.toString(), t.tagCode]));
+
   return (
     <TaskListEditView
+      isManager={role === "manager"}
       taskList={{
         _id: taskList._id.toString(),
         name: taskList.name,
@@ -68,6 +78,7 @@ export default async function EditTaskListPage({
         scheduledDays: t.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         successThreshold: t.successThreshold ?? (t.scheduledDays?.length ?? 7),
         appIntentLastTriggeredAt: appIntentByTaskId.get(t._id.toString()) ?? null,
+        nfcTagCode: nfcTagCodeByTaskId.get(t._id.toString()) ?? null,
       }))}
     />
   );

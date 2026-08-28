@@ -4,7 +4,7 @@
 <dict>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)com.bostonbijold.beone.shared</string>
+		<string>$(AppIdentifierPrefix)com.bostonbijold.tapcheck.shared</string>
 	</array>
 	<!-- Required to receive a Live Activity push token at all (see
 	     LiveActivityPlugin.swift's observePushToken and
@@ -17,5 +17,16 @@
 	     Release build. -->
 	<key>aps-environment</key>
 	<string>development</string>
+	<!-- Universal Links for the NFC feature (see docs/features/nfc.md) —
+	     lets a tap on https://tap-check.vercel.app/nfc/<tagCode> route
+	     straight into the app instead of Safari. Requires the paid Apple
+	     Developer Program team (free Personal Team accounts can't use this
+	     capability at all). Domain must match capacitor.config.ts's
+	     server.url and app/.well-known/apple-app-site-association's own
+	     scoping. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>applinks:tap-check.vercel.app</string>
+	</array>
 </dict>
 </plist>

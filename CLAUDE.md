@@ -350,6 +350,7 @@ See `docs/features/task-lists.md` for the full detail.
 - [x] Live Activity (iOS Lock Screen timer) — see docs/features/live-activity.md
 - [x] External trigger API (Shortcuts/App Intents) — see docs/api/external-api.md
 - [x] Manager-created/renamed/deleted task lists + list-level day-of-week scheduling — see "Task Lists" above
+- [x] NFC tap-to-trigger tasks (Universal Links + Shortcuts silent triggers) — see docs/features/nfc.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -451,6 +452,7 @@ table is a quick reference, not authoritative.
 - Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`)
 - External API: BUILT — Shortcuts/App Intents trigger endpoint (see `docs/api/external-api.md`)
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
+- NFC tap-to-trigger: BUILT — physical/generated tags linked to a task (manager-only), triggered via Universal Links or a silent Shortcuts Automation by any company user, see `docs/features/nfc.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise inert
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been

@@ -1,56 +1,56 @@
 {
-  "images": [
+  "images" : [
     {
-      "idiom": "universal",
-      "filename": "Default@1x~universal~anyany.png",
-      "scale": "1x"
+      "filename" : "Gemini_Generated_Image_v0zw4pv0zw4pv0zw 3.jpeg",
+      "idiom" : "universal",
+      "scale" : "1x"
     },
     {
-      "idiom": "universal",
-      "filename": "Default@2x~universal~anyany.png",
-      "scale": "2x"
-    },
-    {
-      "idiom": "universal",
-      "filename": "Default@3x~universal~anyany.png",
-      "scale": "3x"
-    },
-    {
-      "appearances": [
+      "appearances" : [
         {
-          "appearance": "luminosity",
-          "value": "dark"
+          "appearance" : "luminosity",
+          "value" : "dark"
         }
       ],
-      "idiom": "universal",
-      "scale": "1x",
-      "filename": "Default@1x~universal~anyany-dark.png"
+      "filename" : "Gemini_Generated_Image_v0zw4pv0zw4pv0zw.jpeg",
+      "idiom" : "universal",
+      "scale" : "1x"
     },
     {
-      "appearances": [
-        {
-          "appearance": "luminosity",
-          "value": "dark"
-        }
-      ],
-      "idiom": "universal",
-      "scale": "2x",
-      "filename": "Default@2x~universal~anyany-dark.png"
+      "filename" : "Gemini_Generated_Image_v0zw4pv0zw4pv0zw 4.jpeg",
+      "idiom" : "universal",
+      "scale" : "2x"
     },
     {
-      "appearances": [
+      "appearances" : [
         {
-          "appearance": "luminosity",
-          "value": "dark"
+          "appearance" : "luminosity",
+          "value" : "dark"
         }
       ],
-      "idiom": "universal",
-      "scale": "3x",
-      "filename": "Default@3x~universal~anyany-dark.png"
+      "filename" : "Gemini_Generated_Image_v0zw4pv0zw4pv0zw 1.jpeg",
+      "idiom" : "universal",
+      "scale" : "2x"
+    },
+    {
+      "filename" : "Gemini_Generated_Image_v0zw4pv0zw4pv0zw 5.jpeg",
+      "idiom" : "universal",
+      "scale" : "3x"
+    },
+    {
+      "appearances" : [
+        {
+          "appearance" : "luminosity",
+          "value" : "dark"
+        }
+      ],
+      "filename" : "Gemini_Generated_Image_v0zw4pv0zw4pv0zw 2.jpeg",
+      "idiom" : "universal",
+      "scale" : "3x"
     }
   ],
-  "info": {
-    "version": 1,
-    "author": "xcode"
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
   }
 }

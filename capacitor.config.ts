@@ -1,11 +1,11 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.bostonbijold.beone',
-  appName: 'Be One',
+  appId: 'com.bostonbijold.tapcheck',
+  appName: 'TapCheck',
   webDir: 'public',
   server: {
-    url: 'https://be-one-nu.vercel.app',
+    url: 'https://tap-check.vercel.app',
     cleartext: false,
     allowNavigation: ['accounts.google.com']
   },

@@ -20,4 +20,17 @@ class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
         SceneDelegateProxy.shared.scene(scene, willConnectTo: session, options: connectionOptions)
     }
+
+    // Universal Link continuation entry point (see docs/features/nfc.md's
+    // "Native setup"). SceneDelegateProxy (from @capacitor/app) only
+    // broadcasts a native notification here — it never touches the WebView
+    // itself. UniversalLinkHandler.tsx listens for that as the JS
+    // "appUrlOpen" event and does the actual navigation.
+    func scene(_ scene: UIScene, openURLContexts URLContexts: Set<UIOpenURLContext>) {
+        SceneDelegateProxy.shared.scene(scene, openURLContexts: URLContexts)
+    }
+
+    func scene(_ scene: UIScene, continue userActivity: NSUserActivity) {
+        SceneDelegateProxy.shared.scene(scene, continue: userActivity)
+    }
 }
