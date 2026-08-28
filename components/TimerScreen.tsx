@@ -11,6 +11,7 @@ export interface TimerItem {
   projectedMinutes: number;
   taskType?: string;
   formFields?: FormFieldDef[]; // only meaningful when taskType === "form" — see TaskFormScreen.tsx
+  nfcTagUid?: string | null; // bound physical tag's UID — see docs/features/nfc.md
 }
 
 interface Props {

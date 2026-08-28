@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { findSessionByApiKey } from "@/lib/api-key";
 import { completeActiveTask } from "@/lib/task-trigger";
+import { NfcTagRequiredError } from "@/lib/task-log-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   }
 
-  const { completed, started } = await completeActiveTask(companyId, userId);
+  let completed, started;
+  try {
+    ({ completed, started } = await completeActiveTask(companyId, userId));
+  } catch (err) {
+    if (err instanceof NfcTagRequiredError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 
   return NextResponse.json({ ok: true, completed, started });
 }

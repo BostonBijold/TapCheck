@@ -390,23 +390,33 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   }, [currentIndex]);
 
   const saveLog = useCallback(
-    async (taskId: string, state: LogState, actualMinutes: number, formData?: Record<string, string | number | boolean>) => {
+    async (
+      taskId: string,
+      state: LogState,
+      actualMinutes: number,
+      formData?: Record<string, string | number | boolean>,
+      verifiedNfcUid?: string | null
+    ) => {
       // A form-task completion carries captured field values — route
       // through PATCH (completeInProgressLog) the same way TasksView's
       // standalone handleTaskFormComplete does, so formData actually gets
       // persisted instead of just a bare actualMinutes.
-      if (formData) {
-        await fetch("/api/task-logs", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskId, date: today, state, actualMinutes, formData }),
-        });
-      } else {
-        await fetch("/api/task-logs", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ taskId, date: today, state, actualMinutes }),
-        });
+      const res = formData
+        ? await fetch("/api/task-logs", {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskId, date: today, state, actualMinutes, formData, verifiedNfcUid }),
+          })
+        : await fetch("/api/task-logs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskId, date: today, state, actualMinutes }),
+          });
+      if (!res.ok) {
+        // e.g. a task bound to an NFC tag (see docs/features/nfc.md) with no
+        // matching verifiedNfcUid — the caller must not treat this as saved.
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to save — please try again.");
       }
       emitTaskLogChanged();
     },
@@ -414,11 +424,19 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   );
 
   const advance = useCallback(
-    async (state: LogState, actualMinutes: number, formData?: Record<string, string | number | boolean>) => {
+    async (state: LogState, actualMinutes: number, formData?: Record<string, string | number | boolean>, verifiedNfcUid?: string | null) => {
       if (!currentTask) return;
       const log: SessionLog = { taskId: currentTask._id, state, actualMinutes };
       setSessionLogs((prev) => [...prev, log]);
-      await saveLog(currentTask._id, state, actualMinutes, formData);
+      try {
+        await saveLog(currentTask._id, state, actualMinutes, formData, verifiedNfcUid);
+      } catch (err) {
+        // Roll back the optimistic append and stay on the current task
+        // instead of silently advancing past a completion the server
+        // actually rejected.
+        setSessionLogs((prev) => prev.filter((l) => l !== log));
+        throw err;
+      }
 
       // Skip past anything already FINISHED today (done/missed/rest), from
       // ANY source — an earlier API call, a manual tap elsewhere, or this
@@ -498,8 +516,8 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   };
   const handleMissed = () => advance("missed", 0);
   const handleRest = () => advance("rest", 0);
-  const handleTaskFormDone = (formData: Record<string, string | number | boolean>, actualMinutes: number) =>
-    advance("done", actualMinutes, formData);
+  const handleTaskFormDone = (formData: Record<string, string | number | boolean>, actualMinutes: number, verifiedNfcUid?: string | null) =>
+    advance("done", actualMinutes, formData, verifiedNfcUid);
 
   // ── Form task: full-screen takeover, same component/shape TasksView uses
   // for the standalone timer path — a form task has no ring of its own, so

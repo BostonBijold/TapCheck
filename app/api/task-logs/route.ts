@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskLog from "@/models/TaskLog";
 import type { LogState } from "@/models/TaskLog";
-import { completeInProgressLog, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/task-log-actions";
+import { assertNfcVerified, completeInProgressLog, NfcTagRequiredError, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/task-log-actions";
 import { recordSessionCompletion } from "@/lib/task-list-session-actions";
 import { resolveSessionUser } from "@/lib/session";
 
@@ -70,6 +70,20 @@ export async function POST(req: NextRequest) {
   // TaskListSessionView's own advance()/handleMissed/handleRest (via
   // saveLog), which write terminal states through this route rather than
   // PATCH.
+  // No timer/form flow runs through this branch (it's the quick-complete/
+  // back-entry path — see components/TaskCard.tsx and TaskRow.tsx), so
+  // there's never a scanned UID to verify against a bound tag.
+  if (state === "done") {
+    try {
+      await assertNfcVerified(taskId, null);
+    } catch (err) {
+      if (err instanceof NfcTagRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      throw err;
+    }
+  }
+
   const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
 
@@ -110,6 +124,7 @@ export async function PATCH(req: NextRequest) {
     startedAt: startOverride,
     completedAt: endOverride,
     formData,
+    verifiedNfcUid,
   } = (await req.json()) as {
     taskId: string;
     date: string;
@@ -122,6 +137,11 @@ export async function PATCH(req: NextRequest) {
     // formFields shape yet — trusted as sent. Only meaningful with
     // state: "done"; ignored for "missed".
     formData?: Record<string, string | number | boolean>;
+    // The UID TaskFormScreen.tsx's Scan NFC step just read, when the task
+    // is bound to a tag — see docs/features/nfc.md. Omitted/null for any
+    // task with no tag bound; completeInProgressLog rejects a "done" write
+    // for a bound task unless this matches.
+    verifiedNfcUid?: string | null;
   };
 
   await connectDB();
@@ -130,8 +150,17 @@ export async function PATCH(req: NextRequest) {
     // Timer completion: derive duration from server-recorded startedAt, plus
     // any time banked from earlier paused segments of this same log — shared
     // with the external trigger-task endpoint's complete-the-active-task half.
-    const log = await completeInProgressLog(companyId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null);
-    return NextResponse.json(serializeLog(log));
+    try {
+      const log = await completeInProgressLog(
+        companyId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null, verifiedNfcUid ?? null
+      );
+      return NextResponse.json(serializeLog(log));
+    } catch (err) {
+      if (err instanceof NfcTagRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      throw err;
+    }
   }
 
   // Leaving a session anchor behind on the log's next state doesn't help anyone —
@@ -140,9 +169,28 @@ export async function PATCH(req: NextRequest) {
   // Read the prior sessionTaskListId before it's cleared, same as POST's
   // terminal branch — this path is reached by the standalone timer's
   // "Missed" button and by a manual time-edit "done", both of which can
-  // still be session-anchored.
+  // still be session-anchored. Also doubles as the "was this already done"
+  // check just below.
   const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
+
+  // Reached here for "missed" (no NFC concern — it never claims the tag was
+  // present) or a manual time-edit "done". The latter covers two different
+  // things: TaskRow.tsx's "Edit time" on an ALREADY-done log (just
+  // adjusting timestamps on a completion that was already verified when it
+  // first happened — no re-scan needed) and a back-entry "done" establishing
+  // completion for the first time (same as the POST path above — no scanned
+  // UID to verify, so blocked for a bound task).
+  if (state === "done" && priorLog?.state !== "done") {
+    try {
+      await assertNfcVerified(taskId, null);
+    } catch (err) {
+      if (err instanceof NfcTagRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 409 });
+      }
+      throw err;
+    }
+  }
 
   const setData: Record<string, unknown> = { state, sessionTaskListId: null, pausedSeconds: 0, performedByUserId };
 

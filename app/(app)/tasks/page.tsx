@@ -90,6 +90,7 @@ export default async function TasksPage({
         scheduledDays: task.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         successThreshold: task.successThreshold ?? (task.scheduledDays?.length ?? 7),
         formFields: task.formFields ?? [],
+        nfcTagUid: task.nfcTagUid ?? null,
       })),
     };
   });

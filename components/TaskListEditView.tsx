@@ -26,6 +26,8 @@ import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
 import NfcTagLinkedSetup from "@/components/NfcTagLinkedSetup";
+import { scanNfcTag } from "@/lib/native/nfc-scan";
+import { Capacitor } from "@capacitor/core";
 import type { TaskType, FormFieldDef } from "@/models/Task";
 
 export interface EditTask {
@@ -40,6 +42,7 @@ export interface EditTask {
   successThreshold: number; // how many of this week's scheduled days = 100%
   appIntentLastTriggeredAt: string | null; // last time a Siri/Shortcuts App Intent triggered this task, if ever
   nfcTagCode: string | null; // tagCode of the NFC tag linked to this task, if any — see docs/features/nfc.md
+  nfcTagUid: string | null; // raw UID of the physical tag bound for scan-to-complete, if any — see docs/features/nfc.md
 }
 
 interface Props {
@@ -153,6 +156,57 @@ function SortableRow({
       setNfcError(err instanceof Error ? err.message : "Failed to unlink");
     } finally {
       setNfcBusy(false);
+    }
+  }
+
+  // Scan-to-complete binding — a raw physical UID stored directly on the
+  // task, distinct from nfcTagCode above (that's the tagCode/URL
+  // tap-to-trigger system). See docs/features/nfc.md's "In-app
+  // scan-to-complete binding". Local state so bind/unbind reflects
+  // immediately without a full page refresh.
+  const [nfcTagUid, setNfcTagUid] = useState<string | null>(task.nfcTagUid);
+  const [bindBusy, setBindBusy] = useState(false);
+  const [bindError, setBindError] = useState<string | null>(null);
+
+  async function handleScanToLink() {
+    setBindError(null);
+    if (!Capacitor.isNativePlatform()) {
+      setBindError("Open the app on your phone to scan a tag.");
+      return;
+    }
+    setBindBusy(true);
+    const result = await scanNfcTag();
+    if (result.status !== "ok") {
+      setBindBusy(false);
+      setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : "Scan cancelled — try again.");
+      return;
+    }
+    try {
+      const res = await fetch(`/api/tasks/${task._id}/nfc-tag`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: result.uid }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to bind tag");
+      setNfcTagUid(result.uid);
+    } catch (err) {
+      setBindError(err instanceof Error ? err.message : "Failed to bind tag");
+    } finally {
+      setBindBusy(false);
+    }
+  }
+
+  async function handleUnbindTag() {
+    setBindBusy(true);
+    setBindError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task._id}/nfc-tag`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unbind tag");
+      setNfcTagUid(null);
+    } catch (err) {
+      setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
+    } finally {
+      setBindBusy(false);
     }
   }
 
@@ -385,6 +439,49 @@ function SortableRow({
             </div>
           )}
 
+          {/* Scan-to-complete binding — a raw UID stored on the task itself,
+              distinct from the tap-to-trigger "NFC Tag" section above. See
+              docs/features/nfc.md's "In-app scan-to-complete binding". */}
+          {isManager && (
+            <div className="pt-2 border-t border-border">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
+                Scan-to-Complete Tag
+              </p>
+              {nfcTagUid ? (
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-[11px] text-olive flex-1 truncate">
+                    Bound · {nfcTagUid}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleUnbindTag}
+                    disabled={bindBusy}
+                    className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
+                  >
+                    Unbind
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={handleScanToLink}
+                  disabled={bindBusy}
+                  className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
+                >
+                  {bindBusy ? "Hold near tag…" : "Scan to Link"}
+                </button>
+              )}
+              <p className="font-body text-[11px] text-dim mt-1.5">
+                {nfcTagUid
+                  ? "Completing this task requires scanning this exact tag instead of just tapping Save."
+                  : "Optional — bind a physical tag so this task can only be completed by scanning it."}
+              </p>
+              {bindError && (
+                <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{bindError}</p>
+              )}
+            </div>
+          )}
+
           {/* For the external API (see Profile > External API Key) */}
           <div className="pt-2 border-t border-border">
             <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
@@ -542,6 +639,7 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         successThreshold: newTask.successThreshold ?? successThreshold,
         appIntentLastTriggeredAt: null,
         nfcTagCode: null,
+        nfcTagUid: null,
       },
     ]);
     setShowAddSheet(false);

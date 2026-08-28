@@ -26,6 +26,8 @@
 	<true/>
 	<key>NSSupportsLiveActivities</key>
 	<true/>
+	<key>NFCReaderUsageDescription</key>
+	<string>TapCheck uses NFC to link a physical tag to a task and to verify it when the task is completed.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

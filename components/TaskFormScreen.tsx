@@ -3,13 +3,17 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import AppIcon from "@/components/AppIcon";
 import type { TimerItem } from "@/components/TimerScreen";
+import { scanNfcTag } from "@/lib/native/nfc-scan";
 
 type FieldValue = string | number | boolean;
 
 interface Props {
   item: TimerItem;
   initialElapsed?: number; // seconds already elapsed (from server startedAt on resume)
-  onComplete: (formData: Record<string, FieldValue>, actualMinutes: number) => void;
+  // Rejects if the server refused the completion (e.g. an NFC-bound task
+  // with no/mismatched scan — see docs/features/nfc.md) — handleSave below
+  // catches that and shows it inline instead of closing this screen.
+  onComplete: (formData: Record<string, FieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) => Promise<void>;
   onMissed: () => void;
   onClose: () => void;
 }
@@ -65,12 +69,19 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
   const [values, setValues] = useState<Record<string, FieldValue>>({});
   const [error, setError] = useState("");
 
+  // A task bound to a physical tag (Manage Task List → "Scan to Link" — see
+  // docs/features/nfc.md's "In-app scan-to-complete binding") can't be
+  // completed by tapping Save alone: the same fill-in flow runs first, but
+  // the final step becomes a scan that must match this exact tag.
+  const requiresNfcScan = !!item.nfcTagUid;
+  const [scanning, setScanning] = useState(false);
+
   const setField = (key: string, value: FieldValue) => {
     setValues((v) => ({ ...v, [key]: value }));
     if (error) setError("");
   };
 
-  const handleSave = () => {
+  const handleSave = async () => {
     // All fields required for the MVP — no optional-field logic yet.
     for (const f of fields) {
       const v = values[f.key];
@@ -80,7 +91,38 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
       }
     }
     const actualMinutes = Math.max(1, Math.round(elapsed / 60));
-    onComplete(values, actualMinutes);
+
+    if (!requiresNfcScan) {
+      try {
+        await onComplete(values, actualMinutes);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to save — please try again.");
+      }
+      return;
+    }
+
+    setError("");
+    setScanning(true);
+    const result = await scanNfcTag();
+    setScanning(false);
+
+    if (result.status === "unsupported") {
+      setError("Open the app on your phone to scan the linked tag.");
+      return;
+    }
+    if (result.status === "cancelled") {
+      setError("Scan cancelled — try again.");
+      return;
+    }
+    if (result.uid !== item.nfcTagUid) {
+      setError("That's not the tag linked to this task — scan the correct one.");
+      return;
+    }
+    try {
+      await onComplete(values, actualMinutes, result.uid);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save — please try again.");
+    }
   };
 
   const timeDisplay = `${pad(Math.floor(elapsed / 60))}:${pad(elapsed % 60)}`;
@@ -100,6 +142,11 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
           <AppIcon name={item.icon} size={40} strokeWidth={1.25} className="text-text" />
         </div>
         <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+        {requiresNfcScan && (
+          <p className="font-mono text-[10px] text-dim uppercase tracking-widest mt-1">
+            Scan the linked tag to complete
+          </p>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 space-y-5">
@@ -155,13 +202,15 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
       <div className="px-4 pb-12 pt-4 space-y-3 w-full flex-shrink-0">
         <button
           onClick={handleSave}
-          className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base"
+          disabled={scanning}
+          className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base disabled:opacity-60"
         >
-          Save
+          {scanning ? "Hold near tag…" : requiresNfcScan ? "Scan NFC" : "Save"}
         </button>
         <button
           onClick={onMissed}
-          className="w-full py-3.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px]"
+          disabled={scanning}
+          className="w-full py-3.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px] disabled:opacity-60"
         >
           Missed it
         </button>

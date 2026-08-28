@@ -60,11 +60,43 @@ Surfaced in Manage Task List (`components/TaskListEditView.tsx`'s `SortableRow` 
 
 ### Why not an in-app NFC listener instead
 
-Reading the tag directly from within this app's own code (Core NFC) was considered and ruled out: a Core NFC reader session cannot survive the app backgrounding or the screen locking — it's torn down immediately — and even while the app stays foregrounded, iOS caps a single session at 60 seconds. There's no way to keep a listener armed silently the way a Shortcuts Automation can, so an in-app listener could only ever work with the app already open in the foreground at the moment of the tap.
+Reading the tag directly from within this app's own code (Core NFC) was considered and ruled out **for this trigger flow**: a Core NFC reader session cannot survive the app backgrounding or the screen locking — it's torn down immediately — and even while the app stays foregrounded, iOS caps a single session at 60 seconds. There's no way to keep a listener armed silently the way a Shortcuts Automation can, so an in-app listener could only ever work with the app already open in the foreground at the moment of the tap.
+
+That constraint is specific to *silent/background* triggering — it doesn't rule out an in-app scan for a deliberate, foreground, user-initiated action, which is exactly what the completion-verification feature below uses.
+
+## In-app scan-to-complete binding
+
+A second, unrelated NFC concept, added later and deliberately minimal — do not conflate it with the tap-to-trigger system above:
+
+| | Tap-to-trigger (above) | Scan-to-complete binding (this section) |
+|---|---|---|
+| Identifies a tag by | `tagCode` written into a URL on the tag's NDEF content | the tag's own raw hardware UID — nothing is written to the tag |
+| Stored | `models/NfcTag.ts`, a separate collection (one task ↔ many tags) | `Task.nfcTagUid` directly on the task (one task ↔ one tag) |
+| Reads the tag | never in-app — Universal Links / Shortcuts Automations | in-app, via `NFCTagReaderSession` (`ios/App/App/NfcScanPlugin.swift`) |
+| Purpose | starting/advancing/completing a task from a tap, anywhere, any time | *gating* a form task's completion on proving the right physical tag is present |
+| Who can trigger it | any signed-in company user | same — but only after a manager has bound a tag in Manage Task List |
+
+**Binding a tag** (manager-only, `components/TaskListEditView.tsx`'s `SortableRow`, in a "Scan-to-Complete Tag" panel separate from the "NFC Tag" one above): tapping **Scan to Link** calls `lib/native/nfc-scan.ts`'s `scanNfcTag()`, which opens `NfcScanPlugin`'s native `NFCTagReaderSession` sheet. On a successful read, the lowercase-hex UID is POSTed to `POST /api/tasks/[id]/nfc-tag`, which sets `Task.nfcTagUid`. **Unbind** (`DELETE /api/tasks/[id]/nfc-tag`) clears it back to `null`. Both routes are manager-gated the same way as the `/api/nfc-tags` routes above.
+
+**Completing a bound task**: the task still opens through the normal fill-in flow (`components/TaskFormScreen.tsx` — timer/form fields exactly as for any other task). Only the final step changes: with `item.nfcTagUid` set, the primary button reads **Scan NFC** instead of **Save**. Tapping it validates the form fields first (same as today), then opens the same native scan sheet; the read UID must case-insensitively match `item.nfcTagUid` or the task is *not* marked done — an inline error is shown and the manager/employee can retry or back out via "Missed it". A task with no bound tag is completely unaffected — its Save button behaves exactly as before. `components/TaskListSessionView.tsx`'s guided walkthrough needs no separate handling: it already delegates every form task to this same `TaskFormScreen` component.
+
+**Why this doesn't hit the 60-second/backgrounding limits above:** this session only ever runs for the few seconds between the user tapping "Scan NFC" (or "Scan to Link") and holding the phone to the tag, with the app foregrounded the whole time by construction — it is never expected to survive backgrounding or stay armed unattended.
+
+**Enforcement is server-side, not just the button in `TaskFormScreen.tsx`.** Every write path that can set a `TaskLog` to `done` calls `assertNfcVerified(taskId, verifiedNfcUid)` (`lib/task-log-actions.ts`) before it happens, throwing `NfcTagRequiredError` (caught and turned into a `409` with a clear message everywhere it can be reached) when the task has an `nfcTagUid` bound and no matching UID was supplied:
+
+- `completeInProgressLog` / `startImmediateLog` — the shared low-level completion helpers used by `PATCH /api/task-logs` (the in-app timer/form Save path — the *only* caller that can ever supply a matching `verifiedNfcUid`, threaded from `TaskFormScreen.tsx`'s scan result all the way through `TasksView.tsx`/`TaskListSessionView.tsx`) and by `lib/task-trigger.ts`'s `triggerTask`/`completeActiveTask` (tap-to-trigger, the Live Activity "Done" button, and the external API — none of which have ever scanned anything, so they're unconditionally blocked for a bound task).
+- `POST /api/task-logs`'s terminal branch and `PATCH`'s manual-time-edit branch — the quick-complete/back-entry "Done" buttons in `TaskCard.tsx`/`TaskRow.tsx` (also disabled/relabeled client-side for a bound task, so the tap doesn't even reach the server) — blocked the same way, **except** the manual-time-edit branch skips the check when the log was *already* `done`: that path doubles as "Edit time" on an already-verified completion, not a new completion claim, so adjusting a timestamp after the fact doesn't require re-scanning.
+- `completeStrayInProgressLogs` — auto-closes a *different*, abandoned in-progress timer when a person starts something else. For a bound task this never happened via a scan, so it's recorded honestly as `missed` instead of silently `done`.
+
+A caller that can't supply a verified UID (tap-to-trigger, Shortcuts/external API, back-entry) gets a clean rejection rather than being able to complete a bound task at all — the only way to complete one is `TaskFormScreen.tsx`'s Scan NFC step.
+
+**Native requirements**, separate from the Associated Domains capability the tap-to-trigger flow needs: `ios/App/App/App.entitlements`'s `com.apple.developer.nfc.readersession.formats: ["TAG"]` entitlement, an `NFCReaderUsageDescription` string in `Info.plist`, and (unlike Associated Domains) no paid Developer Program membership requirement — but it does still need the "Near Field Communication Tag Reading" capability enabled once in Xcode's Signing & Capabilities, and only ever works on a physical device (the Simulator has no NFC radio).
 
 ## Manage Task List UI
 
 `components/TaskListEditView.tsx`'s `SortableRow` inline edit panel shows current link status per task (loaded server-side by `app/(app)/tasks/[taskListId]/edit/page.tsx`, which queries `NfcTag.find({ companyId, taskId: { $in: taskIds } })` alongside the tasks — no client round-trip). All linking actions are manager-only (hidden for `role !== "manager"`, matching the API routes' own gate): for an unlinked task, "Link a Physical Tag" and "Generate Silent Trigger" side by side; for a linked task, "Setup Info" plus "Unlink" (`DELETE /api/nfc-tags/[tagCode]`, clears the tag back to unclaimed so it can be linked to something else).
+
+A separate "Scan-to-Complete Tag" panel sits right below this one, for the unrelated feature described in [In-app scan-to-complete binding](#in-app-scan-to-complete-binding) — do not merge the two panels or their state.
 
 ## Auth redirect preservation
 

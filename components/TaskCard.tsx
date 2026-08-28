@@ -38,6 +38,11 @@ export default function TaskCard({
   const isStopwatch = item.taskType === "stopwatch";
   const isForm = item.taskType === "form";
   const isTimed = !isCheckbox && !isStopwatch;
+  // A task bound to a physical tag (see docs/features/nfc.md) can only be
+  // completed via the in-app Scan NFC flow — the server rejects a "done"
+  // write from any of these quick/back-entry paths, so disable them here
+  // instead of letting the tap silently fail.
+  const nfcBound = !!item.nfcTagUid;
   const hasDuration = item.projectedMinutes > 0;
   const actual = log?.actualMinutes ?? null;
   const variance = state === "done" && isTimed && actual != null && hasDuration
@@ -213,8 +218,9 @@ export default function TaskCard({
         {isCheckbox && (
           <button
             onClick={() => onStateChange("done", { isBackEntry })}
-            className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-olive/30 text-transparent hover:border-olive/60 transition-colors flex-shrink-0"
-            aria-label="Mark done"
+            disabled={nfcBound}
+            aria-label={nfcBound ? "Requires scanning the linked NFC tag" : "Mark done"}
+            className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-olive/30 text-transparent hover:border-olive/60 transition-colors flex-shrink-0 disabled:opacity-40 disabled:hover:border-olive/30"
           >
             <span className="text-base leading-none">✓</span>
           </button>
@@ -242,9 +248,10 @@ export default function TaskCard({
                   isBackEntry: true,
                 })
               }
-              className="flex items-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors"
+              disabled={nfcBound}
+              className="flex items-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors disabled:opacity-40"
             >
-              ✓ Done
+              {nfcBound ? "Scan NFC to complete" : "✓ Done"}
             </button>
             {hasDuration && (
               <div className="flex items-center gap-0.5 border border-border rounded-card px-2 py-2 min-h-[40px]">
@@ -313,11 +320,16 @@ export default function TaskCard({
                 formData: backFormValues,
               })
             }
-            disabled={!backFormComplete}
+            disabled={!backFormComplete || nfcBound}
             className="w-full flex items-center justify-center gap-1.5 bg-olive/10 border border-olive/30 text-olive font-mono text-xs px-3 py-2 rounded-card min-h-[40px] hover:bg-olive/20 transition-colors disabled:opacity-40"
           >
-            ✓ Done
+            {nfcBound ? "Scan NFC to complete" : "✓ Done"}
           </button>
+          {nfcBound && (
+            <p className="font-mono text-[10px] text-dim">
+              Bound to a physical tag — open this task normally and use Scan NFC instead.
+            </p>
+          )}
         </div>
       )}
 

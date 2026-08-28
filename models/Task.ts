@@ -40,6 +40,12 @@ export interface ITask extends Document {
   // routes, which clamp on write; this field alone doesn't enforce it).
   successThreshold: number;
   formFields: FormFieldDef[];
+  // Raw hardware UID (lowercase hex) of a physical NFC tag bound directly to
+  // this task, scanned in-app — see docs/features/nfc.md's "In-app scan-to-
+  // complete binding". Distinct from models/NfcTag.ts's tagCode/URL-based
+  // tap-to-trigger system: one UID per task, stored right on the task
+  // instead of a separate collection. null/unset = task completes normally.
+  nfcTagUid: string | null;
 }
 
 export const FormFieldDefSchema = new Schema<FormFieldDef>(
@@ -70,6 +76,7 @@ const TaskSchema = new Schema<ITask>(
     scheduledDays: { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
     successThreshold: { type: Number, default: 7 },
     formFields: { type: [FormFieldDefSchema], default: [] },
+    nfcTagUid: { type: String, default: null },
   },
   { timestamps: true }
 );

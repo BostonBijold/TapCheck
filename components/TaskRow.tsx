@@ -18,6 +18,7 @@ export interface RowItem {
   scheduledDays: number[];   // 0=Sun..6=Sat — which days this item is expected
   successThreshold: number;  // how many of this week's scheduled days = 100%
   formFields?: FormFieldDef[]; // only meaningful when taskType === "form"
+  nfcTagUid?: string | null; // bound physical tag's UID — see docs/features/nfc.md
 }
 
 interface Props {
@@ -111,6 +112,11 @@ export default function TaskRow({
   const isStopwatch = item.taskType === "stopwatch";
   const isForm = item.taskType === "form";
   const isTimeable = !isCheckbox;
+  // A task bound to a physical tag (see docs/features/nfc.md) can only be
+  // completed via the in-app Scan NFC flow — the server rejects a "done"
+  // write from any of these quick/back-entry paths, so disable them here
+  // instead of letting the tap silently fail.
+  const nfcBound = !!item.nfcTagUid;
   const formFields = item.formFields ?? [];
   const backFormComplete =
     !isForm || formFields.every((f) => {
@@ -349,9 +355,10 @@ export default function TaskRow({
               {isCheckbox && (
                 <button
                   onClick={() => onStateChange("done", { isBackEntry })}
-                  className="w-full flex items-center justify-center gap-2 bg-olive/10 hover:bg-olive/20 border border-olive/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px]"
+                  disabled={nfcBound}
+                  className="w-full flex items-center justify-center gap-2 bg-olive/10 hover:bg-olive/20 border border-olive/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px] disabled:opacity-40"
                 >
-                  <span className="font-body text-sm font-medium">✓ Done</span>
+                  <span className="font-body text-sm font-medium">{nfcBound ? "Scan NFC to complete" : "✓ Done"}</span>
                 </button>
               )}
 
@@ -369,10 +376,10 @@ export default function TaskRow({
                             formData: isForm ? backFormValues : undefined,
                           })
                         }
-                        disabled={!backFormComplete}
+                        disabled={!backFormComplete || nfcBound}
                         className="flex-1 flex items-center justify-center gap-2 bg-olive/10 hover:bg-olive/20 border border-olive/30 text-text py-3 px-4 rounded-card transition-colors min-h-[44px] disabled:opacity-40"
                       >
-                        <span className="font-body text-sm font-medium">✓ Done</span>
+                        <span className="font-body text-sm font-medium">{nfcBound ? "Scan NFC to complete" : "✓ Done"}</span>
                       </button>
                       {!isForm && (
                         <div className="flex items-center gap-1 bg-bg border border-border rounded-card px-3 py-2 min-h-[44px]">
@@ -445,10 +452,10 @@ export default function TaskRow({
                             formData: isForm ? backFormValues : undefined,
                           })
                         }
-                        disabled={!backFormComplete}
+                        disabled={!backFormComplete || nfcBound}
                         className="flex-1 border border-olive/40 text-olive py-2.5 rounded-card text-sm font-body min-h-[44px] disabled:opacity-40"
                       >
-                        ✓ Done
+                        {nfcBound ? "Scan NFC to complete" : "✓ Done"}
                       </button>
                       {!isForm && (
                         <div className="flex items-center gap-1 bg-bg border border-border rounded-card px-3 py-2 min-h-[44px]">

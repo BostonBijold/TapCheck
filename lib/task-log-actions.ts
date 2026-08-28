@@ -1,10 +1,37 @@
 import TaskLog from "@/models/TaskLog";
 import type { LogState } from "@/models/TaskLog";
+import Task from "@/models/Task";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
 
 // Shared by app/api/task-logs (internal, session-authenticated) and
 // app/api/external/start-timer (API-key-authenticated) so both paths behave
 // identically — starting a timer always goes through here.
+
+// Thrown by assertNfcVerified below — every route that can reach a `done`
+// write must catch this and turn it into a clean 4xx rather than letting it
+// bubble up as an unhandled 500.
+export class NfcTagRequiredError extends Error {
+  constructor() {
+    super("This task requires scanning its linked NFC tag to complete — use Scan NFC in the app.");
+    this.name = "NfcTagRequiredError";
+  }
+}
+
+// Blocks a `done` write for a task bound to a physical tag (Task.nfcTagUid
+// — see docs/features/nfc.md's "In-app scan-to-complete binding") unless
+// the caller already produced a matching scan. The ONLY caller that can
+// ever supply a matching verifiedNfcUid is components/TaskFormScreen.tsx's
+// Scan NFC flow, which threads the UID it just scanned through
+// PATCH /api/task-logs. Every other completion path — tap-to-trigger,
+// Shortcuts/external API, manual back-entry, the stray-timer auto-close
+// sweep — has no way to prove a scan happened, so it always calls this with
+// verifiedNfcUid omitted and is unconditionally blocked for a bound task.
+export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string | null) {
+  const task = await Task.findById(taskId).select("nfcTagUid").lean();
+  if (task?.nfcTagUid && task.nfcTagUid !== verifiedNfcUid) {
+    throw new NfcTagRequiredError();
+  }
+}
 
 // bankedSeconds is elapsed time already accumulated in an earlier running
 // segment of this same log (see pausedSeconds on the model) — added on top
@@ -60,6 +87,19 @@ export async function completeStrayInProgressLogs(companyId: string, performedBy
   }).lean();
 
   for (const s of stray) {
+    // A stray log for a tag-bound task was never scanned — silently
+    // crediting it "done" here would be exactly the bypass the scan
+    // requirement exists to prevent. Record it honestly as missed instead;
+    // see docs/features/nfc.md's "In-app scan-to-complete binding".
+    const strayTask = await Task.findById(s.taskId).select("nfcTagUid").lean();
+    if (strayTask?.nfcTagUid) {
+      await TaskLog.updateOne(
+        { _id: s._id },
+        { $set: { state: "missed", startedAt: null, completedAt: null, actualMinutes: null, pausedSeconds: 0, sessionTaskListId: null } }
+      );
+      continue;
+    }
+
     const startedAt = s.startedAt ? new Date(s.startedAt) : null;
     await TaskLog.updateOne(
       { _id: s._id },
@@ -236,8 +276,10 @@ export async function startImmediateLog(
   performedByUserId: string,
   taskId: string,
   date: string,
-  taskListId: string | null = null
+  taskListId: string | null = null,
+  verifiedNfcUid: string | null = null
 ) {
+  await assertNfcVerified(taskId, verifiedNfcUid);
   await completeStrayInProgressLogs(companyId, performedByUserId, taskId);
 
   const log = await TaskLog.findOneAndUpdate(
@@ -277,8 +319,10 @@ export async function completeInProgressLog(
   taskId: string,
   date: string,
   fallbackMinutes = 1,
-  formData: Record<string, string | number | boolean> | null = null
+  formData: Record<string, string | number | boolean> | null = null,
+  verifiedNfcUid: string | null = null
 ) {
+  await assertNfcVerified(taskId, verifiedNfcUid);
   const existing = await TaskLog.findOne({ companyId, taskId, date }).lean();
   const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
   const banked = existing?.pausedSeconds ?? 0;

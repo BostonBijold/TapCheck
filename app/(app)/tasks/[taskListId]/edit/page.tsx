@@ -79,6 +79,7 @@ export default async function EditTaskListPage({
         successThreshold: t.successThreshold ?? (t.scheduledDays?.length ?? 7),
         appIntentLastTriggeredAt: appIntentByTaskId.get(t._id.toString()) ?? null,
         nfcTagCode: nfcTagCodeByTaskId.get(t._id.toString()) ?? null,
+        nfcTagUid: t.nfcTagUid ?? null,
       }))}
     />
   );

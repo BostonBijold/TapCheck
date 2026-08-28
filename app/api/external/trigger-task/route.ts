@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { findSessionByApiKey } from "@/lib/api-key";
 import { triggerTask } from "@/lib/task-trigger";
+import { NfcTagRequiredError } from "@/lib/task-log-actions";
 import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import AppIntentLink from "@/models/AppIntentLink";
@@ -93,7 +94,15 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  const { completed, started } = await triggerTask(companyId, userId, routineItemId, task.taskType, routineGroupId, date);
+  let completed, started;
+  try {
+    ({ completed, started } = await triggerTask(companyId, userId, routineItemId, task.taskType, routineGroupId, date));
+  } catch (err) {
+    if (err instanceof NfcTagRequiredError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 
   // No hook exists for "user configured a Shortcut with this task" — App
   // Intents only tell us when one actually runs. This upsert is that signal,

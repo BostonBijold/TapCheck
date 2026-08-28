@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { resolveSessionUser } from "@/lib/session";
 import { connectDB } from "@/lib/mongoose";
 import { triggerTask } from "@/lib/task-trigger";
+import { NfcTagRequiredError } from "@/lib/task-log-actions";
 import NfcTag from "@/models/NfcTag";
 import PendingNfcLink from "@/models/PendingNfcLink";
 import Task from "@/models/Task";
@@ -139,14 +140,33 @@ export default async function NfcTagPage({
   }
 
   const taskListId = tag.taskListId ? tag.taskListId.toString() : null;
-  const { completed, started } = await triggerTask(
-    companyId,
-    userId,
-    task._id.toString(),
-    task.taskType,
-    taskListId,
-    todayString()
-  );
+  let completed, started;
+  try {
+    ({ completed, started } = await triggerTask(
+      companyId,
+      userId,
+      task._id.toString(),
+      task.taskType,
+      taskListId,
+      todayString()
+    ));
+  } catch (err) {
+    // This tap-to-trigger tag (identified by tagCode) is unrelated to the
+    // task's own bound scan-to-complete tag (Task.nfcTagUid) — see
+    // docs/features/nfc.md's "In-app scan-to-complete binding". A task with
+    // one of those set can't be completed this way at all.
+    if (err instanceof NfcTagRequiredError) {
+      return (
+        <Shell>
+          <h1 className="font-heading text-2xl text-text mb-2">Scan required</h1>
+          <p className="text-muted font-body text-sm">
+            {task.name} is bound to a specific tag — open it in the app and use Scan NFC to complete it.
+          </p>
+        </Shell>
+      );
+    }
+    throw err;
+  }
 
   // The tapped task itself just landed in a terminal `done` state — either
   // it's a mark-and-done type (checkbox, which goes straight to done via

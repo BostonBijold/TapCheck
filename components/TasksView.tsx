@@ -532,21 +532,23 @@ export default function TasksView({
   // from startedAt (see completeInProgressLog); the client-computed value
   // here is only the fallback, same as the standalone timer's Done button.
   const handleTaskFormComplete = useCallback(
-    async (formData: Record<string, string | number | boolean>, actualMinutes: number) => {
+    async (formData: Record<string, string | number | boolean>, actualMinutes: number, verifiedNfcUid?: string | null) => {
       if (!timerItem) return;
-      setLogs((l) => ({
-        ...l,
-        [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "done", actualMinutes },
-      }));
+      const taskId = timerItem._id;
       const res = await fetch("/api/task-logs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: timerItem._id, date: selectedDate, state: "done", actualMinutes, formData }),
+        body: JSON.stringify({ taskId, date: selectedDate, state: "done", actualMinutes, formData, verifiedNfcUid }),
       });
-      if (res.ok) {
-        const saved: TaskLogEntry = await res.json();
-        setLogs((l) => ({ ...l, [timerItem._id]: saved }));
+      if (!res.ok) {
+        // e.g. an NFC-bound task with no/mismatched scan (see
+        // docs/features/nfc.md) — don't touch logs or close the form; let
+        // TaskFormScreen show this inline and let the user retry.
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Failed to complete task — please try again.");
       }
+      const saved: TaskLogEntry = await res.json();
+      setLogs((l) => ({ ...l, [taskId]: saved }));
       emitTaskLogChanged();
       setTimerItem(null);
       endRoutineActivity();

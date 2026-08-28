@@ -194,6 +194,11 @@ Ownership-level — same reasoning as TaskList.
   scheduledDays,     // 0=Sun..6=Sat — which days this task is expected; also gates whether
                      //   it actually appears on the Tasks page that day, not just analytics
   successThreshold,  // how many of this week's scheduled days = 100%
+  nfcTagUid,         // raw hardware UID of a bound physical NFC tag, scanned in-app; null = no
+                     //   binding. Completing this task then requires a matching "Scan NFC"
+                     //   instead of a plain Save — see docs/features/nfc.md's "In-app
+                     //   scan-to-complete binding". Distinct from the separate NfcTag
+                     //   collection used for tap-to-trigger.
 }
 ```
 
@@ -351,6 +356,7 @@ See `docs/features/task-lists.md` for the full detail.
 - [x] External trigger API (Shortcuts/App Intents) — see docs/api/external-api.md
 - [x] Manager-created/renamed/deleted task lists + list-level day-of-week scheduling — see "Task Lists" above
 - [x] NFC tap-to-trigger tasks (Universal Links + Shortcuts silent triggers) — see docs/features/nfc.md
+- [x] In-app NFC scan-to-complete task binding (distinct from the above) — see docs/features/nfc.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -453,6 +459,7 @@ table is a quick reference, not authoritative.
 - External API: BUILT — Shortcuts/App Intents trigger endpoint (see `docs/api/external-api.md`)
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
 - NFC tap-to-trigger: BUILT — physical/generated tags linked to a task (manager-only), triggered via Universal Links or a silent Shortcuts Automation by any company user, see `docs/features/nfc.md`
+- NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise inert
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
