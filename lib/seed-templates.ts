@@ -1,5 +1,5 @@
-import HabitTemplate from "@/models/HabitTemplate";
-import type { FormFieldDef } from "@/models/RoutineItem";
+import TaskTemplate from "@/models/TaskTemplate";
+import type { FormFieldDef } from "@/models/Task";
 
 interface SystemTemplate {
   name: string;
@@ -185,7 +185,7 @@ export const DEFAULT_CLOSING_NAMES = [
 
 // Idempotent — always updates icon/fields so changes propagate to existing data
 export async function ensureSystemTemplates() {
-  await HabitTemplate.bulkWrite(
+  await TaskTemplate.bulkWrite(
     SYSTEM_TEMPLATES.map((t) => ({
       updateOne: {
         filter: { name: t.name, isSystem: true },

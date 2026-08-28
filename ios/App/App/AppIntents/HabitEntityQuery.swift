@@ -14,7 +14,7 @@ extension BeOneAPI {
     }
 
     static func fetchHabits(apiKey: String) async throws -> [HabitEntity] {
-        var components = URLComponents(url: baseURL.appendingPathComponent("/api/external/habits"), resolvingAgainstBaseURL: false)!
+        var components = URLComponents(url: baseURL.appendingPathComponent("/api/external/tasks"), resolvingAgainstBaseURL: false)!
         components.queryItems = [URLQueryItem(name: "apiKey", value: apiKey)]
 
         let (data, response) = try await URLSession.shared.data(from: components.url!)

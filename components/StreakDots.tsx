@@ -1,5 +1,5 @@
-import type { LogState } from "@/models/RoutineLog";
-import { computeWeeklyProgress, type DayBreakdown } from "@/lib/routine-progress";
+import type { LogState } from "@/models/TaskLog";
+import { computeWeeklyProgress, type DayBreakdown } from "@/lib/task-progress";
 
 interface Props {
   logs: Array<{ date: string; state: LogState; actualMinutes: number | null }>;
@@ -47,6 +47,7 @@ function dotClass({ state, timing }: DayBreakdown): string {
     case "unlogged": return "bg-transparent border border-dim";
     case "pending": return "bg-transparent border border-dashed border-dim";
     case "not_scheduled": return "bg-border/40";
+    default: return "bg-border/40";
   }
 }
 

@@ -1,12 +1,17 @@
 import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
-// Bridges to ios/App/App/LiveActivityPlugin.swift — puts a running routine
+// Bridges to ios/App/App/LiveActivityPlugin.swift — puts a running task
 // timer on the Lock Screen / Dynamic Island. No-op-safe to call on web/PWA:
 // registerPlugin resolves to a stub there, and every call site additionally
 // guards with Capacitor.isNativePlatform(). See docs/features/live-activity.md.
 // Mirrors ios/App/RoutineActivity/RoutineActivityAttributes.swift's
-// TimelineSegment — pct/colorState only, matching lib/routine-timeline.ts's
+// TimelineSegment — pct/colorState only, matching lib/task-timeline.ts's
 // TimelineSegment minus the fields the native view doesn't need (id, minutes).
+//
+// Field/type names here (routineItemId, routineGroupId, RoutineActivityState,
+// ...) intentionally still say "routine" — they mirror the un-renamed iOS
+// RoutineActivity target's Swift structs verbatim across the bridge/push
+// wire format. See the note in lib/native/routine-activity.ts.
 export interface RoutineActivityTimelineSegment {
   pct: number;
   colorState: "done" | "active" | "activeOver" | "pending";
@@ -15,12 +20,12 @@ export interface RoutineActivityTimelineSegment {
 export interface RoutineActivityState {
   routineItemId: string;
   routineGroupId?: string | null; // omit/undefined for a standalone (non-session) timer
-  routineLabel: string;           // group name, or "Timer" for standalone
+  routineLabel: string;           // task list name, or "Timer" for standalone
   habitName: string;
-  startedAt: string;              // ISO string — server-authoritative RoutineLog.startedAt
-  projectedMinutes: number;       // 0 for a stopwatch item (no target) — hides the estimated-finish line
-  // Whole-routine timeline — omit for a standalone timer, which has no
-  // routine to show one for. See docs/features/live-activity.md.
+  startedAt: string;              // ISO string — server-authoritative TaskLog.startedAt
+  projectedMinutes: number;       // 0 for a stopwatch task (no target) — hides the estimated-finish line
+  // Whole-task-list timeline — omit for a standalone timer, which has no
+  // task list to show one for. See docs/features/live-activity.md.
   timelineSegments?: RoutineActivityTimelineSegment[];
   routineStartedAt?: string;      // ISO string
   routineFinishAt?: string;       // ISO string

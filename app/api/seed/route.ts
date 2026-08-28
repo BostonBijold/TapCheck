@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import RoutineGroup from "@/models/RoutineGroup";
-import { seedDefaultRoutines } from "@/lib/seed";
+import TaskList from "@/models/TaskList";
+import { seedDefaultTaskLists } from "@/lib/seed";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -14,11 +14,11 @@ export async function POST() {
 
   await connectDB();
 
-  const existing = await RoutineGroup.findOne({ companyId });
+  const existing = await TaskList.findOne({ companyId });
   if (existing) {
     return NextResponse.json({ message: "Already seeded" });
   }
 
-  await seedDefaultRoutines(companyId);
+  await seedDefaultTaskLists(companyId);
   return NextResponse.json({ ok: true });
 }

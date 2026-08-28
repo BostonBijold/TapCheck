@@ -32,8 +32,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       // insert. Stamp role explicitly so it's visible (and hand-editable) in
       // MongoDB right away. companyId stays unset: v1 has no self-serve
       // company creation — a developer manually attaches a pre-created
-      // Company doc by hand. Routine seeding now happens per-company (see
-      // the Routines page's first-visit seed check), not per-user at
+      // Company doc by hand. Task list seeding now happens per-company (see
+      // the Tasks page's first-visit seed check), not per-user at
       // signup, since there's no company to seed against yet.
       await User.updateOne({ _id: user.id }, { $set: { role: "manager" } });
     },

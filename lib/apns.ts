@@ -23,6 +23,9 @@ export interface RoutineActivityTimelineSegment {
   colorState: "done" | "active" | "activeOver" | "pending";
 }
 
+// Field names below (routineLabel, habitName, routineItemId, ...) and the
+// type name itself are deliberately NOT updated to the app's Task/TaskList
+// vocabulary — see the matching note in lib/native/routine-activity.ts.
 export interface RoutineActivityContentState {
   routineLabel: string;
   habitName: string;

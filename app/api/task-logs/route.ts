@@ -1,0 +1,197 @@
+import { NextRequest, NextResponse } from "next/server";
+import { connectDB } from "@/lib/mongoose";
+import TaskLog from "@/models/TaskLog";
+import type { LogState } from "@/models/TaskLog";
+import { completeInProgressLog, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/task-log-actions";
+import { recordSessionCompletion } from "@/lib/task-list-session-actions";
+import { resolveSessionUser } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
+
+export async function GET(req: NextRequest) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+
+  const date = req.nextUrl.searchParams.get("date") ?? todayString();
+  await connectDB();
+  const logs = await TaskLog.find({ companyId, date }).lean();
+  return NextResponse.json(logs.map(serializeLog));
+}
+
+// POST — creates or replaces a log entry.
+// For state 'in_progress': delegates to startInProgressLog (see lib/task-log-actions),
+// which enforces the single-active-timer invariant server-side.
+// For terminal states (done/missed/rest): sets state + actualMinutes + isBackEntry.
+// Uses $set only — DO NOT put filter fields in $setOnInsert, MongoDB rejects it as
+// conflicting mods and the write silently fails on the client.
+export async function POST(req: NextRequest) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, userId: performedByUserId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+
+  const { taskId, date, actualMinutes, state, isBackEntry, sessionTaskListId, sessionNav } = (await req.json()) as {
+    taskId: string;
+    date: string;
+    actualMinutes?: number;
+    state: LogState;
+    isBackEntry?: boolean;
+    sessionTaskListId?: string | null; // set by TaskListSessionView to anchor this timer inside a session
+    // Set by TaskListSessionView when moving between tasks (advancing or
+    // jumping). Still enforces a single running timer — whatever was active
+    // gets paused, banking its elapsed time — but never marks the task
+    // being left done or missed the way the default sweep
+    // (startInProgressLog) does, since navigating within an already-open
+    // session isn't "I've started doing something else." See
+    // switchActiveLog in lib/task-log-actions.ts.
+    sessionNav?: boolean;
+  };
+
+  if (!taskId || !date || !state) {
+    return NextResponse.json({ error: "Missing fields" }, { status: 400 });
+  }
+
+  await connectDB();
+
+  if (state === "in_progress") {
+    const log = sessionNav
+      ? await switchActiveLog(companyId, performedByUserId, taskId, date, sessionTaskListId ?? null)
+      : await startInProgressLog(companyId, performedByUserId, taskId, date, sessionTaskListId ?? null);
+    return NextResponse.json(serializeLog(log));
+  }
+
+  // A terminal state (done/missed/rest) is never session-anchored, regardless
+  // of which state this log was in before — same rule PATCH enforces.
+  // Read the prior sessionTaskListId before the write below clears it —
+  // that's the only record of which TaskListSession (if any) this
+  // completion belongs to (see lib/task-list-session-actions.ts). Covers
+  // TaskListSessionView's own advance()/handleMissed/handleRest (via
+  // saveLog), which write terminal states through this route rather than
+  // PATCH.
+  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
+
+  const log = await TaskLog.findOneAndUpdate(
+    { companyId, taskId, date },
+    {
+      $set: {
+        state,
+        actualMinutes: actualMinutes ?? null,
+        isBackEntry: isBackEntry ?? false,
+        sessionTaskListId: null,
+        pausedSeconds: 0,
+        performedByUserId,
+      },
+    },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  ).lean();
+
+  if (priorSessionTaskListId && (state === "done" || state === "missed" || state === "rest")) {
+    await recordSessionCompletion(companyId, priorSessionTaskListId, date, taskId, state, actualMinutes ?? 0);
+  }
+
+  return NextResponse.json(serializeLog(log));
+}
+
+// PATCH — completes or misses an existing in_progress timer log.
+// For state 'done': sets completedAt = now, derives actualMinutes from startedAt.
+// For state 'missed': just updates state.
+export async function PATCH(req: NextRequest) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, userId: performedByUserId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+
+  const {
+    taskId, date, state,
+    actualMinutes: fallbackMins,
+    startedAt: startOverride,
+    completedAt: endOverride,
+    formData,
+  } = (await req.json()) as {
+    taskId: string;
+    date: string;
+    state: "done" | "missed";
+    actualMinutes?: number;
+    startedAt?: string;   // ISO — manual time edit from client
+    completedAt?: string; // ISO — manual time edit from client
+    // Filled values from a form task's save action — see
+    // components/TaskFormScreen.tsx. No validation against the task's
+    // formFields shape yet — trusted as sent. Only meaningful with
+    // state: "done"; ignored for "missed".
+    formData?: Record<string, string | number | boolean>;
+  };
+
+  await connectDB();
+
+  if (state === "done" && !(startOverride && endOverride)) {
+    // Timer completion: derive duration from server-recorded startedAt, plus
+    // any time banked from earlier paused segments of this same log — shared
+    // with the external trigger-task endpoint's complete-the-active-task half.
+    const log = await completeInProgressLog(companyId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null);
+    return NextResponse.json(serializeLog(log));
+  }
+
+  // Leaving a session anchor behind on the log's next state doesn't help anyone —
+  // once it's no longer in_progress it should behave like any other completed log.
+  // pausedSeconds only means anything while running/paused — always cleared here.
+  // Read the prior sessionTaskListId before it's cleared, same as POST's
+  // terminal branch — this path is reached by the standalone timer's
+  // "Missed" button and by a manual time-edit "done", both of which can
+  // still be session-anchored.
+  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
+
+  const setData: Record<string, unknown> = { state, sessionTaskListId: null, pausedSeconds: 0, performedByUserId };
+
+  if (startOverride && endOverride) {
+    // Manual time edit: client supplied explicit start + end in local time converted to ISO
+    const start = new Date(startOverride);
+    const end = new Date(endOverride);
+    setData.startedAt = start;
+    setData.completedAt = end;
+    setData.actualMinutes = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
+  }
+
+  // A retroactive ("log with specific times") completion of a form task
+  // still carries its captured field values — same formData shape as the
+  // timer-derived completion above, just not routed through
+  // completeInProgressLog since there's no in_progress log to complete.
+  if (state === "done" && formData) {
+    setData.formData = formData;
+  }
+
+  const log = await TaskLog.findOneAndUpdate(
+    { companyId, taskId, date },
+    { $set: setData },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  ).lean();
+
+  if (priorSessionTaskListId) {
+    await recordSessionCompletion(companyId, priorSessionTaskListId, date, taskId, state, (setData.actualMinutes as number | undefined) ?? 0);
+  }
+
+  return NextResponse.json(serializeLog(log));
+}
+
+export async function DELETE(req: NextRequest) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+
+  const { taskId, date } = (await req.json()) as {
+    taskId: string;
+    date: string;
+  };
+
+  await connectDB();
+  await TaskLog.deleteOne({ companyId, taskId, date });
+  return NextResponse.json({ ok: true });
+}
+
+function todayString() {
+  return new Date().toISOString().split("T")[0];
+}

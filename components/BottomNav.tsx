@@ -5,24 +5,24 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { ListChecks, BarChart3 } from "lucide-react";
-import HabitIcon from "@/components/HabitIcon";
-import { ROUTINE_LOG_CHANGED_EVENT } from "@/lib/routine-log-events";
+import AppIcon from "@/components/AppIcon";
+import { TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 
 const LEFT_TABS = [
-  { href: "/routines",  label: "Checks",  Icon: ListChecks },
+  { href: "/tasks",  label: "Tasks",  Icon: ListChecks },
 ];
 const RIGHT_TABS = [
   { href: "/analytics", label: "Analytics", Icon: BarChart3  },
 ];
 
 interface ActiveTimer {
-  routineItemId: string;
+  taskId: string;
   date: string;
   startedAt: string;
   pausedSeconds?: number;
-  itemName: string;
-  itemIcon: string;
-  itemType: string;
+  taskName: string;
+  taskIcon: string;
+  taskType: string;
   projectedMinutes: number;
 }
 
@@ -42,13 +42,13 @@ export default function BottomNav() {
   const [nowTick, setNowTick] = useState(() => Date.now());
 
   // ── Active-timer awareness ──────────────────────────────────────────────────
-  // Checked on load, on every route change, immediately whenever a
-  // RoutineLog mutation happens anywhere in the app (see lib/routine-log-events),
-  // and on a background poll as a safety net — so the FAB reflects reality
-  // without requiring a manual refresh.
+  // Checked on load, on every route change, immediately whenever a TaskLog
+  // mutation happens anywhere in the app (see lib/task-log-events), and on
+  // a background poll as a safety net — so the FAB reflects reality without
+  // requiring a manual refresh.
   const fetchActiveTimer = useCallback(async () => {
     try {
-      const res = await fetch("/api/routine-logs/active");
+      const res = await fetch("/api/task-logs/active");
       if (!res.ok) return;
       const data = await res.json();
       setActiveTimer(data.active ? data : null);
@@ -63,9 +63,9 @@ export default function BottomNav() {
     const onChanged = () => fetchActiveTimer();
     // Resync immediately on returning to the foreground instead of waiting up
     // to ACTIVE_TIMER_POLL_MS for the next poll — mirrors the pattern used
-    // for the live clock below and for RoutinesView's date-resync.
+    // for the live clock below and for TasksView's date-resync.
     const onVisible = () => { if (document.visibilityState === "visible") fetchActiveTimer(); };
-    window.addEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+    window.addEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
     document.addEventListener("visibilitychange", onVisible);
     window.addEventListener("focus", onVisible);
     // Skip the network call while backgrounded — the visibility listener
@@ -74,7 +74,7 @@ export default function BottomNav() {
       if (document.visibilityState === "visible") fetchActiveTimer();
     }, ACTIVE_TIMER_POLL_MS);
     return () => {
-      window.removeEventListener(ROUTINE_LOG_CHANGED_EVENT, onChanged);
+      window.removeEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
       document.removeEventListener("visibilitychange", onVisible);
       window.removeEventListener("focus", onVisible);
       clearInterval(poll);
@@ -100,8 +100,8 @@ export default function BottomNav() {
 
   const handleResumeTimer = () => {
     if (!activeTimer) return;
-    const url = `/routines?resumeTimer=1&date=${activeTimer.date}`;
-    if (pathname === "/routines") {
+    const url = `/tasks?resumeTimer=1&date=${activeTimer.date}`;
+    if (pathname === "/tasks") {
       router.replace(url);
     } else {
       router.push(url);
@@ -111,7 +111,7 @@ export default function BottomNav() {
   const elapsedSeconds = activeTimer
     ? (activeTimer.pausedSeconds ?? 0) + Math.floor((nowTick - new Date(activeTimer.startedAt).getTime()) / 1000)
     : 0;
-  const isCountdown = !!activeTimer && activeTimer.itemType !== "stopwatch" && activeTimer.projectedMinutes > 0;
+  const isCountdown = !!activeTimer && activeTimer.taskType !== "stopwatch" && activeTimer.projectedMinutes > 0;
   const targetSeconds = isCountdown ? activeTimer!.projectedMinutes * 60 : 0;
   const isOverTarget = isCountdown && elapsedSeconds >= targetSeconds;
   const clockText = activeTimer
@@ -136,11 +136,11 @@ export default function BottomNav() {
           {activeTimer && (
             <button
               onClick={handleResumeTimer}
-              aria-label={`Resume ${activeTimer.itemName}`}
+              aria-label={`Resume ${activeTimer.taskName}`}
               className="absolute bottom-[94px] left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-card border border-amber/40 text-text font-mono text-[11px] pl-2.5 pr-3 py-1.5 rounded-pill shadow-lg max-w-[240px] active:opacity-90 transition-opacity"
             >
-              <HabitIcon name={activeTimer.itemIcon} size={13} className="text-amber flex-shrink-0" />
-              <span className="truncate">{activeTimer.itemName}</span>
+              <AppIcon name={activeTimer.taskIcon} size={13} className="text-amber flex-shrink-0" />
+              <span className="truncate">{activeTimer.taskName}</span>
               <span className={`flex-shrink-0 ${isOverTarget ? "text-burgundy-light" : "text-amber"}`}>
                 {clockText}
               </span>
@@ -150,13 +150,13 @@ export default function BottomNav() {
           {/* FAB — resumes the active timer when one exists; otherwise inert */}
           <button
             onClick={activeTimer ? handleResumeTimer : undefined}
-            aria-label={activeTimer ? `Resume ${activeTimer.itemName}` : undefined}
+            aria-label={activeTimer ? `Resume ${activeTimer.taskName}` : undefined}
             className={`absolute left-1/2 -translate-x-1/2 -top-6 z-10 w-14 h-14 rounded-full border-4 border-bg shadow-lg flex items-center justify-center transition-all duration-200 ${
               activeTimer ? "bg-amber" : "bg-olive"
             }`}
           >
             {activeTimer ? (
-              <HabitIcon name={activeTimer.itemIcon} size={26} className="text-bg relative" />
+              <AppIcon name={activeTimer.taskIcon} size={26} className="text-bg relative" />
             ) : (
               <Image
                 src="/jackalope_transparent.png"

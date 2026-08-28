@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import RoutineGroup from "@/models/RoutineGroup";
-import RoutineItem from "@/models/RoutineItem";
-import RoutineLog from "@/models/RoutineLog";
+import TaskList from "@/models/TaskList";
+import Task from "@/models/Task";
+import TaskLog from "@/models/TaskLog";
 import { DEV_USER_ID, DEV_COMPANY_ID } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -14,9 +14,9 @@ function cyclic(values: number[], dayIdx: number): number {
   return values[dayIdx % values.length];
 }
 
-// Actual-minute values per Opening/Mid-Shift check — these run clean every
+// Actual-minute values per Opening/Mid-Shift task — these run clean every
 // day (the interesting signal is in Closing's misses/rests below), just
-// with realistic minute-to-minute variance around each check's time budget.
+// with realistic minute-to-minute variance around each task's time budget.
 const OPENING_ACTUALS: Record<string, number[]> = {
   "Walk-in Fridge Temp":          [2, 3, 2, 1, 2, 3, 2, 1, 2, 3],
   "Walk-in Freezer Temp":         [2, 1, 2, 3, 2, 1, 2, 3, 2, 1],
@@ -34,7 +34,7 @@ const MIDSHIFT_ACTUALS: Record<string, number[]> = {
   "Trash & Recycling":   [5, 4, 6, 5, 4, 6, 5, 4, 6, 5],
 };
 
-// Closing check miss/rest pattern — indexed 0 (30 days ago) → 29 (today).
+// Closing task miss/rest pattern — indexed 0 (30 days ago) → 29 (today).
 // "rest" here reads as "restaurant closed that day" rather than a personal
 // day off, but protects the streak the same way.
 const CLOSING_MISSED: Record<string, number[]> = {
@@ -52,7 +52,7 @@ const CLOSING_REST: Record<string, number[]> = {
   "Trash Taken Out":        [7, 21],
 };
 
-// Actual-minute deltas from projected for Closing checks (when done)
+// Actual-minute deltas from projected for Closing tasks (when done)
 const CLOSING_OFFSETS: Record<string, number[]> = {
   "Equipment Powered Down":       [1, 2, 0, 3, 1, -1, 2, 1, 0, 3],
   "Deep Clean Kitchen":           [5, -2, 8, 3, -5, 5, 8, -2, 0, 5],
@@ -76,34 +76,34 @@ export async function GET() {
 
   await connectDB();
 
-  const groups = await RoutineGroup.find({ companyId: DEV_COMPANY_ID }).sort({ order: 1 }).lean();
-  const items  = await RoutineItem.find({ companyId: DEV_COMPANY_ID, isActive: true }).lean();
+  const taskLists = await TaskList.find({ companyId: DEV_COMPANY_ID }).sort({ order: 1 }).lean();
+  const tasks  = await Task.find({ companyId: DEV_COMPANY_ID, isActive: true }).lean();
 
-  if (groups.length === 0) {
+  if (taskLists.length === 0) {
     return NextResponse.json(
-      { error: "No routine groups found — visit /routines first to trigger the seed." },
+      { error: "No task lists found — visit /tasks first to trigger the seed." },
       { status: 400 }
     );
   }
 
-  const openingGroup = groups.find((g) => g.timeOfDay === "morning");
-  const midShiftGroup = groups.find((g) => g.timeOfDay === "custom");
-  const closingGroup = groups.find((g) => g.timeOfDay === "evening");
+  const openingList = taskLists.find((tl) => tl.timeOfDay === "morning");
+  const midShiftList = taskLists.find((tl) => tl.timeOfDay === "custom");
+  const closingList = taskLists.find((tl) => tl.timeOfDay === "evening");
 
-  if (!openingGroup || !midShiftGroup || !closingGroup) {
-    return NextResponse.json({ error: "Missing Opening, Mid-Shift, or Closing group." }, { status: 400 });
+  if (!openingList || !midShiftList || !closingList) {
+    return NextResponse.json({ error: "Missing Opening, Mid-Shift, or Closing task list." }, { status: 400 });
   }
 
-  const byGroup = (groupId: string) =>
-    items.filter((i) => i.groupId.toString() === groupId).sort((a, b) => a.order - b.order);
+  const byList = (taskListId: string) =>
+    tasks.filter((t) => t.taskListId.toString() === taskListId).sort((a, b) => a.order - b.order);
 
-  const openingItems = byGroup(openingGroup._id.toString());
-  const midShiftItems = byGroup(midShiftGroup._id.toString());
-  const closingItems = byGroup(closingGroup._id.toString());
+  const openingTasks = byList(openingList._id.toString());
+  const midShiftTasks = byList(midShiftList._id.toString());
+  const closingTasks = byList(closingList._id.toString());
 
   // Wipe existing logs for the past 30 days so this is idempotent
   const dates = Array.from({ length: 30 }, (_, i) => getDate(29 - i));
-  await RoutineLog.deleteMany({ companyId: DEV_COMPANY_ID, date: { $in: dates } });
+  await TaskLog.deleteMany({ companyId: DEV_COMPANY_ID, date: { $in: dates } });
 
   const logs: object[] = [];
 
@@ -112,18 +112,18 @@ export async function GET() {
     const isToday = dayIdx === 29;
 
     // ── Opening + Mid-Shift: clean every day ────────────────────────────────
-    for (const [groupItems, actuals, createdAtTime] of [
-      [openingItems, OPENING_ACTUALS, "08:30:00"],
-      [midShiftItems, MIDSHIFT_ACTUALS, "13:30:00"],
+    for (const [listTasks, actuals, createdAtTime] of [
+      [openingTasks, OPENING_ACTUALS, "08:30:00"],
+      [midShiftTasks, MIDSHIFT_ACTUALS, "13:30:00"],
     ] as const) {
-      for (const item of groupItems) {
-        const offsets = actuals[item.name];
-        const actualMinutes = offsets ? cyclic(offsets, dayIdx) : item.projectedMinutes;
+      for (const task of listTasks) {
+        const offsets = actuals[task.name];
+        const actualMinutes = offsets ? cyclic(offsets, dayIdx) : task.projectedMinutes;
 
         logs.push({
           companyId: DEV_COMPANY_ID,
           performedByUserId: DEV_USER_ID,
-          routineItemId: item._id,
+          taskId: task._id,
           date,
           state: "done",
           actualMinutes,
@@ -134,25 +134,25 @@ export async function GET() {
     }
 
     // ── Closing: staggered ───────────────────────────────────────────────────
-    for (const item of closingItems) {
-      const missedDays = CLOSING_MISSED[item.name] ?? [];
-      const restDays   = CLOSING_REST[item.name]   ?? [];
+    for (const task of closingTasks) {
+      const missedDays = CLOSING_MISSED[task.name] ?? [];
+      const restDays   = CLOSING_REST[task.name]   ?? [];
 
       let state: "done" | "missed" | "rest";
       if (restDays.includes(dayIdx))        state = "rest";
       else if (missedDays.includes(dayIdx)) state = "missed";
       else state = "done";
 
-      const offsets = CLOSING_OFFSETS[item.name] ?? [];
+      const offsets = CLOSING_OFFSETS[task.name] ?? [];
       const actualMinutes =
         state === "done"
-          ? Math.max(1, item.projectedMinutes + (offsets.length ? cyclic(offsets, dayIdx) : 0))
+          ? Math.max(1, task.projectedMinutes + (offsets.length ? cyclic(offsets, dayIdx) : 0))
           : undefined;
 
       logs.push({
         companyId: DEV_COMPANY_ID,
         performedByUserId: DEV_USER_ID,
-        routineItemId: item._id,
+        taskId: task._id,
         date,
         state,
         actualMinutes,
@@ -162,15 +162,15 @@ export async function GET() {
     }
   }
 
-  await RoutineLog.insertMany(logs);
+  await TaskLog.insertMany(logs);
 
   const summary = {
     daysSeeded: 30,
     logsInserted: logs.length,
-    opening: `${openingItems.length} checks — clean every day`,
-    midShift: `${midShiftItems.length} checks — clean every day`,
+    opening: `${openingTasks.length} tasks — clean every day`,
+    midShift: `${midShiftTasks.length} tasks — clean every day`,
     closing: {
-      totalChecks: closingItems.length,
+      totalTasks: closingTasks.length,
       patterns: {
         "Equipment Powered Down":       "7 misses, 1 holiday closure",
         "Deep Clean Kitchen":           "1 miss",

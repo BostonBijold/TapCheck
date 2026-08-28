@@ -1,16 +1,16 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import HabitIcon from "@/components/HabitIcon";
-import type { FormFieldDef } from "@/models/RoutineItem";
+import AppIcon from "@/components/AppIcon";
+import type { FormFieldDef } from "@/models/Task";
 
 export interface TimerItem {
   _id: string;
   name: string;
   icon: string;
   projectedMinutes: number;
-  itemType?: string;
-  formFields?: FormFieldDef[]; // only meaningful when itemType === "form_check" — see FormCheckScreen.tsx
+  taskType?: string;
+  formFields?: FormFieldDef[]; // only meaningful when taskType === "form" — see TaskFormScreen.tsx
 }
 
 interface Props {
@@ -28,7 +28,7 @@ function pad(n: number) {
 const STOPWATCH_SOFT_CAP = 30 * 60; // ring fills over 30 minutes, stays full after
 
 export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMissed, onClose }: Props) {
-  const isStopwatch = item.itemType === "stopwatch";
+  const isStopwatch = item.taskType === "stopwatch";
 
   const [elapsed, setElapsed] = useState(initialElapsed);
   const [isRunning, setIsRunning] = useState(true);
@@ -116,7 +116,7 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
         <div className="flex-1 flex flex-col select-none">
           <div className="text-center px-4 mt-6">
             <div className="flex justify-center mb-3">
-              <HabitIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
+              <AppIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
             </div>
             <h2 className="font-heading text-2xl text-text">{item.name}</h2>
           </div>
@@ -203,7 +203,7 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
       <div className="flex-1 flex flex-col select-none">
         <div className="text-center px-4 mt-6">
           <div className="flex justify-center mb-3">
-            <HabitIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
+            <AppIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
           </div>
           <h2 className="font-heading text-2xl text-text">{item.name}</h2>
         </div>

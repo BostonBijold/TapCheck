@@ -1,6 +1,6 @@
 import AppIntents
 
-// Mirrors one item from GET /api/external/habits (app/api/external/habits/route.ts).
+// Mirrors one item from GET /api/external/tasks (app/api/external/tasks/route.ts).
 // See docs/features/app-intents.md.
 struct HabitEntity: AppEntity, Decodable {
     let id: String
@@ -20,7 +20,7 @@ struct HabitEntity: AppEntity, Decodable {
     // alone; the routine group goes in the subtitle so two same-named
     // habits in different routines (e.g. two "Stretch"es) are still
     // distinguishable, and the picker list is already sorted/grouped by
-    // routine order (see GET /api/external/habits).
+    // routine order (see GET /api/external/tasks).
     var displayRepresentation: DisplayRepresentation {
         DisplayRepresentation(
             title: "\(name)",

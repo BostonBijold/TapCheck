@@ -17,7 +17,7 @@ export async function GET(req: NextRequest) {
   await connectDB();
 
   // Future to-dos (scheduledDate strictly after `after`) — the Goals-page backlog.
-  // Everything due today-or-earlier lives on the Routines page instead (see `date` below).
+  // Everything due today-or-earlier lives on the Tasks page instead (see `date` below).
   if (after) {
     const todos = await Todo.find({ companyId, userId, scheduledDate: { $gt: after } })
       .sort({ scheduledDate: 1, order: 1, createdAt: 1 })

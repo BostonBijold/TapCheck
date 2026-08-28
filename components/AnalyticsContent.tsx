@@ -1,8 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import HabitIcon from "@/components/HabitIcon";
-import type { WeeklyProgress, DayBreakdown } from "@/lib/routine-progress";
+import AppIcon from "@/components/AppIcon";
+import type { WeeklyProgress, DayBreakdown } from "@/lib/task-progress";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -16,10 +16,10 @@ interface DailyStat {
   actualMins: number;
 }
 
-interface GroupStats {
+interface TaskListStats {
   _id: string;
   name: string;
-  totalItems: number;
+  totalTasks: number;
   daily: DailyStat[];
   avgCompletionRate: number;
   avgActualMins: number;
@@ -28,12 +28,12 @@ interface GroupStats {
   startTimeSampleSize: number;
 }
 
-interface HabitStats {
+interface TaskStats {
   _id: string;
   name: string;
   icon: string;
-  groupId: string;
-  groupName: string;
+  taskListId: string;
+  taskListName: string;
   projectedMinutes: number;
   doneCount: number;
   missedCount: number;
@@ -44,7 +44,7 @@ interface HabitStats {
   completionRate: number;
   engagedDays: number;
   totalDays: number;
-  itemType: string;
+  taskType: string;
   // Only present for the 7-day (fixed calendar week) view — a weekly
   // threshold has no clean meaning over a 30-day trailing window.
   weeklyProgress?: WeeklyProgress;
@@ -54,8 +54,8 @@ interface AnalyticsData {
   dates: string[];
   days: number;
   today: string; // YYYY-MM-DD — the 7-day view's dates[] can include days after this (later this week)
-  groups: GroupStats[];
-  habits: HabitStats[];
+  taskLists: TaskListStats[];
+  tasks: TaskStats[];
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -114,6 +114,7 @@ function daySegmentStyle(day: DayBreakdown): { background: string; border?: stri
     case "unlogged": return { background: "transparent", border: "1px solid #94a3b8" };
     case "pending": return { background: "transparent", border: "1px dashed #94a3b8" };
     case "not_scheduled": return { background: "#dbe2ea33" };
+    default: return { background: "#dbe2ea33" };
   }
 }
 
@@ -125,14 +126,14 @@ const PACING: Record<WeeklyProgress["pacing"], { color: string; label: string }>
 
 // ── Bar chart ─────────────────────────────────────────────────────────────────
 
-function RoutineChart({
+function TaskListChart({
   daily,
-  totalItems,
+  totalTasks,
   showLabels,
   today,
 }: {
   daily: DailyStat[];
-  totalItems: number;
+  totalTasks: number;
   showLabels: boolean;
   today: string;
 }) {
@@ -143,7 +144,7 @@ function RoutineChart({
         // `today` (later this week) — the 30-day trailing window never does.
         const isFuture = d.date > today;
         const isToday = d.date === today;
-        const pct = totalItems > 0 ? d.doneCount / totalItems : 0;
+        const pct = totalTasks > 0 ? d.doneCount / totalTasks : 0;
         const heightPct = d.loggedCount > 0 ? Math.max(6, Math.round(pct * 100)) : 6;
         const color = barColor(pct, d.loggedCount > 0);
         return (
@@ -183,18 +184,18 @@ function RoutineChart({
   );
 }
 
-// ── Habit row ─────────────────────────────────────────────────────────────────
+// ── Task row ──────────────────────────────────────────────────────────────────
 
-function HabitRow({ habit }: { habit: HabitStats }) {
-  const wp = habit.weeklyProgress;
-  const pct = habit.completionRate;
+function TaskRow({ task }: { task: TaskStats }) {
+  const wp = task.weeklyProgress;
+  const pct = task.completionRate;
   const pctDisplay = Math.round(pct * 100);
-  const isCheckbox = habit.itemType === "checkbox";
-  const isStopwatch = habit.itemType === "stopwatch";
+  const isCheckbox = task.taskType === "checkbox";
+  const isStopwatch = task.taskType === "stopwatch";
   const varianceColor =
-    habit.avgVariance === null ? "text-dim"
-    : habit.avgVariance > 5   ? "text-tobacco"
-    : habit.avgVariance < -5  ? "text-gold"
+    task.avgVariance === null ? "text-dim"
+    : task.avgVariance > 5   ? "text-tobacco"
+    : task.avgVariance < -5  ? "text-gold"
     : "text-dim";
 
   // 7-day view: counts come from the schedule-aware weekly breakdown (a
@@ -206,24 +207,24 @@ function HabitRow({ habit }: { habit: HabitStats }) {
   // target), shown as its own chip rather than silently folded in; missed
   // and unlogged are kept as separate chips too, matching how the strip
   // already tells them apart visually.
-  const weekDoneCount = wp?.days.filter((d) => d.state === "done").length ?? habit.doneCount;
+  const weekDoneCount = wp?.days.filter((d) => d.state === "done").length ?? task.doneCount;
   const weekOvertimeCount = wp?.days.filter((d) => d.state === "done" && d.timing === "amber").length ?? 0;
-  const weekRestCount = wp?.days.filter((d) => d.state === "rest").length ?? habit.restCount;
-  const weekMissedCount = wp?.days.filter((d) => d.state === "missed").length ?? habit.missedCount;
-  const weekUnloggedCount = wp?.days.filter((d) => d.state === "unlogged").length ?? habit.unloggedCount;
+  const weekRestCount = wp?.days.filter((d) => d.state === "rest").length ?? task.restCount;
+  const weekMissedCount = wp?.days.filter((d) => d.state === "missed").length ?? task.missedCount;
+  const weekUnloggedCount = wp?.days.filter((d) => d.state === "unlogged").length ?? task.unloggedCount;
 
   return (
     <div className="py-3.5 border-b border-border last:border-0">
       <div className="flex items-center gap-2.5 mb-2">
         <div className="w-5 flex items-center justify-center flex-shrink-0">
-          <HabitIcon name={habit.icon} size={14} strokeWidth={1.75} className="text-muted" />
+          <AppIcon name={task.icon} size={14} strokeWidth={1.75} className="text-muted" />
         </div>
-        <span className="flex-1 font-body text-sm text-text leading-tight">{habit.name}</span>
+        <span className="flex-1 font-body text-sm text-text leading-tight">{task.name}</span>
         {!isCheckbox && !isStopwatch && (
-          <span className="font-mono text-[10px] text-dim flex-shrink-0">{habit.projectedMinutes}m proj</span>
+          <span className="font-mono text-[10px] text-dim flex-shrink-0">{task.projectedMinutes}m proj</span>
         )}
-        {isStopwatch && habit.avgActualMins !== null && (
-          <span className="font-mono text-[10px] text-muted flex-shrink-0">{habit.avgActualMins}m avg</span>
+        {isStopwatch && task.avgActualMins !== null && (
+          <span className="font-mono text-[10px] text-muted flex-shrink-0">{task.avgActualMins}m avg</span>
         )}
       </div>
 
@@ -241,12 +242,12 @@ function HabitRow({ habit }: { habit: HabitStats }) {
         {weekUnloggedCount > 0 && (
           <span className="font-mono text-xs text-dim">{weekUnloggedCount} unlogged</span>
         )}
-        {!isCheckbox && !isStopwatch && habit.avgActualMins !== null && (
+        {!isCheckbox && !isStopwatch && task.avgActualMins !== null && (
           <div className="ml-auto flex items-center gap-1.5 flex-shrink-0">
-            <span className="font-mono text-xs text-text">{habit.avgActualMins}m avg</span>
-            {habit.avgVariance !== null && habit.avgVariance !== 0 && (
+            <span className="font-mono text-xs text-text">{task.avgActualMins}m avg</span>
+            {task.avgVariance !== null && task.avgVariance !== 0 && (
               <span className={`font-mono text-xs font-medium ${varianceColor}`}>
-                {habit.avgVariance > 0 ? `+${habit.avgVariance}m` : `${habit.avgVariance}m`}
+                {task.avgVariance > 0 ? `+${task.avgVariance}m` : `${task.avgVariance}m`}
               </span>
             )}
           </div>
@@ -297,11 +298,11 @@ function HabitRow({ habit }: { habit: HabitStats }) {
               />
             </div>
             <span className="font-mono text-[10px] w-8 text-right flex-shrink-0" style={{ color: completionBarColor(pct) }}>
-              {habit.engagedDays > 0 ? `${pctDisplay}%` : "—"}
+              {task.engagedDays > 0 ? `${pctDisplay}%` : "—"}
             </span>
           </div>
           <p className="font-mono text-[9px] text-dim mt-1">
-            {habit.engagedDays} of {habit.totalDays} days logged
+            {task.engagedDays} of {task.totalDays} days logged
           </p>
         </div>
       )}
@@ -328,10 +329,10 @@ export default function AnalyticsContent() {
       });
   }, [days]);
 
-  const habitsByGroup = data
-    ? data.groups.map((g) => ({
-        group: g,
-        habits: data.habits.filter((h) => h.groupId === g._id),
+  const tasksByList = data
+    ? data.taskLists.map((tl) => ({
+        taskList: tl,
+        tasks: data.tasks.filter((t) => t.taskListId === tl._id),
       }))
     : [];
 
@@ -380,50 +381,50 @@ export default function AnalyticsContent() {
 
       {!loading && data && (
         <>
-          {/* Check Performance */}
+          {/* Task List Performance */}
           <section className="mb-10">
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
-              Check Performance
+              Task List Performance
             </p>
             <div className="space-y-3">
-              {data.groups.filter((g) => g.totalItems > 0).map((group) => {
-                const activeDays = group.daily.filter((d) => d.loggedCount > 0).length;
-                const completionPct = Math.round(group.avgCompletionRate * 100);
-                const variance = group.avgActualMins - group.totalProjectedMins;
+              {data.taskLists.filter((tl) => tl.totalTasks > 0).map((taskList) => {
+                const activeDays = taskList.daily.filter((d) => d.loggedCount > 0).length;
+                const completionPct = Math.round(taskList.avgCompletionRate * 100);
+                const variance = taskList.avgActualMins - taskList.totalProjectedMins;
 
                 return (
-                  <div key={group._id} className="bg-card rounded-card px-4 pt-4 pb-3">
+                  <div key={taskList._id} className="bg-card rounded-card px-4 pt-4 pb-3">
                     <div className="flex items-start justify-between mb-1">
-                      <h3 className="font-heading text-base text-text">{group.name}</h3>
+                      <h3 className="font-heading text-base text-text">{taskList.name}</h3>
                       <span
                         className="font-mono text-lg font-semibold flex-shrink-0 ml-3"
-                        style={{ color: completionBarColor(group.avgCompletionRate) }}
+                        style={{ color: completionBarColor(taskList.avgCompletionRate) }}
                       >
                         {completionPct}%
                       </span>
                     </div>
 
-                    {group.avgStartMinutesUtc !== null && group.startTimeSampleSize >= 2 && (
+                    {taskList.avgStartMinutesUtc !== null && taskList.startTimeSampleSize >= 2 && (
                       <p className="font-mono text-[10px] text-dim mb-2">
                         Usually starts{" "}
                         <span className="text-muted">
-                          ~{utcMinsToLocalTime(group.avgStartMinutesUtc)}
+                          ~{utcMinsToLocalTime(taskList.avgStartMinutesUtc)}
                         </span>
                         <span className="text-dim ml-1">
-                          · {group.startTimeSampleSize}d sample
+                          · {taskList.startTimeSampleSize}d sample
                         </span>
                       </p>
                     )}
 
                     <div className="flex items-center gap-2 mb-4">
                       <span className="font-mono text-xs text-dim">
-                        {fmtMins(group.totalProjectedMins)} projected
+                        {fmtMins(taskList.totalProjectedMins)} projected
                       </span>
                       <span className="font-mono text-dim text-xs">→</span>
-                      {group.avgActualMins > 0 ? (
+                      {taskList.avgActualMins > 0 ? (
                         <>
                           <span className="font-mono text-xs text-text">
-                            {fmtMins(group.avgActualMins)} actual avg
+                            {fmtMins(taskList.avgActualMins)} actual avg
                           </span>
                           {variance !== 0 && (
                             <span
@@ -439,9 +440,9 @@ export default function AnalyticsContent() {
                       )}
                     </div>
 
-                    <RoutineChart
-                      daily={group.daily}
-                      totalItems={group.totalItems}
+                    <TaskListChart
+                      daily={taskList.daily}
+                      totalTasks={taskList.totalTasks}
                       showLabels={days === 7}
                       today={data.today}
                     />
@@ -457,27 +458,27 @@ export default function AnalyticsContent() {
             </div>
           </section>
 
-          {/* Check Breakdown */}
+          {/* Task Breakdown */}
           <section>
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
-              Check Breakdown
+              Task Breakdown
             </p>
-            {habitsByGroup.filter(({ habits }) => habits.length > 0).map(({ group, habits }) => (
-              <div key={group._id} className="mb-6">
+            {tasksByList.filter(({ tasks }) => tasks.length > 0).map(({ taskList, tasks }) => (
+              <div key={taskList._id} className="mb-6">
                 <p className="font-mono text-[10px] text-muted uppercase tracking-widest mb-2">
-                  {group.name}
+                  {taskList.name}
                 </p>
                 <div className="bg-card rounded-card px-4">
-                  {habits.map((habit) => (
-                    <HabitRow key={habit._id} habit={habit} />
+                  {tasks.map((task) => (
+                    <TaskRow key={task._id} task={task} />
                   ))}
                 </div>
               </div>
             ))}
-            {data.habits.length === 0 && (
+            {data.tasks.length === 0 && (
               <div className="bg-card rounded-card px-6 py-10 text-center">
                 <p className="font-mono text-dim text-sm">
-                  Log some checks to see check data here.
+                  Log some tasks to see task data here.
                 </p>
               </div>
             )}

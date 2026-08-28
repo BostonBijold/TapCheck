@@ -1,0 +1,833 @@
+"use client";
+
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useRouter } from "next/navigation";
+import Header from "@/components/Header";
+import DateNav from "@/components/DateNav";
+import TaskListCard, { type TaskListCardTaskList } from "@/components/TaskListCard";
+import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
+import TaskFormScreen from "@/components/TaskFormScreen";
+import TaskListSessionView from "@/components/TaskListSessionView";
+import AddTaskSheet from "@/components/AddTaskSheet";
+import AddTaskListSheet from "@/components/AddTaskListSheet";
+import TodoSection, { type TodoEntry } from "@/components/TodoSection";
+import EditTodoSheet from "@/components/EditTodoSheet";
+import FABTodoSheet from "@/components/FABTodoSheet";
+import type { LogState } from "@/models/TaskLog";
+import type { FormFieldDef } from "@/models/Task";
+import { isTaskVisibleOn } from "@/lib/task-visibility";
+import { useTodoActions } from "@/lib/useTodoActions";
+import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
+import { startRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
+
+const LOG_POLL_MS = 2000;
+
+export interface TaskLogEntry {
+  _id: string;
+  taskId: string;
+  date: string;
+  actualMinutes?: number;
+  startedAt?: string;   // ISO string — set when timer starts; null/unset while paused
+  completedAt?: string; // ISO string — set when timer finishes
+  pausedSeconds?: number; // elapsed seconds banked from an earlier running segment (see models/TaskLog)
+  state: LogState;
+  sessionTaskListId?: string | null; // set when this in_progress timer is anchored inside a Task List Session
+}
+
+export type WeekLog = { taskId: string; date: string; state: LogState; actualMinutes: number | null };
+
+interface Props {
+  taskLists: TaskListCardTaskList[];
+  initialLogs: TaskLogEntry[];
+  initialTodos: TodoEntry[];
+  weekLogs: WeekLog[];
+  weekDates: string[];
+  today: string;
+  userName: string;
+  userRole: "manager" | "employee";
+  skipAuth?: boolean;
+  autoStartNext?: boolean;
+  autoAddTask?: boolean;
+  autoResumeTimer?: boolean;
+}
+
+interface ActiveSession {
+  taskList: TaskListCardTaskList;
+  startIndex: number;
+}
+
+export default function TasksView({
+  taskLists, initialLogs, initialTodos, weekLogs, weekDates,
+  today, userName, userRole, skipAuth,
+  autoStartNext = false,
+  autoAddTask = false,
+  autoResumeTimer = false,
+}: Props) {
+  const router = useRouter();
+  const [selectedDate, setSelectedDate] = useState(today);
+  const prevTodayRef = useRef(today);
+  const [logs, setLogs] = useState<Record<string, TaskLogEntry>>(
+    Object.fromEntries(initialLogs.map((l) => [l.taskId, l]))
+  );
+  const [liveWeekLogs, setLiveWeekLogs] = useState<WeekLog[]>(weekLogs);
+  const [timerItem, setTimerItem] = useState<TimerItem | null>(null);
+  const [timerInitialElapsed, setTimerInitialElapsed] = useState(0);
+  const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
+  const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
+  const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
+  const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
+  const [addTodoOpen, setAddTodoOpen] = useState(false);
+  const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
+
+  const isPastDate = selectedDate !== today;
+
+  // "Task list label" for a standalone (non-session) Live Activity — see
+  // lib/native/routine-activity.ts. Session tasks get their list's own name
+  // directly from the loop that already has it (openInProgressTimer,
+  // TaskListSessionView.tsx); this lookup is only needed here for the
+  // standalone TimerScreen path, which doesn't otherwise know which list
+  // its task belongs to.
+  const findTaskListName = useCallback(
+    (taskId: string) => taskLists.find((tl) => tl.tasks.some((t) => t._id === taskId))?.name ?? "Timer",
+    [taskLists]
+  );
+
+  // Split into scheduled shift task lists and standalone anytime task lists
+  const scheduledTaskLists = useMemo(() => taskLists.filter((tl) => tl.timeOfDay !== "anytime"), [taskLists]);
+  const anytimeTaskLists = useMemo(() => taskLists.filter((tl) => tl.timeOfDay === "anytime"), [taskLists]);
+
+  // Handle URL params passed from FAB navigation
+  useEffect(() => {
+    if (autoStartNext) {
+      const logsMap = Object.fromEntries(initialLogs.map((l) => [l.taskId, l]));
+      let found: TimerItem | null = null;
+      outer: for (const tl of scheduledTaskLists) {
+        const visible = tl.tasks.filter((t) => isTaskVisibleOn(t, today));
+        for (const task of visible) {
+          if (!logsMap[task._id]) { found = task; break outer; }
+        }
+      }
+      if (found) { setTimerInitialElapsed(0); setTimerItem(found); }
+      router.replace("/tasks");
+    }
+    if (autoAddTask) {
+      const target = anytimeTaskLists[0];
+      if (target) setAddTaskSheetFor({ id: target._id, name: target.name });
+      router.replace("/tasks");
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Shared by both resume effects below — finds the day's in_progress log.
+  // Only one is ever in_progress at a time (jumping to a different task
+  // inside a Task List Session pauses whatever was running instead of
+  // leaving it in_progress — see switchActiveLog in lib/task-log-actions.ts),
+  // but sort defensively in case more than one ever exists transiently.
+  // If it carries a sessionTaskListId (set via the session itself, or the
+  // external API's routineGroupId param), reopen it inside a
+  // TaskListSessionView for that list, anchored at that task, instead of the
+  // standalone timer — reproducing "tapped Start Tasks and navigated to
+  // that task by hand." Otherwise opens TimerScreen as before, seeded with
+  // elapsed time computed from the server-recorded startedAt. Returns
+  // whether it found one.
+  const openInProgressTimer = useCallback(() => {
+    const inProgressLogs = initialLogs.filter((l) => l.state === "in_progress" && l.startedAt);
+    const inProgressLog = inProgressLogs.sort(
+      (a, b) => new Date(b.startedAt!).getTime() - new Date(a.startedAt!).getTime()
+    )[0];
+    if (!inProgressLog?.startedAt) return false;
+
+    if (inProgressLog.sessionTaskListId) {
+      const taskList = taskLists.find((tl) => tl._id === inProgressLog.sessionTaskListId);
+      const startIndex = taskList?.tasks.findIndex((t) => t._id === inProgressLog.taskId) ?? -1;
+      if (taskList && startIndex !== -1) {
+        setActiveSession({ taskList, startIndex });
+        return true;
+      }
+      // Fall through to the standalone timer if the list/task can't be
+      // resolved (e.g. the list was deleted after the anchor was set).
+    }
+
+    for (const tl of [...scheduledTaskLists, ...anytimeTaskLists]) {
+      const task = tl.tasks.find((t) => t._id === inProgressLog.taskId);
+      if (task) {
+        const elapsed = (inProgressLog.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(inProgressLog.startedAt).getTime()) / 1000));
+        setTimerInitialElapsed(elapsed);
+        setTimerItem(task as TimerItem);
+        // Re-syncs the Live Activity on cold start — idempotent (start()
+        // always ends any existing activity first), so this is safe even
+        // though the Activity likely already survived the app being closed.
+        // NOTE: routineItemId/routineLabel/habitName are wire-contract keys
+        // for the un-renamed iOS RoutineActivity target — see
+        // lib/native/routine-activity.ts.
+        startRoutineActivity({
+          routineItemId: task._id,
+          routineLabel: tl.name,
+          habitName: task.name,
+          startedAt: new Date(Date.now() - elapsed * 1000).toISOString(),
+          projectedMinutes: task.taskType === "stopwatch" ? 0 : task.projectedMinutes,
+        });
+        return true;
+      }
+    }
+    return false;
+  }, [initialLogs, scheduledTaskLists, anytimeTaskLists, taskLists]);
+
+  // Auto-resume any in_progress timer from a previous session
+  useEffect(() => {
+    if (autoStartNext) return; // FAB will handle timer open
+    openInProgressTimer();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Explicit resume request from the FAB's active-timer indicator (see
+  // BottomNav.tsx) — must work even when TasksView was already mounted on
+  // this route, unlike the mount-only effect above, since navigating to the
+  // same route with a new search param doesn't remount the component.
+  useEffect(() => {
+    if (!autoResumeTimer) return;
+    openInProgressTimer();
+    router.replace("/tasks");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoResumeTimer]);
+
+  // Correct for server/client timezone mismatch — server uses UTC, browser knows local date.
+  useEffect(() => {
+    const localDate = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
+    if (localDate !== today) {
+      router.replace(`/tasks?date=${localDate}`);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Re-run that same check whenever the app returns to the foreground, not just
+  // at mount. A backgrounded/suspended PWA (the normal case on iOS — it isn't
+  // killed, just frozen in memory) never remounts on its own, so without this
+  // the mount-only check above can't catch the calendar day having rolled over
+  // while it was asleep — you'd keep seeing last night's "today" until some
+  // other navigation happened to force a reload. Only acts while viewing
+  // Today; doesn't yank the user out of intentional history browsing.
+  useEffect(() => {
+    const recheckDate = () => {
+      if (document.visibilityState !== "visible") return;
+      if (selectedDate !== today) return;
+      const localDate = new Date().toLocaleDateString("en-CA");
+      if (localDate !== today) {
+        router.replace(`/tasks?date=${localDate}`);
+      }
+    };
+    document.addEventListener("visibilitychange", recheckDate);
+    window.addEventListener("focus", recheckDate);
+    window.addEventListener("pageshow", recheckDate);
+    return () => {
+      document.removeEventListener("visibilitychange", recheckDate);
+      window.removeEventListener("focus", recheckDate);
+      window.removeEventListener("pageshow", recheckDate);
+    };
+  }, [today, selectedDate, router]);
+
+  // If `today` changes (e.g. timezone redirect delivers a new date from the server),
+  // move selectedDate forward so logs sync to the correct day.
+  useEffect(() => {
+    if (prevTodayRef.current !== today) {
+      if (selectedDate === prevTodayRef.current) setSelectedDate(today);
+      prevTodayRef.current = today;
+    }
+  }, [today, selectedDate]);
+
+  const refetchLogs = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/task-logs?date=${selectedDate}`);
+      if (!res.ok) return;
+      const data: TaskLogEntry[] = await res.json();
+      setLogs(Object.fromEntries(data.map((l) => [l.taskId, l])));
+    } catch {
+      // keep previous state; next poll/event will retry
+    }
+  }, [selectedDate]);
+
+  // Re-fetch logs whenever the selected date changes
+  useEffect(() => {
+    if (selectedDate === today) {
+      setLogs(Object.fromEntries(initialLogs.map((l) => [l.taskId, l])));
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/task-logs?date=${selectedDate}`)
+      .then((r) => r.json())
+      .then((data: TaskLogEntry[]) => {
+        if (!cancelled) {
+          setLogs(Object.fromEntries(data.map((l) => [l.taskId, l])));
+        }
+      });
+    return () => { cancelled = true; };
+  }, [selectedDate, today, initialLogs]);
+
+  // Poll for logs changed by something outside this tab (App Intent / Siri /
+  // Shortcuts trigger) while today's list is open and visible, so an external
+  // trigger shows up without the user needing to background/foreground the
+  // app. Only runs while viewing today — nothing external changes a past day.
+  useEffect(() => {
+    if (selectedDate !== today) return;
+    const onChanged = () => refetchLogs();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refetchLogs();
+    };
+    window.addEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const poll = setInterval(() => {
+      if (document.visibilityState === "visible") refetchLogs();
+    }, LOG_POLL_MS);
+    return () => {
+      window.removeEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      clearInterval(poll);
+    };
+  }, [selectedDate, today, refetchLogs]);
+
+  // Re-fetch to-dos whenever the selected date changes
+  useEffect(() => {
+    if (selectedDate === today) {
+      setTodos(initialTodos);
+      return;
+    }
+    let cancelled = false;
+    fetch(`/api/todos?date=${selectedDate}`)
+      .then((r) => r.json())
+      .then((data: TodoEntry[]) => {
+        if (!cancelled) setTodos(data);
+      });
+    return () => { cancelled = true; };
+  }, [selectedDate, today, initialTodos]);
+
+  // A todo stays visible on this (today's) list if it's due today, or if it's
+  // an earlier undone item carried forward as overdue.
+  const isTodoVisibleToday = useCallback(
+    (t: TodoEntry) => t.scheduledDate === selectedDate || (!t.done && t.scheduledDate < selectedDate),
+    [selectedDate]
+  );
+  const { toggle: handleToggleTodo, remove: handleDeleteTodo, update: handleUpdateTodo } =
+    useTodoActions(todos, setTodos, isTodoVisibleToday);
+
+  // weekLogs keyed by taskId → array of {date, state, actualMinutes}
+  const weekLogsByTask: Record<string, Array<{ date: string; state: LogState; actualMinutes: number | null }>> = {};
+  for (const wl of liveWeekLogs) {
+    if (!weekLogsByTask[wl.taskId]) weekLogsByTask[wl.taskId] = [];
+    weekLogsByTask[wl.taskId].push({ date: wl.date, state: wl.state, actualMinutes: wl.actualMinutes });
+  }
+
+  const handleStateChange = useCallback(
+    async (
+      taskId: string,
+      newState: LogState | null,
+      opts?: {
+        actualMinutes?: number;
+        isBackEntry?: boolean;
+        startedAt?: string;
+        completedAt?: string;
+        formData?: Record<string, string | number | boolean>;
+      }
+    ) => {
+      const prev = logs[taskId];
+
+      // Keep streak dots in sync without a full refresh
+      const patchWeekLog = (state: LogState | null, actualMinutes: number | null = null) => {
+        setLiveWeekLogs((prev) => {
+          const next = prev.filter(
+            (w) => !(w.taskId === taskId && w.date === selectedDate)
+          );
+          if (state && state !== "in_progress") {
+            next.push({ taskId, date: selectedDate, state, actualMinutes });
+          }
+          return next;
+        });
+      };
+
+      if (newState === null) {
+        patchWeekLog(null);
+        setLogs((l) => {
+          const next = { ...l };
+          delete next[taskId];
+          return next;
+        });
+        await fetch("/api/task-logs", {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId, date: selectedDate }),
+        });
+      } else if (opts?.startedAt && opts?.completedAt) {
+        // Manual time edit — use PATCH with explicit timestamps
+        const mins = Math.max(1, Math.round(
+          (new Date(opts.completedAt).getTime() - new Date(opts.startedAt).getTime()) / 60000
+        ));
+        patchWeekLog(newState, mins);
+        const optimistic: TaskLogEntry = {
+          _id: prev?._id ?? "",
+          taskId,
+          date: selectedDate,
+          state: newState,
+          actualMinutes: mins,
+          startedAt: opts.startedAt,
+          completedAt: opts.completedAt,
+        };
+        setLogs((l) => ({ ...l, [taskId]: optimistic }));
+        const res = await fetch("/api/task-logs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId,
+            date: selectedDate,
+            state: newState,
+            startedAt: opts.startedAt,
+            completedAt: opts.completedAt,
+            formData: opts.formData,
+          }),
+        });
+        if (res.ok) {
+          const saved = await res.json();
+          setLogs((l) => ({ ...l, [taskId]: saved }));
+        }
+      } else {
+        patchWeekLog(newState, opts?.actualMinutes ?? prev?.actualMinutes ?? null);
+        const optimistic: TaskLogEntry = {
+          _id: prev?._id ?? "",
+          taskId,
+          date: selectedDate,
+          state: newState,
+          actualMinutes: opts?.actualMinutes ?? prev?.actualMinutes,
+        };
+        setLogs((l) => ({ ...l, [taskId]: optimistic }));
+
+        const res = await fetch("/api/task-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            taskId,
+            date: selectedDate,
+            state: newState,
+            actualMinutes: opts?.actualMinutes,
+            isBackEntry: opts?.isBackEntry ?? isPastDate,
+          }),
+        });
+        if (res.ok) {
+          const saved = await res.json();
+          setLogs((l) => ({ ...l, [taskId]: saved }));
+        }
+      }
+    },
+    [logs, selectedDate, isPastDate]
+  );
+
+  // Opens the timer for a task. Creates an in_progress log on first tap;
+  // resumes from stored startedAt if one already exists.
+  const handleStartTimer = useCallback(
+    async (task: TimerItem) => {
+      const existingLog = logs[task._id];
+
+      if (existingLog?.state === "in_progress" || existingLog?.state === "paused") {
+        // Session-anchored (started via the session itself, or the external
+        // API with a list id) — resuming this task means resuming the
+        // session, not the standalone timer. A paused task always carries
+        // its session anchor (pausing only ever happens from within an open
+        // session), and its startedAt is null, so it can't be resumed as a
+        // standalone timer anyway.
+        if (existingLog.sessionTaskListId) {
+          const taskList = taskLists.find((tl) => tl._id === existingLog.sessionTaskListId);
+          if (taskList) {
+            const startIndex = Math.max(0, taskList.tasks.findIndex((t) => t._id === task._id));
+            setActiveSession({ taskList, startIndex });
+            return;
+          }
+        }
+        if (existingLog.state === "in_progress" && existingLog.startedAt) {
+          const elapsed = (existingLog.pausedSeconds ?? 0) + Math.max(0, Math.floor((Date.now() - new Date(existingLog.startedAt).getTime()) / 1000));
+          setTimerInitialElapsed(elapsed);
+          setTimerItem(task);
+          startRoutineActivity({
+            routineItemId: task._id,
+            routineLabel: findTaskListName(task._id),
+            habitName: task.name,
+            startedAt: new Date(Date.now() - elapsed * 1000).toISOString(),
+            projectedMinutes: task.taskType === "stopwatch" ? 0 : task.projectedMinutes,
+          });
+          return;
+        }
+        // Paused with no resolvable session (e.g. the list was deleted) —
+        // fall through to start fresh below; the server still preserves its
+        // banked time (see startInProgressLog), only the initial display
+        // resets to 0.
+      }
+
+      // Create in_progress log immediately so startedAt is server-authoritative
+      const optimistic: TaskLogEntry = {
+        _id: existingLog?._id ?? "",
+        taskId: task._id,
+        date: selectedDate,
+        state: "in_progress",
+        startedAt: new Date().toISOString(),
+      };
+      setLogs((l) => ({ ...l, [task._id]: optimistic }));
+
+      await fetch("/api/task-logs", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: task._id, date: selectedDate, state: "in_progress" }),
+      });
+
+      // The server also auto-completes any other dangling in_progress log for
+      // this user (single-active-timer invariant, enforced in the route
+      // handler) — re-fetch the whole day so that gets reflected locally too,
+      // not just the task we just started.
+      try {
+        const res = await fetch(`/api/task-logs?date=${selectedDate}`);
+        if (res.ok) {
+          const fresh: TaskLogEntry[] = await res.json();
+          setLogs(Object.fromEntries(fresh.map((l) => [l.taskId, l])));
+        }
+      } catch { /* optimistic state already applied; will resync on next refresh */ }
+
+      emitTaskLogChanged();
+      setTimerInitialElapsed(0);
+      setTimerItem(task);
+      startRoutineActivity({
+        routineItemId: task._id,
+        routineLabel: findTaskListName(task._id),
+        habitName: task.name,
+        startedAt: optimistic.startedAt!,
+        projectedMinutes: task.taskType === "stopwatch" ? 0 : task.projectedMinutes,
+      });
+    },
+    [logs, selectedDate, taskLists, findTaskListName]
+  );
+
+  // PATCH the in_progress log to done. Server derives actualMinutes from startedAt.
+  // Falls back to client-computed actualMinutes if no server timestamp exists.
+  const handleTimerComplete = useCallback(
+    async (actualMinutes: number) => {
+      if (!timerItem) return;
+      setLogs((l) => ({
+        ...l,
+        [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "done", actualMinutes },
+      }));
+      const res = await fetch("/api/task-logs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: timerItem._id, date: selectedDate, state: "done", actualMinutes }),
+      });
+      if (res.ok) {
+        const saved: TaskLogEntry = await res.json();
+        setLogs((l) => ({ ...l, [timerItem._id]: saved }));
+      }
+      emitTaskLogChanged();
+      setTimerItem(null);
+      endRoutineActivity();
+    },
+    [timerItem, selectedDate]
+  );
+
+  // Same PATCH path as handleTimerComplete, plus formData — see
+  // components/TaskFormScreen.tsx. actualMinutes is still server-derived
+  // from startedAt (see completeInProgressLog); the client-computed value
+  // here is only the fallback, same as the standalone timer's Done button.
+  const handleTaskFormComplete = useCallback(
+    async (formData: Record<string, string | number | boolean>, actualMinutes: number) => {
+      if (!timerItem) return;
+      setLogs((l) => ({
+        ...l,
+        [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "done", actualMinutes },
+      }));
+      const res = await fetch("/api/task-logs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskId: timerItem._id, date: selectedDate, state: "done", actualMinutes, formData }),
+      });
+      if (res.ok) {
+        const saved: TaskLogEntry = await res.json();
+        setLogs((l) => ({ ...l, [timerItem._id]: saved }));
+      }
+      emitTaskLogChanged();
+      setTimerItem(null);
+      endRoutineActivity();
+    },
+    [timerItem, selectedDate]
+  );
+
+  const handleTimerMissed = useCallback(async () => {
+    if (!timerItem) return;
+    setLogs((l) => ({
+      ...l,
+      [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "missed" },
+    }));
+    await fetch("/api/task-logs", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskId: timerItem._id, date: selectedDate, state: "missed" }),
+    });
+    emitTaskLogChanged();
+    setTimerItem(null);
+    endRoutineActivity();
+  }, [timerItem, selectedDate]);
+
+  const handleSessionFinish = useCallback(async () => {
+    setActiveSession(null);
+    // Re-fetch logs immediately so isComplete is accurate before router.refresh() arrives.
+    // TaskListSessionView writes directly to the DB without updating the parent
+    // logs state, so without this the list would briefly re-open with the
+    // Start/Continue button.
+    try {
+      const res = await fetch(`/api/task-logs?date=${selectedDate}`);
+      if (res.ok) {
+        const fresh = (await res.json()) as TaskLogEntry[];
+        setLogs(Object.fromEntries(fresh.map((l) => [l.taskId, l])));
+      }
+    } catch { /* silent — router.refresh() below will sync eventually */ }
+    router.refresh();
+  }, [router, selectedDate]);
+
+  const handleAddTask = useCallback(
+    async (
+      templateId: string | null,
+      name: string,
+      icon: string,
+      projectedMinutes: number,
+      taskType: "standard" | "stopwatch" | "checkbox" | "form" = "form",
+      scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
+      successThreshold: number = 7,
+      formFields: FormFieldDef[] = []
+    ) => {
+      if (!addTaskSheetFor) return;
+      await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          taskListId: addTaskSheetFor.id,
+          templateId,
+          name,
+          icon,
+          projectedMinutes,
+          taskType,
+          scheduledDays,
+          successThreshold,
+          formFields,
+        }),
+      });
+      setAddTaskSheetFor(null);
+      router.refresh();
+    },
+    [addTaskSheetFor, router]
+  );
+
+  const totalDone = Object.values(logs).filter((l) => l.state === "done").length;
+  const totalTasks = taskLists.reduce(
+    (acc, tl) => acc + tl.tasks.filter((t) => isTaskVisibleOn(t, selectedDate)).length,
+    0
+  );
+
+  const sessionTaskList = activeSession
+    ? taskLists.find((tl) => tl._id === activeSession.taskList._id) ?? activeSession.taskList
+    : null;
+  const sessionTasks = sessionTaskList
+    ? sessionTaskList.tasks.filter((t) => isTaskVisibleOn(t, selectedDate))
+    : [];
+
+  return (
+    <div className="min-h-dvh bg-bg">
+      {timerItem && (
+        timerItem.taskType === "form" ? (
+          <TaskFormScreen
+            item={timerItem}
+            initialElapsed={timerInitialElapsed}
+            onComplete={handleTaskFormComplete}
+            onMissed={handleTimerMissed}
+            onClose={() => setTimerItem(null)}
+          />
+        ) : (
+          <TimerScreen
+            item={timerItem}
+            initialElapsed={timerInitialElapsed}
+            onComplete={handleTimerComplete}
+            onMissed={handleTimerMissed}
+            onClose={() => setTimerItem(null)}
+          />
+        )
+      )}
+
+      {sessionTaskList && (
+        <TaskListSessionView
+          taskListId={sessionTaskList._id}
+          taskListName={sessionTaskList.name}
+          taskListStartTime={sessionTaskList.startTime}
+          tasks={sessionTasks}
+          logs={logs}
+          today={selectedDate}
+          startIndex={activeSession?.startIndex ?? 0}
+          onClose={handleSessionFinish}
+          onFinish={handleSessionFinish}
+        />
+      )}
+
+      {addTaskSheetFor && (
+        <AddTaskSheet
+          taskListId={addTaskSheetFor.id}
+          taskListName={addTaskSheetFor.name}
+          onAdd={handleAddTask}
+          onClose={() => setAddTaskSheetFor(null)}
+        />
+      )}
+
+      {showAddTaskListSheet && (
+        <AddTaskListSheet
+          onCreated={(taskList) => {
+            setShowAddTaskListSheet(false);
+            setAddTaskSheetFor({ id: taskList._id, name: taskList.name });
+          }}
+          onClose={() => setShowAddTaskListSheet(false)}
+        />
+      )}
+
+      {addTodoOpen && (
+        <FABTodoSheet
+          date={selectedDate}
+          onClose={() => setAddTodoOpen(false)}
+        />
+      )}
+
+      {editingTodo && (
+        <EditTodoSheet
+          todo={editingTodo}
+          onSave={(updates) => handleUpdateTodo(editingTodo._id, updates)}
+          onDelete={() => { handleDeleteTodo(editingTodo._id); setEditingTodo(null); }}
+          onClose={() => setEditingTodo(null)}
+        />
+      )}
+
+      <div className="mx-auto max-w-mobile px-4 pb-28">
+        <Header userName={userName} today={today} skipAuth={skipAuth} />
+
+        <>
+          {/* Date navigation */}
+            <DateNav
+              selectedDate={selectedDate}
+              today={today}
+              maxDaysBack={7}
+              onChange={setSelectedDate}
+            />
+
+            {/* Progress bar */}
+            <div className="mb-8">
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-olive text-sm tabular-nums">
+                  {totalDone}/{totalTasks}
+                </span>
+                <div className="flex-1 h-px bg-card relative overflow-hidden rounded-full">
+                  <div
+                    className="absolute inset-y-0 left-0 bg-olive transition-all duration-500"
+                    style={{ width: totalTasks > 0 ? `${(totalDone / totalTasks) * 100}%` : "0%" }}
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Shift task lists (opening / mid-shift / closing / manager-created) */}
+            <div className="space-y-8">
+              {scheduledTaskLists.map((taskList) => (
+                <TaskListCard
+                  key={`${taskList._id}-${selectedDate}`}
+                  taskList={taskList}
+                  logs={logs}
+                  weekLogs={weekLogsByTask}
+                  weekDates={weekDates}
+                  isPastDate={isPastDate}
+                  selectedDate={selectedDate}
+                  today={today}
+                  onStateChange={handleStateChange}
+                  onStartTimer={handleStartTimer}
+                  onStartTaskList={(tl, startIndex) => setActiveSession({ taskList: tl, startIndex })}
+                />
+              ))}
+            </div>
+
+            {/* Manager-only entry point into the "Add Task List" flow — name
+                + start time, then straight into AddTaskSheet for its tasks. */}
+            {userRole === "manager" && (
+              <button
+                onClick={() => setShowAddTaskListSheet(true)}
+                className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+              >
+                + Add Task List
+              </button>
+            )}
+
+            {/* To-dos for the day */}
+            <TodoSection
+              todos={todos}
+              viewingDate={selectedDate}
+              onToggle={handleToggleTodo}
+              onDelete={handleDeleteTodo}
+              onEdit={setEditingTodo}
+              onAdd={() => setAddTodoOpen(true)}
+            />
+
+            {/* Standalone/anytime tasks section(s) */}
+            {(anytimeTaskLists.length > 0) && (
+              <div className="mt-10">
+                <div className="flex items-center gap-3 mb-4">
+                  <span className="font-mono text-[10px] uppercase tracking-widest text-dim">
+                    {anytimeTaskLists[0]?.name ?? "Tasks"}
+                  </span>
+                  <div className="flex-1 h-px bg-border" />
+                  <button
+                    onClick={() => {
+                      const target = anytimeTaskLists[0];
+                      if (target) setAddTaskSheetFor({ id: target._id, name: target.name });
+                    }}
+                    className="font-mono text-[10px] text-olive hover:text-olive-light transition-colors"
+                  >
+                    + Add
+                  </button>
+                </div>
+
+                <div className="space-y-8">
+                  {anytimeTaskLists.map((taskList) => (
+                    <TaskListCard
+                      key={`${taskList._id}-${selectedDate}`}
+                      taskList={taskList}
+                      logs={logs}
+                      weekLogs={weekLogsByTask}
+                      weekDates={weekDates}
+                      isPastDate={isPastDate}
+                      selectedDate={selectedDate}
+                      today={today}
+                      onStateChange={handleStateChange}
+                      onStartTimer={handleStartTimer}
+                      onStartTaskList={() => {}}
+                    />
+                  ))}
+                </div>
+
+                {anytimeTaskLists.every((tl) => tl.tasks.length === 0) && (
+                  <button
+                    onClick={() => {
+                      const target = anytimeTaskLists[0];
+                      if (target) setAddTaskSheetFor({ id: target._id, name: target.name });
+                    }}
+                    className="w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+                  >
+                    + Add your first task
+                  </button>
+                )}
+              </div>
+            )}
+
+            {taskLists.length === 0 && (
+              <div className="text-center py-20">
+                <p className="text-muted text-sm">No tasks yet.</p>
+              </div>
+            )}
+          </>
+      </div>
+    </div>
+  );
+}

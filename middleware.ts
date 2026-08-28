@@ -19,7 +19,7 @@ export default auth((req) => {
   console.log(`[middleware] ${pathname} — isLoggedIn:${isLoggedIn} isPublicPage:${isPublicPage} isApiRoute:${isApiRoute} token:`, JSON.stringify(req.auth));
 
   if (isLoggedIn && isPublicPage) {
-    return Response.redirect(new URL("/routines", req.nextUrl.origin));
+    return Response.redirect(new URL("/tasks", req.nextUrl.origin));
   }
 
   if (!isLoggedIn && !isPublicPage) {

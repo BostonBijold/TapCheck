@@ -52,7 +52,7 @@ enum BeOneAPI {
         if let routineGroupId { body["routineGroupId"] = routineGroupId }
         if let source { body["source"] = source }
 
-        var request = URLRequest(url: baseURL.appendingPathComponent("/api/external/trigger-habit"))
+        var request = URLRequest(url: baseURL.appendingPathComponent("/api/external/trigger-task"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
@@ -73,7 +73,7 @@ enum BeOneAPI {
     // its own.
     @discardableResult
     static func completeActiveHabit(apiKey: String) async throws -> TriggerResponse {
-        var request = URLRequest(url: baseURL.appendingPathComponent("/api/external/complete-active-habit"))
+        var request = URLRequest(url: baseURL.appendingPathComponent("/api/external/complete-active-task"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(["apiKey": apiKey])

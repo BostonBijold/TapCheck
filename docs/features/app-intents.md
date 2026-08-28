@@ -18,9 +18,9 @@ App Intents has no JS/Capacitor-JS equivalent — this is OS-level Shortcuts-gal
 
 No app-specific NFC code or data model is needed for a physical tap-to-trigger experience. Shortcuts' own NFC Automation binds directly to a tag's hardware UID when you set it up (Automation → + → NFC → scan tag → Run Shortcut) — it works with any tag, blank or not, and needs nothing written to it, no "claiming," no per-tag record in this app's database at all. Point that Automation at a Shortcut built around the "Trigger Habit" action (with the desired habit pre-selected as its parameter) and tapping the tag fires it silently, phone locked included. This is strictly simpler than the retired NFC-tag system, which needed a `tagCode` written to each tag, an in-app claim flow, and Universal Links just to get to the point of building a Shortcut.
 
-## The habit list — `GET /api/external/habits`
+## The habit list — `GET /api/external/tasks`
 
-Read-only sibling to `trigger-habit` (see [`api/external-api.md`](../api/external-api.md#get-apiexternalhabits)) — lists a user's active habits with inline group context (`{ id, name, icon, itemType, groupId, groupName }`), sorted to match in-app ordering. Nothing else calls this endpoint; it exists solely to back the native picker below.
+Read-only sibling to `trigger-task` (see [`api/external-api.md`](../api/external-api.md#get-apiexternaltasks)) — lists a company's active tasks with inline task-list context (`{ id, name, icon, itemType, groupId, groupName }`, field names kept as the external wire contract — see external-api.md's Vocabulary note), sorted to match in-app ordering. Nothing else calls this endpoint; it exists solely to back the native picker below.
 
 ## The Keychain bridge
 
@@ -45,7 +45,7 @@ ios/App/App/
                                 target — see docs/features/live-activity.md. Now dual
                                 App + RoutineActivityExtension target membership.
   AppIntents/
-    HabitEntity.swift         — AppEntity wrapping one habit from GET /api/external/habits
+    HabitEntity.swift         — AppEntity wrapping one task from GET /api/external/tasks
     HabitEntityQuery.swift    — EntityQuery + EntityStringQuery, backed by a 45s-TTL actor
                                  cache (HabitCache) so the Shortcuts editor's search field
                                  doesn't hit the network on every keystroke; also hosts
@@ -54,7 +54,7 @@ ios/App/App/
                                  Live Activity's extension target doesn't compile, hence not
                                  in BeOneAPI.swift itself)
     TriggerHabitIntent.swift  — the AppIntent itself; POSTs to the existing
-                                 /api/external/trigger-habit, no new trigger logic
+                                 /api/external/trigger-task, no new trigger logic
     BeOneShortcuts.swift      — AppShortcutsProvider; this alone is what makes the action
                                  appear in the Shortcuts gallery/Siri/Spotlight, no
                                  Info.plist configuration needed
@@ -68,7 +68,7 @@ A second AppIntent, `CompleteHabitFromActivityIntent` (the Live Activity's "Done
 
 ## Local date, not server UTC
 
-`BeOneAPI.triggerHabit` sends an explicit `date` param (`YYYY-MM-DD`, computed from `DateFormatter` with `timeZone = .current`) rather than leaving it out. Confirmed on-device: without it, `POST /api/external/trigger-habit` defaults to the *server's* UTC date, and a trigger fired at 7pm Mountain time landed on tomorrow's log — invisible on today's view. The web client never hits this, since `RoutinesView.tsx` has its own effect that compares the server-rendered UTC `today` against `new Date().toLocaleDateString("en-CA")` (the browser's local date) and redirects to correct it on every load/foreground; the App Intent path has no equivalent correction, so it has to get the date right itself up front instead.
+`BeOneAPI.triggerHabit` sends an explicit `date` param (`YYYY-MM-DD`, computed from `DateFormatter` with `timeZone = .current`) rather than leaving it out. Confirmed on-device: without it, `POST /api/external/trigger-task` defaults to the *server's* UTC date, and a trigger fired at 7pm Mountain time landed on tomorrow's log — invisible on today's view. The web client never hits this, since `TasksView.tsx` has its own effect that compares the server-rendered UTC `today` against `new Date().toLocaleDateString("en-CA")` (the browser's local date) and redirects to correct it on every load/foreground; the App Intent path has no equivalent correction, so it has to get the date right itself up front instead.
 
 ## `openAppWhenRun = false`
 
@@ -76,9 +76,9 @@ A second AppIntent, `CompleteHabitFromActivityIntent` (the Live Activity's "Done
 
 ## Connection status in Manage Habit
 
-There's no Apple-provided hook for "a user configured a Shortcut with this habit as its parameter" — the Shortcuts editor never talks to a server just because someone picked a value from `HabitEntityQuery`'s list. The only signal Be One ever gets is when the Shortcut actually **runs**. So rather than pretend to track individual Shortcuts, `models/AppIntentLink.ts` records usage: `{ userId, routineItemId, lastTriggeredAt }`, upserted by `POST /api/external/trigger-habit` whenever the caller passes `source: "app_intent"` (see [`api/external-api.md`](../api/external-api.md#post-apiexternaltrigger-habit)) — `TriggerHabitIntent`'s `BeOneAPI.triggerHabit` always sends this.
+There's no Apple-provided hook for "a user configured a Shortcut with this task as its parameter" — the Shortcuts editor never talks to a server just because someone picked a value from `HabitEntityQuery`'s list. The only signal Be One ever gets is when the Shortcut actually **runs**. So rather than pretend to track individual Shortcuts, `models/AppIntentLink.ts` records usage: `{ userId, taskId, lastTriggeredAt }`, upserted by `POST /api/external/trigger-task` whenever the caller passes `source: "app_intent"` (see [`api/external-api.md`](../api/external-api.md#post-apiexternaltrigger-task)) — `TriggerHabitIntent`'s `BeOneAPI.triggerHabit` always sends this.
 
-`app/(app)/routines/[groupId]/edit/page.tsx` loads these and passes `appIntentLastTriggeredAt` to `components/RoutineEditView.tsx`, which shows a "Siri & Shortcuts — Connected · last used {date}" line in the per-item edit panel whenever it's non-null. Nothing here blocks a habit from being picked by multiple different Shortcuts, or an NFC Automation on top of one of them; the badge is just "has this ever been triggered via App Intent," not an exclusive slot.
+`app/(app)/tasks/[taskListId]/edit/page.tsx` loads these and passes `appIntentLastTriggeredAt` to `components/TaskListEditView.tsx`, which shows a "Siri & Shortcuts — Connected · last used {date}" line in the per-task edit panel whenever it's non-null. Nothing here blocks a task from being picked by multiple different Shortcuts, or an NFC Automation on top of one of them; the badge is just "has this ever been triggered via App Intent," not an exclusive slot.
 
 ## Accepted v1 gap — `updateAppShortcutParameters()`
 

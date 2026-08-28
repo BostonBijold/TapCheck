@@ -1,9 +1,9 @@
-import type { FormFieldDef } from "@/models/RoutineItem";
+import type { FormFieldDef } from "@/models/Task";
 
 // Validates/sanitizes a client-supplied formFields payload — drops any entry
 // that doesn't have the minimum required shape instead of trusting
-// Array.isArray alone. Shared by the routine-items and habit-templates
-// write routes so a real UI (CheckFieldsEditor) can't write malformed data.
+// Array.isArray alone. Shared by the tasks and task-templates write routes
+// so a real UI (TaskFieldsEditor) can't write malformed data.
 export function sanitizeFormFields(input: unknown): FormFieldDef[] {
   if (!Array.isArray(input)) return [];
 

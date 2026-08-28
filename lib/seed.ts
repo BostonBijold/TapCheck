@@ -1,6 +1,6 @@
-import RoutineGroup from "@/models/RoutineGroup";
-import RoutineItem from "@/models/RoutineItem";
-import HabitTemplate from "@/models/HabitTemplate";
+import TaskList from "@/models/TaskList";
+import Task from "@/models/Task";
+import TaskTemplate from "@/models/TaskTemplate";
 import {
   ensureSystemTemplates,
   DEFAULT_OPENING_NAMES,
@@ -8,11 +8,11 @@ import {
   DEFAULT_CLOSING_NAMES,
 } from "@/lib/seed-templates";
 
-export async function seedDefaultRoutines(companyId: string) {
+export async function seedDefaultTaskLists(companyId: string) {
   // Ensure the catalog exists before referencing it
   await ensureSystemTemplates();
 
-  const opening = await RoutineGroup.create({
+  const opening = await TaskList.create({
     companyId,
     name: "Opening Shift",
     timeOfDay: "morning",
@@ -21,7 +21,7 @@ export async function seedDefaultRoutines(companyId: string) {
     isDefault: true,
   });
 
-  const midShift = await RoutineGroup.create({
+  const midShift = await TaskList.create({
     companyId,
     name: "Mid-Shift",
     timeOfDay: "custom",
@@ -30,7 +30,7 @@ export async function seedDefaultRoutines(companyId: string) {
     isDefault: true,
   });
 
-  const closing = await RoutineGroup.create({
+  const closing = await TaskList.create({
     companyId,
     name: "Closing Shift",
     timeOfDay: "evening",
@@ -41,28 +41,28 @@ export async function seedDefaultRoutines(companyId: string) {
 
   // Pull templates from DB by name so order + IDs are correct
   const [openingTemplates, midShiftTemplates, closingTemplates] = await Promise.all([
-    HabitTemplate.find({ name: { $in: DEFAULT_OPENING_NAMES }, isSystem: true }).lean(),
-    HabitTemplate.find({ name: { $in: DEFAULT_MIDSHIFT_NAMES }, isSystem: true }).lean(),
-    HabitTemplate.find({ name: { $in: DEFAULT_CLOSING_NAMES }, isSystem: true }).lean(),
+    TaskTemplate.find({ name: { $in: DEFAULT_OPENING_NAMES }, isSystem: true }).lean(),
+    TaskTemplate.find({ name: { $in: DEFAULT_MIDSHIFT_NAMES }, isSystem: true }).lean(),
+    TaskTemplate.find({ name: { $in: DEFAULT_CLOSING_NAMES }, isSystem: true }).lean(),
   ]);
 
   // Preserve the canonical order defined in DEFAULT_*_NAMES
   const sortByDefault = (templates: typeof openingTemplates, names: readonly string[]) =>
     [...templates].sort((a, b) => names.indexOf(a.name) - names.indexOf(b.name));
 
-  const insertForGroup = (
-    groupId: typeof opening._id,
+  const insertForList = (
+    taskListId: typeof opening._id,
     templates: typeof openingTemplates,
     names: readonly string[]
   ) =>
-    RoutineItem.insertMany(
+    Task.insertMany(
       sortByDefault(templates, names).map((t, i) => ({
         companyId,
-        groupId,
+        taskListId,
         templateId: t._id,
         name: t.name,
         icon: t.icon,
-        itemType: "form_check",
+        taskType: "form",
         projectedMinutes: t.defaultProjectedMinutes,
         formFields: t.formFields ?? [],
         order: i,
@@ -71,41 +71,41 @@ export async function seedDefaultRoutines(companyId: string) {
     );
 
   await Promise.all([
-    insertForGroup(opening._id, openingTemplates, DEFAULT_OPENING_NAMES),
-    insertForGroup(midShift._id, midShiftTemplates, DEFAULT_MIDSHIFT_NAMES),
-    insertForGroup(closing._id, closingTemplates, DEFAULT_CLOSING_NAMES),
+    insertForList(opening._id, openingTemplates, DEFAULT_OPENING_NAMES),
+    insertForList(midShift._id, midShiftTemplates, DEFAULT_MIDSHIFT_NAMES),
+    insertForList(closing._id, closingTemplates, DEFAULT_CLOSING_NAMES),
   ]);
 }
 
-// Idempotent — creates a standalone "Facility Checks" group (timeOfDay:
-// 'habit' — same standalone-group mechanics as any user-created habit group,
-// just seeded with example form_check items) if none exists. These are
-// anytime/recurring checks (fridge/freezer temps, restroom checklists) that
+// Idempotent — creates a standalone "Anytime Tasks" list (timeOfDay:
+// 'anytime' — same standalone-list mechanics as any manager-created task
+// list, just seeded with example form tasks) if none exists. These are
+// anytime/recurring tasks (fridge/freezer temps, restroom checklists) that
 // don't belong to a single shift window.
-export async function ensureHabitsGroup(companyId: string) {
-  const existing = await RoutineGroup.findOne({ companyId, timeOfDay: "habit" });
+export async function ensureAnytimeTaskList(companyId: string) {
+  const existing = await TaskList.findOne({ companyId, timeOfDay: "anytime" });
   if (existing) return;
 
-  const topGroup = await RoutineGroup.findOne({ companyId }).sort({ order: -1 }).lean();
-  const nextOrder = topGroup ? topGroup.order + 1 : 10;
+  const topList = await TaskList.findOne({ companyId }).sort({ order: -1 }).lean();
+  const nextOrder = topList ? topList.order + 1 : 10;
 
-  const group = await RoutineGroup.create({
+  const list = await TaskList.create({
     companyId,
-    name: "Facility Checks",
-    timeOfDay: "habit",
+    name: "Anytime Tasks",
+    timeOfDay: "anytime",
     startTime: null,
     order: nextOrder,
     isDefault: false,
   });
 
-  await RoutineItem.insertMany([
+  await Task.insertMany([
     {
       companyId,
-      groupId: group._id,
+      taskListId: list._id,
       templateId: null,
       name: "Fridge",
       icon: "🧊",
-      itemType: "form_check",
+      taskType: "form",
       projectedMinutes: 2,
       order: 0,
       isActive: true,
@@ -115,11 +115,11 @@ export async function ensureHabitsGroup(companyId: string) {
     },
     {
       companyId,
-      groupId: group._id,
+      taskListId: list._id,
       templateId: null,
       name: "Freezer",
       icon: "❄️",
-      itemType: "form_check",
+      taskType: "form",
       projectedMinutes: 2,
       order: 1,
       isActive: true,
@@ -129,11 +129,11 @@ export async function ensureHabitsGroup(companyId: string) {
     },
     {
       companyId,
-      groupId: group._id,
+      taskListId: list._id,
       templateId: null,
       name: "Men's Room",
       icon: "🚹",
-      itemType: "form_check",
+      taskType: "form",
       projectedMinutes: 3,
       order: 2,
       isActive: true,
@@ -144,11 +144,11 @@ export async function ensureHabitsGroup(companyId: string) {
     },
     {
       companyId,
-      groupId: group._id,
+      taskListId: list._id,
       templateId: null,
       name: "Women's Room",
       icon: "🚺",
-      itemType: "form_check",
+      taskType: "form",
       projectedMinutes: 3,
       order: 3,
       isActive: true,

@@ -9,8 +9,8 @@ import ActivityKit
 //
 // Matches the NFC/Shortcuts "Trigger Habit" tap exactly: completes whatever
 // habit is currently active, and if it wasn't the last one in its group,
-// auto-starts the next. Calls POST /api/external/complete-active-habit
-// (lib/habit-trigger.ts's completeActiveHabit) rather than trigger-habit —
+// auto-starts the next. Calls POST /api/external/complete-active-task
+// (lib/task-trigger.ts's completeActiveTask) rather than trigger-task —
 // that endpoint needs no routineItemId at all, completing whichever log the
 // server finds in_progress. See docs/features/live-activity.md for the full
 // history: two earlier versions tried to determine "which habit" from this

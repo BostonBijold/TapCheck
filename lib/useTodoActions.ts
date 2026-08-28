@@ -3,10 +3,10 @@
 import { useCallback } from "react";
 import type { TodoEntry } from "@/components/TodoSection";
 
-// Shared mutation logic for the standalone To-Do list, used by both
-// RoutinesView (today + overdue carry-forward) and GoalsView (future
-// backlog) — the two views differ only in which todos they fetch and in
-// which items remain visible after an edit, both captured by `isVisible`.
+// Shared mutation logic for the standalone To-Do list, used by TasksView
+// (today + overdue carry-forward) — differing view contexts would fetch
+// different todos and show different items visible after an edit, both
+// captured by `isVisible`.
 export function useTodoActions(
   todos: TodoEntry[],
   setTodos: React.Dispatch<React.SetStateAction<TodoEntry[]>>,

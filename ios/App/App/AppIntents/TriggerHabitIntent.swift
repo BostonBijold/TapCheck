@@ -1,7 +1,7 @@
 import AppIntents
 
-// Calls the same POST /api/external/trigger-habit every other trigger path
-// already uses (app/api/external/trigger-habit/route.ts) — no new
+// Calls the same POST /api/external/trigger-task every other trigger path
+// already uses (app/api/external/trigger-task/route.ts) — no new
 // start/complete/advance logic, just a new caller. See
 // docs/features/app-intents.md.
 struct TriggerHabitIntent: AppIntent {

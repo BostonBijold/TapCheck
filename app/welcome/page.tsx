@@ -33,7 +33,7 @@ export default function WelcomePage() {
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
-    router.prefetch("/routines");
+    router.prefetch("/tasks");
     const timer = setTimeout(() => setReady(true), READY_MS);
     return () => clearTimeout(timer);
   }, [router]);
@@ -72,7 +72,7 @@ export default function WelcomePage() {
         <ArrowButton
           label="Get started."
           disabled={!ready}
-          onClick={() => router.replace("/routines")}
+          onClick={() => router.replace("/tasks")}
           animate
           animationDelayMs={BEONE_DELAY_MS}
         />

@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { calendarWeekDates } from "@/lib/week-dates";
-import { computeWeeklyProgress } from "@/lib/routine-progress";
+import { computeWeeklyProgress } from "@/lib/task-progress";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
-import RoutineGroup from "@/models/RoutineGroup";
-import RoutineItem from "@/models/RoutineItem";
-import RoutineLog from "@/models/RoutineLog";
+import TaskList from "@/models/TaskList";
+import Task from "@/models/Task";
+import TaskLog from "@/models/TaskLog";
 
 // anchorDate: client's local today (YYYY-MM-DD). Never derive from server UTC.
 // The 7-day view is a fixed Sunday–Saturday calendar week containing
@@ -42,81 +42,81 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const groups = await RoutineGroup.find({ companyId }).sort({ order: 1 }).lean();
-  const allItems = await RoutineItem.find({ companyId, isActive: true }).lean();
-  const logs = await RoutineLog.find({ companyId, date: { $in: dates } }).lean();
+  const taskLists = await TaskList.find({ companyId }).sort({ order: 1 }).lean();
+  const allTasks = await Task.find({ companyId, isActive: true }).lean();
+  const logs = await TaskLog.find({ companyId, date: { $in: dates } }).lean();
 
-  // Fast lookup: itemId → date → log
+  // Fast lookup: taskId → date → log
   const logMap: Record<string, Record<string, (typeof logs)[0]>> = {};
   for (const log of logs) {
-    const id = log.routineItemId.toString();
+    const id = log.taskId.toString();
     if (!logMap[id]) logMap[id] = {};
     logMap[id][log.date] = log;
   }
 
-  const groupOrderMap: Record<string, number> = {};
-  groups.forEach((g, i) => { groupOrderMap[g._id.toString()] = i; });
+  const taskListOrderMap: Record<string, number> = {};
+  taskLists.forEach((tl, i) => { taskListOrderMap[tl._id.toString()] = i; });
 
-  // Sort items by group order then item order
-  const sortedItems = [...allItems].sort((a, b) => {
-    const go = (groupOrderMap[a.groupId.toString()] ?? 99) - (groupOrderMap[b.groupId.toString()] ?? 99);
-    return go !== 0 ? go : a.order - b.order;
+  // Sort tasks by list order then task order
+  const sortedTasks = [...allTasks].sort((a, b) => {
+    const lo = (taskListOrderMap[a.taskListId.toString()] ?? 99) - (taskListOrderMap[b.taskListId.toString()] ?? 99);
+    return lo !== 0 ? lo : a.order - b.order;
   });
 
-  // ── Per-group item ID sets (for start-time attribution) ───────────────────
-  const groupItemIds: Record<string, Set<string>> = {};
-  for (const item of sortedItems) {
-    const gId = item.groupId.toString();
-    if (!groupItemIds[gId]) groupItemIds[gId] = new Set();
-    groupItemIds[gId].add(item._id.toString());
+  // ── Per-list task ID sets (for start-time attribution) ───────────────────
+  const taskListTaskIds: Record<string, Set<string>> = {};
+  for (const task of sortedTasks) {
+    const lId = task.taskListId.toString();
+    if (!taskListTaskIds[lId]) taskListTaskIds[lId] = new Set();
+    taskListTaskIds[lId].add(task._id.toString());
   }
 
   // ── Typical start time ────────────────────────────────────────────────────
-  // For each group, find the earliest startedAt per day, then average those.
-  // This answers "what time do you usually begin this routine."
+  // For each list, find the earliest startedAt per day, then average those.
+  // This answers "what time do you usually begin this task list."
   // startedAt is a UTC Date; return avgMinutesUtc so the client can convert to
   // local time using the browser's own timezone offset.
-  const groupEarliestByDay: Record<string, Record<string, number>> = {};
+  const taskListEarliestByDay: Record<string, Record<string, number>> = {};
 
   for (const log of logs) {
     if (!log.startedAt) continue;
-    const itemId = log.routineItemId.toString();
+    const taskId = log.taskId.toString();
     const utcMins =
       new Date(log.startedAt).getUTCHours() * 60 +
       new Date(log.startedAt).getUTCMinutes();
 
-    for (const [gId, itemSet] of Object.entries(groupItemIds)) {
-      if (!itemSet.has(itemId)) continue;
-      if (!groupEarliestByDay[gId]) groupEarliestByDay[gId] = {};
-      const prev = groupEarliestByDay[gId][log.date];
+    for (const [lId, taskIdSet] of Object.entries(taskListTaskIds)) {
+      if (!taskIdSet.has(taskId)) continue;
+      if (!taskListEarliestByDay[lId]) taskListEarliestByDay[lId] = {};
+      const prev = taskListEarliestByDay[lId][log.date];
       if (prev === undefined || utcMins < prev) {
-        groupEarliestByDay[gId][log.date] = utcMins;
+        taskListEarliestByDay[lId][log.date] = utcMins;
       }
     }
   }
 
-  const groupAvgStart: Record<string, { avgMinutesUtc: number; sampleSize: number }> = {};
-  for (const [gId, byDay] of Object.entries(groupEarliestByDay)) {
+  const taskListAvgStart: Record<string, { avgMinutesUtc: number; sampleSize: number }> = {};
+  for (const [lId, byDay] of Object.entries(taskListEarliestByDay)) {
     const times = Object.values(byDay);
     if (times.length > 0) {
-      groupAvgStart[gId] = {
+      taskListAvgStart[lId] = {
         avgMinutesUtc: Math.round(times.reduce((s, t) => s + t, 0) / times.length),
         sampleSize: times.length,
       };
     }
   }
 
-  // ── Routine-level stats ───────────────────────────────────────────────────
-  const groupStats = groups.map((group) => {
-    const gId = group._id.toString();
-    const items = sortedItems.filter((i) => i.groupId.toString() === gId);
-    const totalItems = items.length;
+  // ── Task-list-level stats ──────────────────────────────────────────────────
+  const taskListStats = taskLists.map((taskList) => {
+    const lId = taskList._id.toString();
+    const tasks = sortedTasks.filter((t) => t.taskListId.toString() === lId);
+    const totalTasks = tasks.length;
 
     const daily = dates.map((date) => {
       let doneCount = 0, missedCount = 0, restCount = 0, actualMins = 0;
-      const projectedMins = items.reduce((s, i) => s + i.projectedMinutes, 0);
-      for (const item of items) {
-        const log = logMap[item._id.toString()]?.[date];
+      const projectedMins = tasks.reduce((s, t) => s + t.projectedMinutes, 0);
+      for (const task of tasks) {
+        const log = logMap[task._id.toString()]?.[date];
         if (!log) continue;
         if (log.state === "done") { doneCount++; actualMins += log.actualMinutes ?? 0; }
         else if (log.state === "missed") missedCount++;
@@ -128,19 +128,19 @@ export async function GET(req: NextRequest) {
     const activeDays = daily.filter((d) => d.loggedCount > 0);
     const avgCompletionRate =
       activeDays.length > 0
-        ? activeDays.reduce((s, d) => s + d.doneCount / Math.max(totalItems, 1), 0) / activeDays.length
+        ? activeDays.reduce((s, d) => s + d.doneCount / Math.max(totalTasks, 1), 0) / activeDays.length
         : 0;
     const avgActualMins =
       activeDays.length > 0
         ? Math.round(activeDays.reduce((s, d) => s + d.actualMins, 0) / activeDays.length)
         : 0;
-    const totalProjectedMins = items.reduce((s, i) => s + i.projectedMinutes, 0);
-    const startInfo = groupAvgStart[gId] ?? null;
+    const totalProjectedMins = tasks.reduce((s, t) => s + t.projectedMinutes, 0);
+    const startInfo = taskListAvgStart[lId] ?? null;
 
     return {
-      _id: gId,
-      name: group.name,
-      totalItems,
+      _id: lId,
+      name: taskList.name,
+      totalTasks,
       daily,
       avgCompletionRate,
       avgActualMins,
@@ -150,13 +150,13 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  // ── Habit-level stats ─────────────────────────────────────────────────────
-  const groupNameMap = Object.fromEntries(groups.map((g) => [g._id.toString(), g.name]));
+  // ── Task-level stats ──────────────────────────────────────────────────────
+  const taskListNameMap = Object.fromEntries(taskLists.map((tl) => [tl._id.toString(), tl.name]));
 
-  const habitStats = sortedItems.map((item) => {
-    const itemId = item._id.toString();
+  const taskStats = sortedTasks.map((task) => {
+    const taskId = task._id.toString();
     const daily = dates.map((date) => {
-      const log = logMap[itemId]?.[date];
+      const log = logMap[taskId]?.[date];
       return {
         date,
         state: (log?.state ?? null) as "done" | "missed" | "rest" | null,
@@ -169,13 +169,13 @@ export async function GET(req: NextRequest) {
     const missedCount = daily.filter((d) => d.state === "missed").length;
     const restCount = daily.filter((d) => d.state === "rest").length;
 
-    const isCheckbox = item.itemType === "checkbox";
-    const isStopwatch = item.itemType === "stopwatch";
+    const isCheckbox = task.taskType === "checkbox";
+    const isStopwatch = task.taskType === "stopwatch";
     const avgActualMins =
       !isCheckbox && doneDays.length > 0
-        ? Math.round(doneDays.reduce((s, d) => s + (d.actualMinutes ?? item.projectedMinutes), 0) / doneDays.length)
+        ? Math.round(doneDays.reduce((s, d) => s + (d.actualMinutes ?? task.projectedMinutes), 0) / doneDays.length)
         : null;
-    const avgVariance = avgActualMins !== null && !isStopwatch ? avgActualMins - item.projectedMinutes : null;
+    const avgVariance = avgActualMins !== null && !isStopwatch ? avgActualMins - task.projectedMinutes : null;
 
     const engagedDays = doneCount + missedCount;
 
@@ -183,14 +183,14 @@ export async function GET(req: NextRequest) {
     // trailing view, which has no clean interpretation against one week's
     // schedule. `dates`/`localDate` are already the Sun–Sat week + its
     // anchor when days === 7 (see getDates above).
-    const scheduledDays = item.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
-    const successThreshold = item.successThreshold ?? scheduledDays.length;
-    // No real time target for checkbox/stopwatch items — timing color is
-    // always null for those regardless of actualMinutes (see routine-progress.ts).
-    const targetMinutes = !isCheckbox && !isStopwatch ? item.projectedMinutes : null;
+    const scheduledDays = task.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
+    const successThreshold = task.successThreshold ?? scheduledDays.length;
+    // No real time target for checkbox/stopwatch tasks — timing color is
+    // always null for those regardless of actualMinutes (see task-progress.ts).
+    const targetMinutes = !isCheckbox && !isStopwatch ? task.projectedMinutes : null;
     const weeklyLogsByDate: Record<string, { state: "done" | "missed" | "rest"; actualMinutes: number | null }> = {};
     for (const date of dates) {
-      const log = logMap[itemId]?.[date];
+      const log = logMap[taskId]?.[date];
       if (log?.state === "done" || log?.state === "missed" || log?.state === "rest") {
         weeklyLogsByDate[date] = { state: log.state, actualMinutes: log.actualMinutes ?? null };
       }
@@ -200,12 +200,12 @@ export async function GET(req: NextRequest) {
       : undefined;
 
     return {
-      _id: itemId,
-      name: item.name,
-      icon: item.icon,
-      groupId: item.groupId.toString(),
-      groupName: groupNameMap[item.groupId.toString()] ?? "",
-      projectedMinutes: item.projectedMinutes,
+      _id: taskId,
+      name: task.name,
+      icon: task.icon,
+      taskListId: task.taskListId.toString(),
+      taskListName: taskListNameMap[task.taskListId.toString()] ?? "",
+      projectedMinutes: task.projectedMinutes,
       daily,
       doneCount,
       missedCount,
@@ -217,9 +217,9 @@ export async function GET(req: NextRequest) {
       completionRate: engagedDays > 0 ? doneCount / engagedDays : 0,
       engagedDays,
       totalDays: elapsedDates.length,
-      itemType: (item.itemType ?? "standard") as string,
+      taskType: (task.taskType ?? "standard") as string,
     };
   });
 
-  return NextResponse.json({ dates, days, today: localDate, groups: groupStats, habits: habitStats });
+  return NextResponse.json({ dates, days, today: localDate, taskLists: taskListStats, tasks: taskStats });
 }

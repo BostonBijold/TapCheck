@@ -1,6 +1,6 @@
-// Presentational segment bar for the live Routine Session timeline
-// (components/RoutineSession.tsx, green/amber pacing) — just renders
-// whatever {id, pct, color}[] segments it's handed. See lib/routine-timeline.ts
+// Presentational segment bar for the live Task List Session timeline
+// (components/TaskListSessionView.tsx, green/amber pacing) — just renders
+// whatever {id, pct, color}[] segments it's handed. See lib/task-timeline.ts
 // for how the segments are built.
 
 export interface TimelineBarSegment {

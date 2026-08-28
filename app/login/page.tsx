@@ -8,7 +8,7 @@ export default async function LoginPage({
 }) {
   const session = await auth();
   const destination = searchParams.callbackUrl || "/welcome";
-  if (session) redirect(searchParams.callbackUrl || "/routines");
+  if (session) redirect(searchParams.callbackUrl || "/tasks");
 
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">
