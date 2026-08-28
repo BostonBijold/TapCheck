@@ -154,7 +154,7 @@ export default function BottomNav() {
       // effect so it doesn't immediately overwrite this with a plain
       // /tasks?date=... redirect before openTaskId gets consumed.
       const localDate = new Date().toLocaleDateString("en-CA");
-      const url = `/tasks?openTaskId=${taskId}&date=${localDate}`;
+      const url = `/tasks?openTaskId=${taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
       if (pathname === "/tasks") {
         router.replace(url);
       } else {

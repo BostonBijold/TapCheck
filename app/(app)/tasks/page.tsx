@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams?: { startNext?: string; addTask?: string; date?: string; resumeTimer?: string; openTaskId?: string };
+  searchParams?: { startNext?: string; addTask?: string; date?: string; resumeTimer?: string; openTaskId?: string; verifiedNfcUid?: string };
 }) {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
@@ -107,6 +107,7 @@ export default async function TasksPage({
     completedAt: l.completedAt ? (l.completedAt as Date).toISOString() : undefined,
     pausedSeconds: l.pausedSeconds ?? 0,
     state: l.state as LogState,
+    formData: l.formData ?? null,
   }));
 
   // 7-day streak logs
@@ -137,12 +138,14 @@ export default async function TasksPage({
       weekDates={weekDates}
       today={today}
       userName={userName}
+      userId={userId}
       userRole={role}
       skipAuth={skipAuth}
       autoStartNext={!!searchParams?.startNext}
       autoAddTask={!!searchParams?.addTask}
       autoResumeTimer={!!searchParams?.resumeTimer}
       autoOpenTaskId={searchParams?.openTaskId ?? null}
+      autoOpenVerifiedNfcUid={searchParams?.verifiedNfcUid ?? null}
     />
   );
 }

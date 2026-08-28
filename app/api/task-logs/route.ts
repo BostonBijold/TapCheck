@@ -2,7 +2,16 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskLog from "@/models/TaskLog";
 import type { LogState } from "@/models/TaskLog";
-import { assertNfcVerified, completeInProgressLog, NfcTagRequiredError, serializeLog, startInProgressLog, switchActiveLog } from "@/lib/task-log-actions";
+import {
+  assertNfcVerified,
+  assertShiftListSessionAuthorized,
+  completeInProgressLog,
+  NfcTagRequiredError,
+  serializeLog,
+  ShiftListSessionRequiredError,
+  startInProgressLog,
+  switchActiveLog,
+} from "@/lib/task-log-actions";
 import { recordSessionCompletion } from "@/lib/task-list-session-actions";
 import { resolveSessionUser } from "@/lib/session";
 
@@ -56,6 +65,17 @@ export async function POST(req: NextRequest) {
   await connectDB();
 
   if (state === "in_progress") {
+    // A shift-list task can only ever start running anchored to its own
+    // list's session — see assertShiftListSessionAuthorized. An anytime
+    // task (TaskCard's Start button) is unrestricted, same as before.
+    try {
+      await assertShiftListSessionAuthorized(companyId, taskId, sessionTaskListId ?? null);
+    } catch (err) {
+      if (err instanceof ShiftListSessionRequiredError) {
+        return NextResponse.json({ error: err.message }, { status: 403 });
+      }
+      throw err;
+    }
     const log = sessionNav
       ? await switchActiveLog(companyId, performedByUserId, taskId, date, sessionTaskListId ?? null)
       : await startInProgressLog(companyId, performedByUserId, taskId, date, sessionTaskListId ?? null);
@@ -70,9 +90,26 @@ export async function POST(req: NextRequest) {
   // TaskListSessionView's own advance()/handleMissed/handleRest (via
   // saveLog), which write terminal states through this route rather than
   // PATCH.
+  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
+
+  // Same shift-list gate as above: a terminal write only carries this
+  // task's own taskListId in priorSessionTaskListId if it arrived here via
+  // that list's session (the per-task in_progress start stamps it before
+  // Done/Missed/Rest becomes reachable) — a direct call bypassing the
+  // session has nothing to match and is rejected.
+  try {
+    await assertShiftListSessionAuthorized(companyId, taskId, priorSessionTaskListId);
+  } catch (err) {
+    if (err instanceof ShiftListSessionRequiredError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
+  }
+
   // No timer/form flow runs through this branch (it's the quick-complete/
-  // back-entry path — see components/TaskCard.tsx and TaskRow.tsx), so
-  // there's never a scanned UID to verify against a bound tag.
+  // back-entry path — see components/TaskCard.tsx), so there's never a
+  // scanned UID to verify against a bound tag.
   if (state === "done") {
     try {
       await assertNfcVerified(taskId, null);
@@ -83,9 +120,6 @@ export async function POST(req: NextRequest) {
       throw err;
     }
   }
-
-  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
-  const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
 
   const log = await TaskLog.findOneAndUpdate(
     { companyId, taskId, date },
@@ -146,6 +180,26 @@ export async function PATCH(req: NextRequest) {
 
   await connectDB();
 
+  // Read the prior sessionTaskListId up front — that's the only record of
+  // which TaskListSession (if any) this completion belongs to (see
+  // lib/task-list-session-actions.ts), and the same value both branches
+  // below need for the shift-list authorization check: a shift-list task
+  // only carries its own list's id here if it arrived via that list's
+  // session (the per-task in_progress start stamps it before Done/Missed
+  // becomes reachable) — a direct call bypassing the session has nothing to
+  // match and is rejected.
+  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
+
+  try {
+    await assertShiftListSessionAuthorized(companyId, taskId, priorSessionTaskListId);
+  } catch (err) {
+    if (err instanceof ShiftListSessionRequiredError) {
+      return NextResponse.json({ error: err.message }, { status: 403 });
+    }
+    throw err;
+  }
+
   if (state === "done" && !(startOverride && endOverride)) {
     // Timer completion: derive duration from server-recorded startedAt, plus
     // any time banked from earlier paused segments of this same log — shared
@@ -166,14 +220,6 @@ export async function PATCH(req: NextRequest) {
   // Leaving a session anchor behind on the log's next state doesn't help anyone —
   // once it's no longer in_progress it should behave like any other completed log.
   // pausedSeconds only means anything while running/paused — always cleared here.
-  // Read the prior sessionTaskListId before it's cleared, same as POST's
-  // terminal branch — this path is reached by the standalone timer's
-  // "Missed" button and by a manual time-edit "done", both of which can
-  // still be session-anchored. Also doubles as the "was this already done"
-  // check just below.
-  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
-  const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
-
   // Reached here for "missed" (no NFC concern — it never claims the tag was
   // present) or a manual time-edit "done". The latter covers two different
   // things: TaskRow.tsx's "Edit time" on an ALREADY-done log (just
@@ -224,11 +270,18 @@ export async function PATCH(req: NextRequest) {
   return NextResponse.json(serializeLog(log));
 }
 
+// Undo — deletes a TaskLog entirely, returning a task to pending. Manager-
+// only, everywhere, no exceptions (anytime tasks included): an employee who
+// logs a wrong value asks a manager to undo it rather than fixing it
+// themselves — simplicity and food-safety auditability over convenience.
+// Same 403-for-employee gating pattern as task-list create/rename/delete
+// and NFC tag linking. See docs/features/task-lists.md.
 export async function DELETE(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId } = sessionUser;
+  const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const { taskId, date } = (await req.json()) as {
     taskId: string;

@@ -11,19 +11,21 @@ The Today/Tasks page groups a company's shift checklists into `TaskList`s (Openi
 - **`form`** — the only creatable type. Has a `formFields` array (number readings with an optional unit/min/max, or yes/no items); tapping it opens `components/TaskFormScreen.tsx` to fill in those fields, with elapsed time tracked the same way a timer would be.
 - **`standard`** / **`stopwatch`** / **`checkbox`** — timer-based personal-habit item types from before the app's pivot to restaurant work checks. Kept in the schema for compatibility with old data; nothing in the UI creates them anymore.
 
-## Log states
+## Log states (anytime tasks — `TaskCard`)
 
 A `TaskLog` (see [task-lists-api.md](../api/task-lists-api.md)) has `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, or simply has no log yet ("pending"). Neither `in_progress` nor `paused` counts as complete for a list's completion check.
+
+The per-row action panel described below applies only to an **anytime task** (`TaskCard.tsx`, no `startTime` on its list — see [anytime-tasks.md](anytime-tasks.md)). A **shift-window task** (`TaskRow.tsx`, its list has a `startTime`) has no per-row actions at all — see "Task list locking & sequential-only completion" below.
 
 - **pending** → tap opens the row and shows: Start Task (opens `TaskFormScreen` for a form task), or Missed/Rest buttons. If the list's scheduled window has passed ("back-entry" mode, see below), the start button is replaced by a Done button plus a manual minutes input (and, for a form task, the same field inputs).
 - **in_progress** → shows "▶ Resume Timer" (reopens the timer, seeded with elapsed time from the server's `startedAt`) plus Missed/Undo. The API enforces that **at most one log can be `in_progress` at a time per person** (`performedByUserId`, not per company — different staff can each have their own timer running) — starting a timer elsewhere auto-*completes* whatever that same person left running instead of leaving two things active at once (see [timer.md](timer.md)).
 - **paused** → same row treatment as `in_progress` ("▶ Resume Timer", reopening wherever it was left) — this state only ever arises from jumping to a different task inside an open Task List Session, never from anything on this row itself. Tapping "Resume Timer" on a paused task reopens the session at that task rather than a standalone timer, since a paused log always carries its session anchor. See [timer.md](timer.md) for the full pause/resume mechanics.
 - **done** → shows an "Edit time" button that opens a manual start/end time editor, plus Missed/Rest/Undo.
 - **missed** / **rest** → shows a retry action (Start Task, or Done+minutes if in back-entry mode) plus the other skip state and Undo.
-- **Undo** (any logged state) calls `onStateChange(null)`, which `DELETE`s the log entirely — the task returns to pending.
+- **Undo** (any logged state) calls `onStateChange(null)`, which `DELETE`s the log entirely — the task returns to pending. **Manager-only** — see "Manager-only Undo" below.
 - **Manual time entry** ("Edit time" / "Log with specific times") lets the user type a start and end clock time directly; it computes minutes client-side and calls `onStateChange("done", { startedAt, completedAt })`, which bypasses the timer UI entirely and PATCHes explicit timestamps (see task-lists-api.md).
 
-Implemented in `components/TaskRow.tsx` (`app/api/task-logs` is the log endpoint used by every action above — see [task-lists-api.md](../api/task-lists-api.md)).
+Implemented in `components/TaskCard.tsx` (`app/api/task-logs` is the log endpoint used by every action above — see [task-lists-api.md](../api/task-lists-api.md)).
 
 ## Time-aware collapse (today only)
 
@@ -93,18 +95,50 @@ Any signed-in manager (`User.role === "manager"`) can create a new task list fro
 
 Tapping "Start Tasks"/"Continue Tasks" on a list (not shown for an anytime list) opens `components/TaskListSessionView.tsx`, which steps through that list's tasks one at a time in a single full-screen flow rather than expanding rows individually. Each task gets its own server-side `in_progress` record as it becomes current, and closing the session mid-task flushes that task's progress rather than discarding it — full mechanics in [timer.md](timer.md).
 
+## Task list locking & sequential-only completion
+
+A shift-window list's tasks (any list with a `startTime` — Opening/Mid/Closing/a manager-created custom list with one set) can only move forward through that list's own "Start Tasks"/"Continue Tasks" session, one person at a time. An anytime list (see [anytime-tasks.md](anytime-tasks.md)) is unaffected by everything in this section.
+
+### Shift-list rows are view-only
+
+`TaskRow.tsx` has no Start/Missed/Rest/Undo/Edit-time actions at all — tapping a row only expands it to show its current state and, for a `form` task already `done`, the captured field readings (`TaskLog.formData`, threaded down through `TasksView`/`app/(app)/tasks/page.tsx`). The only way to move a shift-list task forward is that list's own session.
+
+This is enforced server-side too, not just by removing the buttons — `lib/task-log-actions.ts`'s `assertShiftListSessionAuthorized(companyId, taskId, sessionTaskListId)` rejects (`403`) any `POST`/`PATCH` to `/api/task-logs` for a shift-list task unless `sessionTaskListId` (a fresh request's own param when starting a timer, or the log's already-carried-over `sessionTaskListId` for a terminal write) matches that task's own `taskListId`. The per-task `in_progress` start `TaskListSessionView.tsx` fires the moment a task becomes current stamps that anchor before Done/Missed/Rest ever becomes reachable, so anything that actually came through the session is authorized; a direct call bypassing it has nothing to match and is rejected. An anytime task is never restricted (its list has no `startTime`).
+
+### Session lock — one person at a time
+
+`TaskListSession.performedByUserId` (see [timer.md](timer.md)) doubles as a lock on that list's open (`in_progress`) session:
+
+- **No open session, or the open session is yours** → the "Start Tasks"/"Continue Tasks" button (`TaskListCard.tsx`) behaves as before, tappable.
+- **Open session, held by someone else** → the button becomes a non-tappable **"In progress by `<name>`"** label.
+- **Same, viewed by a manager** → same label, plus a small **unlock icon** next to it. Tapping it shows an inline confirm ("Remove `<name>` from this task list so someone else can continue?"); confirming calls `POST /api/task-lists/[taskListId]/unlock-session` (manager-gated, `403` for an employee), which clears `performedByUserId` back to `null` on the *existing* session via `lib/task-list-session-actions.ts`'s `unlockSession` — nothing is closed, duplicated, or reassigned, and already-completed tasks in it stay exactly as they are.
+
+An unlocked session (`performedByUserId: null`) behaves exactly like a brand-new one for claiming purposes: `ensureOpenSession` claims it for whoever next starts a task in that list, the same mechanism that stamps it on a session's first-ever touch. `GET /api/task-lists/session-locks?date=<date>` (polled by `TasksView.tsx` alongside logs) reports which of the company's shift-window lists currently have a *claimed* lock — an unlocked session reports no lock at all.
+
+### FAB-scan → continue-list prompt
+
+After a task opened via the FAB's "scan to open" shortcut (see [nfc.md](nfc.md)) is completed through `TaskFormScreen`'s Save, `TasksView.tsx`'s `handleTaskFormComplete` checks whether that task's parent list has other tasks today still untouched (no log at all) and isn't locked by someone else. If so, a small prompt offers to jump straight into that list's session at the next pending task ("Continue Tasks") or stay standalone ("Not now") — a one-off convenience, not a replacement for the session: continuing just claims/rejoins the list's session like any other touch.
+
+### Manager-only Undo
+
+`DELETE /api/task-logs` (Undo — deletes a `TaskLog` entirely, returning a task to pending) is manager-only server-side (`403` for an employee), **everywhere** — anytime tasks included, no exceptions and no "same person, same moment" carve-out. An employee who logs a wrong value asks a manager to undo it rather than fixing it themselves. `TaskCard.tsx`'s three Undo buttons (done/missed/rest) are gated client-side the same way (`canUndo={userRole === "manager"}`, threaded down from `TaskListCard.tsx`).
+
 ## Files
 
 - `app/(app)/tasks/page.tsx` — server component: auth, seeding, loads task lists/tasks/logs for the selected date.
 - `components/TasksView.tsx` — top-level client state: selected date, logs map, opens/closes the timer/session/add-task-list overlays, all the `handleStateChange`/`handleStartTimer`/… handlers.
-- `components/TaskListCard.tsx` — per-list card: collapse logic, completion check, renders `TaskRow` (or `TaskCard` for an anytime list).
-- `components/TaskRow.tsx` — per-task row and its full action panel (all states above).
+- `components/TaskListCard.tsx` — per-list card: collapse logic, completion check, the "Start Tasks" button's three lock states, renders `TaskRow` (or `TaskCard` for an anytime list).
+- `components/TaskRow.tsx` — per-task row for a shift-window list — view-only, see "Task list locking" above.
+- `components/TaskCard.tsx` — per-task card for an anytime list — the full action panel (all states above).
 - `components/TaskListSessionView.tsx` — sequential multi-task session (see [timer.md](timer.md)).
 - `components/DateNav.tsx` — the `< Today >` date picker driving `selectedDate`.
 - `components/TaskListEditView.tsx` — list/task management, including rename/schedule/delete for the list itself (also the path for editing an anytime-list task — see [anytime-tasks.md](anytime-tasks.md)).
 - `components/AddTaskListSheet.tsx` — the "Add Task List" name+start-time step, manager-only.
 - `lib/task-visibility.ts` — day-of-week visibility gate (see "Day-of-week visibility" above).
 - `lib/task-progress.ts` — the shared weekly-progress math (see "Weekly schedule + success threshold" above).
+- `lib/task-list-session-actions.ts` — session bookkeeping, including the lock helpers (`getOpenSessionLocks`, `unlockSession`) — see "Task list locking" above.
+- `lib/task-log-actions.ts` — `assertShiftListSessionAuthorized`, the server-side lock enforcement.
+- `app/api/task-lists/session-locks/route.ts`, `app/api/task-lists/[taskListId]/unlock-session/route.ts` — the lock-reading and manager-only unlock endpoints.
 - `lib/seed.ts` — idempotent seeding of default shift task lists/tasks for a new company.
 
 ## Depends on

@@ -32,9 +32,20 @@ export interface TaskLogEntry {
   pausedSeconds?: number; // elapsed seconds banked from an earlier running segment (see models/TaskLog)
   state: LogState;
   sessionTaskListId?: string | null; // set when this in_progress timer is anchored inside a Task List Session
+  formData?: Record<string, string | number | boolean> | null; // captured readings for a form task — see TaskRow.tsx's view-only shift-list rows
 }
 
 export type WeekLog = { taskId: string; date: string; state: LogState; actualMinutes: number | null };
+
+// Who currently holds a shift-window task list's open "Start Tasks" session
+// — see the "Task List Locking" design in docs/features/task-lists.md.
+// Absent from the map entirely means no open session (or one a manager has
+// unlocked, which the server already reports as no lock — see
+// lib/task-list-session-actions.ts's getOpenSessionLocks).
+export interface SessionLockInfo {
+  performedByUserId: string;
+  performedByName: string;
+}
 
 interface Props {
   taskLists: TaskListCardTaskList[];
@@ -44,12 +55,14 @@ interface Props {
   weekDates: string[];
   today: string;
   userName: string;
+  userId: string;
   userRole: "manager" | "employee";
   skipAuth?: boolean;
   autoStartNext?: boolean;
   autoAddTask?: boolean;
   autoResumeTimer?: boolean;
   autoOpenTaskId?: string | null; // set by BottomNav.tsx's FAB "scan to open" shortcut
+  autoOpenVerifiedNfcUid?: string | null; // the UID that scan already read — pre-satisfies that task's own Scan NFC step, see TaskFormScreen.tsx
 }
 
 interface ActiveSession {
@@ -59,11 +72,12 @@ interface ActiveSession {
 
 export default function TasksView({
   taskLists, initialLogs, initialTodos, weekLogs, weekDates,
-  today, userName, userRole, skipAuth,
+  today, userName, userId, userRole, skipAuth,
   autoStartNext = false,
   autoAddTask = false,
   autoResumeTimer = false,
   autoOpenTaskId = null,
+  autoOpenVerifiedNfcUid = null,
 }: Props) {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -74,12 +88,27 @@ export default function TasksView({
   const [liveWeekLogs, setLiveWeekLogs] = useState<WeekLog[]>(weekLogs);
   const [timerItem, setTimerItem] = useState<TimerItem | null>(null);
   const [timerInitialElapsed, setTimerInitialElapsed] = useState(0);
+  // Set alongside timerItem only by the autoOpenTaskId branch below — the
+  // FAB's "scan to open" shortcut already read this task's tag on the way
+  // in, so TaskFormScreen can skip straight to Save. Keyed by taskId (not
+  // just a bare uid) so it can never leak onto a different task opened by
+  // any other path (tapping a task directly, resuming, session navigation).
+  const [preVerified, setPreVerified] = useState<{ taskId: string; uid: string } | null>(null);
+  // True only while timerItem was opened via the FAB's "scan to open"
+  // shortcut — gates the "continue this task list?" prompt below, see the
+  // "Task List Locking" design's FAB-scan section.
+  const [openedViaFabScan, setOpenedViaFabScan] = useState(false);
+  const [continuePrompt, setContinuePrompt] = useState<ActiveSession | null>(null);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
   const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
   const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
   const [addTodoOpen, setAddTodoOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
+  // Which shift-window task lists currently have an open session, and who
+  // holds it — keyed by taskListId, absent = unlocked/no session. See
+  // GET /api/task-lists/session-locks.
+  const [sessionLocks, setSessionLocks] = useState<Record<string, SessionLockInfo>>({});
 
   const isPastDate = selectedDate !== today;
 
@@ -119,7 +148,12 @@ export default function TasksView({
     }
     if (autoOpenTaskId) {
       const found = taskLists.flatMap((tl) => tl.tasks).find((t) => t._id === autoOpenTaskId) ?? null;
-      if (found) { setTimerInitialElapsed(0); setTimerItem(found); }
+      if (found) {
+        setTimerInitialElapsed(0);
+        setTimerItem(found);
+        setOpenedViaFabScan(true);
+        if (autoOpenVerifiedNfcUid) setPreVerified({ taskId: found._id, uid: autoOpenVerifiedNfcUid });
+      }
       router.replace("/tasks");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -293,6 +327,59 @@ export default function TasksView({
       clearInterval(poll);
     };
   }, [selectedDate, today, refetchLogs]);
+
+  // Which shift-window task lists currently have an open session — fetched
+  // on date change, refreshed on the same signals as logs (any TaskLog
+  // mutation can open/claim/close a session) plus a background poll, so the
+  // "Start Tasks" button's locked state and unlock icon stay live. See
+  // GET /api/task-lists/session-locks and TaskListCard.tsx.
+  const refetchSessionLocks = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/task-lists/session-locks?date=${selectedDate}`);
+      if (!res.ok) return;
+      const data: Array<{ taskListId: string } & SessionLockInfo> = await res.json();
+      setSessionLocks(Object.fromEntries(data.map((l) => [l.taskListId, { performedByUserId: l.performedByUserId, performedByName: l.performedByName }])));
+    } catch {
+      // keep previous state; next poll/event will retry
+    }
+  }, [selectedDate]);
+
+  useEffect(() => {
+    refetchSessionLocks();
+  }, [refetchSessionLocks]);
+
+  useEffect(() => {
+    const onChanged = () => refetchSessionLocks();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refetchSessionLocks();
+    };
+    window.addEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    const poll = setInterval(() => {
+      if (document.visibilityState === "visible") refetchSessionLocks();
+    }, LOG_POLL_MS);
+    return () => {
+      window.removeEventListener(TASK_LOG_CHANGED_EVENT, onChanged);
+      document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      clearInterval(poll);
+    };
+  }, [refetchSessionLocks]);
+
+  // Manager-only — clears the open session's lock so someone else can pick
+  // the task list back up. See POST /api/task-lists/[id]/unlock-session.
+  const handleUnlockSession = useCallback(
+    async (taskListId: string) => {
+      await fetch(`/api/task-lists/${taskListId}/unlock-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ date: selectedDate }),
+      });
+      refetchSessionLocks();
+    },
+    [selectedDate, refetchSessionLocks]
+  );
 
   // Re-fetch to-dos whenever the selected date changes
   useEffect(() => {
@@ -529,6 +616,7 @@ export default function TasksView({
       }
       emitTaskLogChanged();
       setTimerItem(null);
+      setOpenedViaFabScan(false);
       endRoutineActivity();
     },
     [timerItem, selectedDate]
@@ -542,6 +630,7 @@ export default function TasksView({
     async (formData: Record<string, string | number | boolean>, actualMinutes: number, verifiedNfcUid?: string | null) => {
       if (!timerItem) return;
       const taskId = timerItem._id;
+      const wasFabScan = openedViaFabScan;
       const res = await fetch("/api/task-logs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -555,12 +644,31 @@ export default function TasksView({
         throw new Error(body.error || "Failed to complete task — please try again.");
       }
       const saved: TaskLogEntry = await res.json();
-      setLogs((l) => ({ ...l, [taskId]: saved }));
+      const freshLogs = { ...logs, [taskId]: saved };
+      setLogs(freshLogs);
       emitTaskLogChanged();
       setTimerItem(null);
+      setPreVerified(null);
+      setOpenedViaFabScan(false);
       endRoutineActivity();
+
+      // FAB-scan continue prompt — see the "Task List Locking" design's FAB-
+      // scan section. Only offered when this task belongs to a shift-window
+      // list, that list has other tasks today still untouched, and no one
+      // else already holds that list's session (joining your own open
+      // session, or starting a fresh one, is still fine).
+      if (wasFabScan) {
+        const parentList = scheduledTaskLists.find((tl) => tl.tasks.some((t) => t._id === taskId));
+        const lock = parentList ? sessionLocks[parentList._id] : undefined;
+        if (parentList && (!lock || lock.performedByUserId === userId)) {
+          const nextIndex = parentList.tasks.findIndex(
+            (t) => isTaskVisibleOn(t, selectedDate) && !freshLogs[t._id]
+          );
+          if (nextIndex !== -1) setContinuePrompt({ taskList: parentList, startIndex: nextIndex });
+        }
+      }
     },
-    [timerItem, selectedDate]
+    [timerItem, selectedDate, openedViaFabScan, scheduledTaskLists, sessionLocks, logs, userId]
   );
 
   const handleTimerMissed = useCallback(async () => {
@@ -576,6 +684,8 @@ export default function TasksView({
     });
     emitTaskLogChanged();
     setTimerItem(null);
+    setPreVerified(null);
+    setOpenedViaFabScan(false);
     endRoutineActivity();
   }, [timerItem, selectedDate]);
 
@@ -648,9 +758,10 @@ export default function TasksView({
           <TaskFormScreen
             item={timerItem}
             initialElapsed={timerInitialElapsed}
+            preVerifiedNfcUid={preVerified?.taskId === timerItem._id ? preVerified.uid : null}
             onComplete={handleTaskFormComplete}
             onMissed={handleTimerMissed}
-            onClose={() => setTimerItem(null)}
+            onClose={() => { setTimerItem(null); setPreVerified(null); setOpenedViaFabScan(false); }}
           />
         ) : (
           <TimerScreen
@@ -675,6 +786,43 @@ export default function TasksView({
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
         />
+      )}
+
+      {/* FAB-scan continue prompt — see handleTaskFormComplete and the
+          "Task List Locking" design's FAB-scan section. A genuine one-off
+          helper, not a replacement for the session: choosing to continue
+          just claims/rejoins that list's session like any other touch. */}
+      {continuePrompt && (
+        <>
+          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setContinuePrompt(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
+            <div className="w-full max-w-mobile bg-card rounded-2xl p-5 space-y-4">
+              <div>
+                <h2 className="font-heading text-base text-text">Continue {continuePrompt.taskList.name}?</h2>
+                <p className="font-mono text-xs text-dim mt-1">
+                  There are more tasks left in this list today.
+                </p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setContinuePrompt(null)}
+                  className="flex-1 border border-border-light text-dim py-3 rounded-card text-sm font-body min-h-[44px]"
+                >
+                  Not now
+                </button>
+                <button
+                  onClick={() => {
+                    setActiveSession(continuePrompt);
+                    setContinuePrompt(null);
+                  }}
+                  className="flex-1 bg-olive text-text py-3 rounded-card text-sm font-body font-medium min-h-[44px]"
+                >
+                  Continue Tasks
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       {addTaskSheetFor && (
@@ -754,6 +902,10 @@ export default function TasksView({
                   onStateChange={handleStateChange}
                   onStartTimer={handleStartTimer}
                   onStartTaskList={(tl, startIndex) => setActiveSession({ taskList: tl, startIndex })}
+                  currentUserId={userId}
+                  userRole={userRole}
+                  sessionLock={sessionLocks[taskList._id] ?? null}
+                  onUnlockSession={() => handleUnlockSession(taskList._id)}
                 />
               ))}
             </div>
@@ -812,6 +964,7 @@ export default function TasksView({
                       onStateChange={handleStateChange}
                       onStartTimer={handleStartTimer}
                       onStartTaskList={() => {}}
+                      userRole={userRole}
                     />
                   ))}
                 </div>

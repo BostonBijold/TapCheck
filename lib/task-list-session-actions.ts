@@ -1,6 +1,8 @@
+import mongoose from "mongoose";
 import TaskListSession from "@/models/TaskListSession";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
+import User from "@/models/User";
 import type { CompletionState } from "@/models/TaskListSession";
 
 // List-level session bookkeeping, layered on top of the per-task TaskLog
@@ -67,10 +69,20 @@ export async function isTaskListFullyResolved(companyId: string, taskListId: str
 // started" always means a real task actually began running, never a guess
 // reconstructed later from logs. performedByUserId is stamped only on
 // creation, recording whoever actually opened this run — a later employee
-// joining the same open session doesn't reassign it.
+// joining the same open session doesn't reassign it, UNLESS a manager has
+// unlocked it (performedByUserId: null — see unlockSession below), in which
+// case it's up for grabs and whoever touches it next claims it, same as a
+// fresh session's first touch. See docs/features/task-lists.md's task list
+// locking section.
 export async function ensureOpenSession(companyId: string, performedByUserId: string, taskListId: string, date: string) {
   const existing = await TaskListSession.findOne({ companyId, taskListId, date, status: "in_progress" });
-  if (existing) return existing;
+  if (existing) {
+    if (!existing.performedByUserId) {
+      existing.performedByUserId = performedByUserId;
+      await existing.save();
+    }
+    return existing;
+  }
   return TaskListSession.create({
     companyId,
     performedByUserId,
@@ -83,6 +95,57 @@ export async function ensureOpenSession(companyId: string, performedByUserId: st
     completionSequence: [],
     pauseOrJumpCount: 0,
   });
+}
+
+export interface SessionLock {
+  taskListId: string;
+  performedByUserId: string;
+  performedByName: string;
+}
+
+// One open (in_progress) session's lock info per task list, for whichever of
+// taskListIds currently have one — used by TaskListCard's "Start Tasks"
+// button to show "In progress by <name>" and gate the unlock icon. A
+// session a manager has already unlocked (performedByUserId: null) reports
+// no lock — it behaves like no open session for claiming purposes.
+export async function getOpenSessionLocks(companyId: string, taskListIds: string[], date: string): Promise<SessionLock[]> {
+  if (taskListIds.length === 0) return [];
+  const sessions = await TaskListSession.find({
+    companyId,
+    taskListId: { $in: taskListIds },
+    date,
+    status: "in_progress",
+    performedByUserId: { $ne: null },
+  }).lean();
+  if (sessions.length === 0) return [];
+
+  // performedByUserId isn't always a real User _id — SKIP_AUTH's local dev
+  // user (see lib/session.ts's DEV_USER_ID) is a plain sentinel string, not
+  // a Mongo ObjectId, and would otherwise make this $in query throw a cast
+  // error instead of just not matching. Filter those out before querying;
+  // they fall through to the "someone else" fallback below like any other
+  // unresolved id.
+  const validIds = sessions.map((s) => s.performedByUserId as string).filter((id) => mongoose.isValidObjectId(id));
+  const users = validIds.length > 0 ? await User.find({ _id: { $in: validIds } }, "name").lean() : [];
+  const nameById = new Map(users.map((u) => [u._id.toString(), u.name as string | undefined]));
+
+  return sessions.map((s) => ({
+    taskListId: s.taskListId.toString(),
+    performedByUserId: s.performedByUserId as string,
+    performedByName: nameById.get(s.performedByUserId as string) ?? "someone else",
+  }));
+}
+
+// Manager-only unlock (role checked by the caller, e.g. the unlock API
+// route) — clears performedByUserId back to null on the OPEN session for
+// this list/date. Nothing else about the session changes: not closed, not
+// duplicated, no reassignment step, already-completed tasks in it stay
+// exactly as they are. A no-op if there's no open session to unlock.
+export async function unlockSession(companyId: string, taskListId: string, date: string) {
+  await TaskListSession.updateOne(
+    { companyId, taskListId, date, status: "in_progress" },
+    { $set: { performedByUserId: null } }
+  );
 }
 
 // Records a terminal completion against the open session for taskListId/

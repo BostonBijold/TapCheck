@@ -10,6 +10,13 @@ type FieldValue = string | number | boolean;
 interface Props {
   item: TimerItem;
   initialElapsed?: number; // seconds already elapsed (from server startedAt on resume)
+  // Set when the FAB's "scan to open" shortcut (components/BottomNav.tsx)
+  // is what opened this exact task — the user already proved the tag was
+  // present on the way in, so Save works immediately instead of demanding a
+  // second scan on the way out. Ignored unless it matches item.nfcTagUid —
+  // opening any other way (tapping the task directly) leaves this unset and
+  // the normal Scan NFC step still applies. See docs/features/nfc.md.
+  preVerifiedNfcUid?: string | null;
   // Rejects if the server refused the completion (e.g. an NFC-bound task
   // with no/mismatched scan — see docs/features/nfc.md) — handleSave below
   // catches that and shows it inline instead of closing this screen.
@@ -28,7 +35,7 @@ function pad(n: number) {
 // focal element, since the point of a form task is the data, not the
 // duration. See docs/features/timer.md for the elapsed-time convention
 // this mirrors.
-export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, onMissed, onClose }: Props) {
+export default function TaskFormScreen({ item, initialElapsed = 0, preVerifiedNfcUid = null, onComplete, onMissed, onClose }: Props) {
   const fields = item.formFields ?? [];
 
   const [elapsed, setElapsed] = useState(initialElapsed);
@@ -72,8 +79,10 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
   // A task bound to a physical tag (Manage Task List → "Scan to Link" — see
   // docs/features/nfc.md's "In-app scan-to-complete binding") can't be
   // completed by tapping Save alone: the same fill-in flow runs first, but
-  // the final step becomes a scan that must match this exact tag.
+  // the final step becomes a scan that must match this exact tag — UNLESS
+  // the FAB's "scan to open" already proved it on the way in.
   const requiresNfcScan = !!item.nfcTagUid;
+  const alreadyVerified = requiresNfcScan && !!preVerifiedNfcUid && preVerifiedNfcUid === item.nfcTagUid;
   const [scanning, setScanning] = useState(false);
 
   const setField = (key: string, value: FieldValue) => {
@@ -95,6 +104,15 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
     if (!requiresNfcScan) {
       try {
         await onComplete(values, actualMinutes);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Failed to save — please try again.");
+      }
+      return;
+    }
+
+    if (alreadyVerified) {
+      try {
+        await onComplete(values, actualMinutes, preVerifiedNfcUid);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save — please try again.");
       }
@@ -143,8 +161,8 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
         </div>
         <h2 className="font-heading text-2xl text-text">{item.name}</h2>
         {requiresNfcScan && (
-          <p className="font-mono text-[10px] text-dim uppercase tracking-widest mt-1">
-            Scan the linked tag to complete
+          <p className={`font-mono text-[10px] uppercase tracking-widest mt-1 ${alreadyVerified ? "text-olive" : "text-dim"}`}>
+            {alreadyVerified ? "Tag verified — Save to complete" : "Scan the linked tag to complete"}
           </p>
         )}
       </div>
@@ -205,7 +223,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, onComplete, o
           disabled={scanning}
           className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base disabled:opacity-60"
         >
-          {scanning ? "Hold near tag…" : requiresNfcScan ? "Scan NFC" : "Save"}
+          {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC" : "Save"}
         </button>
         <button
           onClick={onMissed}

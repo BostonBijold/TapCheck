@@ -18,8 +18,11 @@ export interface ITaskListSession extends Document {
   // Who started this particular session run — an attribute, not part of the
   // lookup key: the list/date lookup below is company-wide (any employee
   // can pick up an already-open session), same reasoning as
-  // TaskLog.performedByUserId.
-  performedByUserId: string;
+  // TaskLog.performedByUserId. Null means an open session a manager has
+  // unlocked — see lib/task-list-session-actions.ts's unlockSession — and
+  // acts as "up for grabs": the next person to touch a task in this list
+  // claims it, same as a brand-new session's first touch.
+  performedByUserId: string | null;
   taskListId: mongoose.Types.ObjectId;
   date: string; // YYYY-MM-DD
   startedAt: Date;
@@ -44,7 +47,7 @@ const CompletionEntrySchema = new Schema<ICompletionEntry>(
 const TaskListSessionSchema = new Schema<ITaskListSession>(
   {
     companyId: { type: String, required: true },
-    performedByUserId: { type: String, required: true },
+    performedByUserId: { type: String, default: null },
     taskListId: { type: Schema.Types.ObjectId, ref: "TaskList", required: true },
     date: { type: String, required: true },
     startedAt: { type: Date, required: true },

@@ -15,6 +15,10 @@ interface Props {
   today: string; // YYYY-MM-DD, real — what counts as "future" in StreakDots
   selectedDate: string; // YYYY-MM-DD — the date being browsed; gets the StreakDots ring
   isBackEntry: boolean;
+  // Manager-only, everywhere — see docs/features/task-lists.md's "Task List
+  // Locking" section. An employee who logs a wrong value asks a manager to
+  // undo it rather than fixing it themselves.
+  canUndo: boolean;
   onStartTimer: () => void;
   onStateChange: (
     state: LogState | null,
@@ -30,7 +34,7 @@ function fmtMins(mins: number) {
 }
 
 export default function TaskCard({
-  item, log, weekLogs, weekDates, today, selectedDate, isBackEntry,
+  item, log, weekLogs, weekDates, today, selectedDate, isBackEntry, canUndo,
   onStartTimer, onStateChange,
 }: Props) {
   const state = log?.state ?? null;
@@ -108,13 +112,15 @@ export default function TaskCard({
             )}
           </div>
         </div>
-        {/* Undo */}
-        <button
-          onClick={() => onStateChange(null)}
-          className="mt-2 ml-10 font-mono text-[9px] text-dim uppercase tracking-widest"
-        >
-          Undo
-        </button>
+        {/* Undo — manager-only */}
+        {canUndo && (
+          <button
+            onClick={() => onStateChange(null)}
+            className="mt-2 ml-10 font-mono text-[9px] text-dim uppercase tracking-widest"
+          >
+            Undo
+          </button>
+        )}
       </div>
     );
   }
@@ -145,12 +151,14 @@ export default function TaskCard({
             ✗ Missed
           </span>
         </div>
-        <button
-          onClick={() => onStateChange(null)}
-          className="mt-2 ml-10 font-mono text-[9px] text-dim uppercase tracking-widest"
-        >
-          Undo
-        </button>
+        {canUndo && (
+          <button
+            onClick={() => onStateChange(null)}
+            className="mt-2 ml-10 font-mono text-[9px] text-dim uppercase tracking-widest"
+          >
+            Undo
+          </button>
+        )}
       </div>
     );
   }
@@ -181,12 +189,14 @@ export default function TaskCard({
             ~ Rest
           </span>
         </div>
-        <button
-          onClick={() => onStateChange(null)}
-          className="mt-2 ml-10 font-mono text-[9px] text-dim uppercase tracking-widest"
-        >
-          Undo
-        </button>
+        {canUndo && (
+          <button
+            onClick={() => onStateChange(null)}
+            className="mt-2 ml-10 font-mono text-[9px] text-dim uppercase tracking-widest"
+          >
+            Undo
+          </button>
+        )}
       </div>
     );
   }

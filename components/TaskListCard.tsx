@@ -2,11 +2,11 @@
 
 import { useState, useMemo, useEffect } from "react";
 import Link from "next/link";
-import { Play, Settings } from "lucide-react";
+import { Play, Settings, Unlock } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TaskRow, { type RowItem } from "@/components/TaskRow";
 import TaskCard from "@/components/TaskCard";
-import type { TaskLogEntry } from "@/components/TasksView";
+import type { TaskLogEntry, SessionLockInfo } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
 
@@ -34,6 +34,12 @@ interface Props {
   ) => void;
   onStartTimer: (task: RowItem) => void;
   onStartTaskList: (taskList: TaskListCardTaskList, startIndex: number) => void;
+  // Task List Locking — see docs/features/task-lists.md. All optional so the
+  // anytime-list call site (no session concept there) doesn't need them.
+  currentUserId?: string;
+  userRole?: "manager" | "employee";
+  sessionLock?: SessionLockInfo | null; // who currently holds this list's open session, if anyone
+  onUnlockSession?: () => void; // manager-only — clears the lock so someone else can pick it up
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -104,7 +110,9 @@ export default function TaskListCard({
   taskList, logs, weekLogs, weekDates,
   isPastDate = false, selectedDate, today,
   onStateChange, onStartTimer, onStartTaskList,
+  currentUserId, userRole, sessionLock = null, onUnlockSession,
 }: Props) {
+  const [confirmingUnlock, setConfirmingUnlock] = useState(false);
   // Derive end time once we know what tasks are in this list
   const timedTasksAll = taskList.tasks.filter((t) => t.taskType !== "checkbox");
   const totalProjectedMins = timedTasksAll.reduce((s, t) => s + t.projectedMinutes, 0);
@@ -313,6 +321,7 @@ export default function TaskListCard({
                   isBackEntry={isBackEntry}
                   onStartTimer={() => onStartTimer(task)}
                   onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
+                  canUndo={userRole === "manager"}
                 />
               ))}
             </div>
@@ -327,29 +336,76 @@ export default function TaskListCard({
                   weekDates={weekDates}
                   today={today}
                   isExpanded={expandedTaskId === task._id}
-                  isBackEntry={isBackEntry}
                   selectedDate={selectedDate}
                   onToggleExpand={() =>
                     setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
                   }
-                  onStartTimer={() => onStartTimer(task)}
-                  onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
                 />
               ))}
             </div>
           )}
 
+          {/* "Start Tasks", three states — see the "Task List Locking" design
+              in docs/features/task-lists.md: no open session (or it's your
+              own) → the normal tappable button; someone else's open session
+              → "In progress by <name>", not tappable; a manager viewing
+              someone else's open session also gets the unlock icon. */}
           {visibleTasks.length > 0 && !isComplete && !isPastDate && taskList.timeOfDay !== "anytime" && (() => {
             const hasStarted = visibleTasks.some((t) => !!logs[t._id]);
             const firstIncompleteIdx = Math.max(0, visibleTasks.findIndex((t) => logs[t._id]?.state !== "done"));
+            const lockedByOther = !!sessionLock && sessionLock.performedByUserId !== currentUserId;
+
+            if (!lockedByOther) {
+              return (
+                <button
+                  onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}
+                  className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
+                >
+                  <Play size={15} fill="currentColor" />
+                  {hasStarted ? "Continue Tasks" : "Start Tasks"}
+                </button>
+              );
+            }
+
+            if (confirmingUnlock) {
+              return (
+                <div className="mt-3 bg-card border border-border-light rounded-card p-3 space-y-2">
+                  <p className="font-mono text-xs text-dim">
+                    Remove {sessionLock!.performedByName} from this task list so someone else can continue?
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setConfirmingUnlock(false)}
+                      className="flex-1 border border-border-light text-dim py-2.5 rounded-card text-sm font-body min-h-[40px]"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => { onUnlockSession?.(); setConfirmingUnlock(false); }}
+                      className="flex-1 border border-burgundy/40 text-burgundy-light py-2.5 rounded-card text-sm font-body min-h-[40px]"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              );
+            }
+
             return (
-              <button
-                onClick={() => onStartTaskList(taskList, firstIncompleteIdx)}
-                className="mt-3 w-full flex items-center justify-center gap-2 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] active:opacity-90 transition-opacity"
-              >
-                <Play size={15} fill="currentColor" />
-                {hasStarted ? "Continue Tasks" : "Start Tasks"}
-              </button>
+              <div className="mt-3 flex items-center gap-2">
+                <div className="flex-1 flex items-center justify-center gap-2 bg-card-hover border border-border-light text-dim font-body text-sm py-3.5 rounded-card min-h-[48px]">
+                  In progress by {sessionLock!.performedByName}
+                </div>
+                {userRole === "manager" && (
+                  <button
+                    onClick={() => setConfirmingUnlock(true)}
+                    aria-label={`Remove ${sessionLock!.performedByName} from this task list`}
+                    className="flex-shrink-0 w-12 h-12 flex items-center justify-center border border-border-light rounded-card text-dim hover:text-olive hover:border-olive/40 transition-colors"
+                  >
+                    <Unlock size={16} strokeWidth={1.75} />
+                  </button>
+                )}
+              </div>
             );
           })()}
         </div>
