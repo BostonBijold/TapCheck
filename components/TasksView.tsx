@@ -148,7 +148,6 @@ export default function TasksView({
     }
     if (autoOpenTaskId) {
       const found = taskLists.flatMap((tl) => tl.tasks).find((t) => t._id === autoOpenTaskId) ?? null;
-      console.log("[FAB scan] autoOpenTaskId=", autoOpenTaskId, "found=", !!found, "taskLists loaded=", taskLists.length);
       if (found) {
         setTimerInitialElapsed(0);
         setTimerItem(found);
@@ -158,7 +157,7 @@ export default function TasksView({
       router.replace("/tasks");
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [autoStartNext, autoAddTask, autoOpenTaskId, autoOpenVerifiedNfcUid]);
 
   // Shared by both resume effects below — finds the day's in_progress log.
   // Only one is ever in_progress at a time (jumping to a different task

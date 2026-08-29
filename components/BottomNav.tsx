@@ -152,27 +152,22 @@ export default function BottomNav() {
       // lib/task-definitions.ts's resolveMostRelevantPlacement.
       const localDate = new Date().toLocaleDateString("en-CA");
       const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
-      console.log("[FAB scan] uid=", result.uid, "date=", localDate, "nowMinutes=", nowMinutes);
       const res = await fetch(
         `/api/tasks/by-nfc-uid?uid=${encodeURIComponent(result.uid)}&date=${localDate}&nowMinutes=${nowMinutes}`
       );
-      console.log("[FAB scan] by-nfc-uid status=", res.status);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        console.log("[FAB scan] by-nfc-uid error body=", body);
         flashScanMessage(body.error || "No task is linked to this tag.");
         return;
       }
       const { taskId } = (await res.json()) as { taskId: string };
       const url = `/tasks?openTaskId=${taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
-      console.log("[FAB scan] resolved taskId=", taskId, "navigating to", url, "from pathname=", pathname);
       if (pathname === "/tasks") {
         router.replace(url);
       } else {
         router.push(url);
       }
-    } catch (err) {
-      console.error("[FAB scan] threw:", err);
+    } catch {
       flashScanMessage("Something went wrong — try again.");
     } finally {
       setScanning(false);
