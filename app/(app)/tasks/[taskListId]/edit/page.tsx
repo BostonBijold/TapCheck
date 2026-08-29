@@ -3,10 +3,11 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
-import type { TaskType } from "@/models/Task";
+import type { TaskType } from "@/models/TaskDefinition";
 import AppIntentLink from "@/models/AppIntentLink";
 import NfcTag from "@/models/NfcTag";
 import TaskListEditView from "@/components/TaskListEditView";
+import { resolveTasks } from "@/lib/task-definitions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -30,13 +31,14 @@ export default async function EditTaskListPage({
   const taskList = await TaskList.findOne({ _id: params.taskListId, companyId }).lean();
   if (!taskList) redirect("/tasks");
 
-  const tasks = await Task.find({
+  const rawTasks = await Task.find({
     taskListId: params.taskListId,
     companyId,
     isActive: true,
   })
     .sort({ order: 1 })
     .lean();
+  const tasks = await resolveTasks(rawTasks);
 
   // AppIntentLink stays scoped to the specific signed-in person — it
   // records whose Shortcut is connected to a task, not company config.

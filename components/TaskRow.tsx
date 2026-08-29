@@ -4,7 +4,7 @@ import StreakDots from "@/components/StreakDots";
 import AppIcon from "@/components/AppIcon";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 export interface RowItem {
   _id: string;

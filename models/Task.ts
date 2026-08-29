@@ -1,36 +1,33 @@
 import mongoose, { Schema, Document, model, models } from "mongoose";
 
-// "standard"/"stopwatch"/"checkbox" are retired timer-based item types from
-// the pre-pivot personal-habit tracker, kept only for schema compatibility
-// with any pre-pivot data — "form" is the only creatable type. "checkbox"
-// here names a UI control style (tap to complete, no reading captured), not
-// a reference to the old "check" product vocabulary.
-export type TaskType = "standard" | "stopwatch" | "checkbox" | "form";
-
-// Schema-driven field definitions for a "form" task — the "in progress"
-// screen renders one control per entry instead of a timer. Kept generic
-// (not hardcoded to e.g. temperature) so the next form task (bathroom
-// clean, closing checklist) is just a different formFields array, no code
-// change. Only populated when taskType === "form"; empty otherwise.
-export interface FormFieldDef {
-  key: string;              // stable key, e.g. "temperature"
-  label: string;            // display label, e.g. "Walk-in temperature"
-  type: "number" | "text" | "boolean";
-  unit?: string;             // e.g. "°F" — display only
-  min?: number;               // optional pass/fail bound, number fields only — not yet enforced
-  max?: number;
-}
-
+// A Task is a list PLACEMENT — a join connecting one of the company's saved
+// checks (models/TaskDefinition.ts — name, icon, form fields, NFC binding)
+// into a specific TaskList, carrying only what actually varies per
+// placement: schedule, threshold, order, and an optional time-budget
+// override. The same TaskDefinition can have more than one placement (the
+// fridge-temp check placed in both the opening and closing lists) — each
+// placement gets its own independent TaskLog history/streak, since they're
+// different obligations at different times, even though they're "the same
+// physical check." See the "Company Task Catalog" design in
+// docs/features/task-lists.md.
+//
+// This is deliberately still called `Task` (not renamed to e.g.
+// "TaskPlacement") — CLAUDE.md's product vocabulary already defines Task as
+// "an individual item within" a TaskList, which is exactly what this is.
+// TaskLog.taskId, the external API's routineItemId, and every streak/
+// analytics computation key off THIS document's _id, unchanged from before
+// the catalog split.
 export interface ITask extends Document {
   taskListId: mongoose.Types.ObjectId;
   companyId: string;
-  templateId: mongoose.Types.ObjectId | null;
-  name: string;
-  icon: string;
-  projectedMinutes: number;
+  definitionId: mongoose.Types.ObjectId;
+  // Overrides TaskDefinition.projectedMinutes for this placement only; null
+  // means "inherit the definition's default." Resolved server-side by
+  // lib/task-definitions.ts's resolveTasks/resolveTask before ever reaching
+  // the client — every client-facing shape still sees a plain number.
+  projectedMinutes: number | null;
   order: number;
   isActive: boolean;
-  taskType: TaskType;
   // 0=Sun..6=Sat — which days this task is expected. Defaults to (and can be
   // pushed down from) its TaskList's own scheduledDays — see
   // models/TaskList.ts — but can be edited independently afterward.
@@ -39,26 +36,7 @@ export interface ITask extends Document {
   // as 100% — never allowed to exceed scheduledDays.length (see the API
   // routes, which clamp on write; this field alone doesn't enforce it).
   successThreshold: number;
-  formFields: FormFieldDef[];
-  // Raw hardware UID (lowercase hex) of a physical NFC tag bound directly to
-  // this task, scanned in-app — see docs/features/nfc.md's "In-app scan-to-
-  // complete binding". Distinct from models/NfcTag.ts's tagCode/URL-based
-  // tap-to-trigger system: one UID per task, stored right on the task
-  // instead of a separate collection. null/unset = task completes normally.
-  nfcTagUid: string | null;
 }
-
-export const FormFieldDefSchema = new Schema<FormFieldDef>(
-  {
-    key: { type: String, required: true },
-    label: { type: String, required: true },
-    type: { type: String, enum: ["number", "text", "boolean"], required: true },
-    unit: { type: String, default: undefined },
-    min: { type: Number, default: undefined },
-    max: { type: Number, default: undefined },
-  },
-  { _id: false }
-);
 
 const TaskSchema = new Schema<ITask>(
   {
@@ -66,17 +44,12 @@ const TaskSchema = new Schema<ITask>(
     // Company's shared task configuration — see TaskList.companyId for why
     // this stays a plain String rather than an ObjectId ref.
     companyId: { type: String, required: true, index: true },
-    templateId: { type: Schema.Types.ObjectId, ref: "TaskTemplate", default: null },
-    name: { type: String, required: true },
-    icon: { type: String, default: "✓" },
-    projectedMinutes: { type: Number, default: 0 },
+    definitionId: { type: Schema.Types.ObjectId, ref: "TaskDefinition", required: true, index: true },
+    projectedMinutes: { type: Number, default: null },
     order: { type: Number, default: 0 },
     isActive: { type: Boolean, default: true },
-    taskType: { type: String, enum: ["standard", "stopwatch", "checkbox", "form"], default: "form" },
     scheduledDays: { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
     successThreshold: { type: Number, default: 7 },
-    formFields: { type: [FormFieldDefSchema], default: [] },
-    nfcTagUid: { type: String, default: null },
   },
   { timestamps: true }
 );

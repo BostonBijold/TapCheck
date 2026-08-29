@@ -1,6 +1,7 @@
 import TaskLog from "@/models/TaskLog";
 import type { LogState } from "@/models/TaskLog";
 import Task from "@/models/Task";
+import TaskDefinition from "@/models/TaskDefinition";
 import TaskList from "@/models/TaskList";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
 
@@ -27,9 +28,15 @@ export class NfcTagRequiredError extends Error {
 // Shortcuts/external API, manual back-entry, the stray-timer auto-close
 // sweep — has no way to prove a scan happened, so it always calls this with
 // verifiedNfcUid omitted and is unconditionally blocked for a bound task.
+// NFC binding lives on the TaskDefinition (the saved check), one layer
+// above any single list placement — see models/TaskDefinition.ts — so this
+// always resolves through the placement's definitionId rather than reading
+// a field off Task itself.
 export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string | null) {
-  const task = await Task.findById(taskId).select("nfcTagUid").lean();
-  if (task?.nfcTagUid && task.nfcTagUid !== verifiedNfcUid) {
+  const task = await Task.findById(taskId).select("definitionId").lean();
+  if (!task) return;
+  const definition = await TaskDefinition.findById(task.definitionId).select("nfcTagUid").lean();
+  if (definition?.nfcTagUid && definition.nfcTagUid !== verifiedNfcUid) {
     throw new NfcTagRequiredError();
   }
 }
@@ -123,8 +130,11 @@ export async function completeStrayInProgressLogs(companyId: string, performedBy
     // crediting it "done" here would be exactly the bypass the scan
     // requirement exists to prevent. Record it honestly as missed instead;
     // see docs/features/nfc.md's "In-app scan-to-complete binding".
-    const strayTask = await Task.findById(s.taskId).select("nfcTagUid").lean();
-    if (strayTask?.nfcTagUid) {
+    const strayTask = await Task.findById(s.taskId).select("definitionId").lean();
+    const strayDefinition = strayTask
+      ? await TaskDefinition.findById(strayTask.definitionId).select("nfcTagUid").lean()
+      : null;
+    if (strayDefinition?.nfcTagUid) {
       await TaskLog.updateOne(
         { _id: s._id },
         { $set: { state: "missed", startedAt: null, completedAt: null, actualMinutes: null, pausedSeconds: 0, sessionTaskListId: null } }

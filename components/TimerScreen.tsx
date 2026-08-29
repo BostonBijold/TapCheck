@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import AppIcon from "@/components/AppIcon";
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 export interface TimerItem {
   _id: string;

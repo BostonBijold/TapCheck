@@ -5,8 +5,10 @@ import {
   startInProgressLog,
 } from "@/lib/task-log-actions";
 import { findNextTaskInList, incrementSessionPauseOrJump } from "@/lib/task-list-session-actions";
+import { resolveTask } from "@/lib/task-definitions";
 import TaskLog from "@/models/TaskLog";
-import Task, { type TaskType } from "@/models/Task";
+import Task from "@/models/Task";
+import type { TaskType } from "@/models/TaskDefinition";
 import TaskList from "@/models/TaskList";
 import User from "@/models/User";
 import { sendLiveActivityPush, toAppleReferenceSeconds, type RoutineActivityContentState } from "@/lib/apns";
@@ -123,11 +125,12 @@ async function notifyLiveActivity(
       return;
     }
 
-    const task = await Task.findOne({ _id: target.taskId }).lean();
-    if (!task) {
+    const rawTask = await Task.findOne({ _id: target.taskId }).lean();
+    if (!rawTask) {
       console.log("[notifyLiveActivity] Task not found for", target.taskId);
       return;
     }
+    const task = await resolveTask(rawTask);
     const taskList = target.sessionTaskListId
       ? await TaskList.findOne({ _id: task.taskListId }).lean()
       : null;

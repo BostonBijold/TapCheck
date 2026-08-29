@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Capacitor } from "@capacitor/core";
-import { Copy, Check } from "lucide-react";
+import { Copy, Check, ChevronRight } from "lucide-react";
 import Header from "@/components/Header";
 import { ApiKeyBridge } from "@/lib/native/api-key-bridge";
 
@@ -12,9 +13,10 @@ interface Props {
   email: string;
   today: string;
   skipAuth: boolean;
+  isManager?: boolean;
 }
 
-export default function ProfileView({ name, email, today, skipAuth }: Props) {
+export default function ProfileView({ name, email, today, skipAuth, isManager = false }: Props) {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -85,6 +87,21 @@ export default function ProfileView({ name, email, today, skipAuth }: Props) {
               <p className="font-mono text-xs text-dim">Loading…</p>
             )}
           </div>
+
+          {/* Manager-only: the company's saved-task catalog — see
+              docs/features/task-lists.md's "Company Task Catalog" section. */}
+          {isManager && (
+            <Link
+              href="/tasks/manage"
+              className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+            >
+              <div>
+                <p className="font-body text-sm text-text">Available Tasks</p>
+                <p className="font-mono text-[10px] text-dim mt-0.5">Manage your company&rsquo;s saved-task catalog</p>
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
+          )}
 
           {/* Sign out */}
           {!skipAuth && (

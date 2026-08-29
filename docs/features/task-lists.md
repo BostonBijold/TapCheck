@@ -2,11 +2,24 @@
 
 # Task Lists (shift checklists)
 
-The Today/Tasks page groups a company's shift checklists into `TaskList`s (Opening Shift, Mid-Shift, Closing Shift, and any manager-created custom lists — see "Manager-created task lists" below), plus one or more standalone "anytime" task lists for anytime/recurring tasks — see [anytime-tasks.md](anytime-tasks.md). Each list contains an ordered list of `Task`s, and each task's status for a given date is tracked by a separate `TaskLog` document, so history is never overwritten — every day gets its own log per task, shared across the whole company (any employee on shift can complete a given task — see [task-lists-api.md](../api/task-lists-api.md)).
+The Today/Tasks page groups a company's shift checklists into `TaskList`s (Opening Shift, Mid-Shift, Closing Shift, and any manager-created custom lists — see "Manager-created task lists" below), plus one or more standalone "anytime" task lists for anytime/recurring tasks — see [anytime-tasks.md](anytime-tasks.md). Each list contains an ordered list of `Task`s — a **placement**, see "Company Task Catalog" directly below — and each placement's status for a given date is tracked by a separate `TaskLog` document, so history is never overwritten — every day gets its own log per task, shared across the whole company (any employee on shift can complete a given task — see [task-lists-api.md](../api/task-lists-api.md)).
+
+## Company Task Catalog
+
+A `Task` is a list **placement** — a lightweight join connecting one of the company's saved checks into a specific `TaskList`, carrying only what varies per placement: `scheduledDays`, `successThreshold`, `order`, and an optional `projectedMinutes` override. The check itself — name, icon, `taskType`, `formFields`, and any NFC binding — lives one layer up, on `TaskDefinition` (the company's "Available Tasks" catalog). The same `TaskDefinition` can be placed in more than one list: the fridge-temp check, say, placed in both the opening and closing lists, each getting its own independent `TaskLog` history and streak strip (different obligations at different times, even though it's "the same physical check").
+
+This solves a real limitation of the earlier one-layer model: a check that legitimately happens more than once a day (fridge temp at opening, again at closing) used to require two entirely separate `Task` documents that happened to share a name — and scan-to-complete would have needed two separate physical tags stuck on the same fridge to match. Now the NFC binding lives on the shared `TaskDefinition`, so one tag works for every list the check is placed in.
+
+- **`Task` deliberately keeps its name** — CLAUDE.md's product vocabulary already defines Task as "an individual item within" a TaskList, which is exactly what a placement is. `TaskLog.taskId`, the external API's `routineItemId`, and every streak/analytics computation key off the placement's `_id`, unchanged from before this split — nothing downstream of a `Task` API response changed shape either (see [task-lists-api.md](../api/task-lists-api.md)'s "Tasks & Task Definitions" section), only where name/icon/fields/NFC binding are actually stored.
+- **Editing** a definition (name, icon, form fields) cascades to every list it's placed in — it's the same physical check, so this is intended, not a bug. **`projectedMinutes`**, in contrast, is edited per-placement as an override of the definition's default — a manager can give the same check a longer budget in one list without touching the others.
+- **NFC binding** (`Scan to Link` — see [nfc.md](nfc.md)'s "In-app scan-to-complete binding") lives on the definition, not any one placement — bind it once and every list it's placed in inherits the same tag. A tag scanned via the FAB's "scan to open" shortcut (`GET /api/tasks/by-nfc-uid`) resolves to the definition first, then — since one binding can now back more than one placement — to whichever placement is "most relevant right now" via `lib/task-definitions.ts`'s `resolveMostRelevantPlacement`: skip anything already resolved today, prefer whichever list's `startTime` is closest to the current time, fall back to list/placement order. This is a documented judgment call, not a fully settled product spec.
+- **Deleting** a placement (the trash icon in a list's edit view) only removes it from that one list — the definition, and any other list's placement of it, is untouched; it just drops back into the catalog with one fewer placement. **Deleting a definition entirely** (from "Available Tasks") is blocked while any active placement still references it — a manager has to remove it from every list first. Simplest option to build, and a deliberate choice over cascading the delete or leaving orphaned placements.
+
+**Manager UI**: "Available Tasks" (`/tasks/manage`, linked from the Profile page — manager-only, see `components/ManageTasksView.tsx`) lists the full catalog regardless of which lists currently use each entry, and is where a definition gets deleted (or fails to, with a message naming which lists still use it). From any list's edit page, "+ Use an existing task" (`components/AddExistingTaskSheet.tsx`) places an existing catalog entry into that list without creating a new definition — the original "+ Add task" flow (browsing `TaskTemplate`s or building custom) is unchanged and still always creates a brand-new definition.
 
 ## Task types
 
-`Task.taskType` is one of:
+`TaskDefinition.taskType` (see "Company Task Catalog" below — task content, including `taskType`, lives on the definition, not the list placement) is one of:
 
 - **`form`** — the only creatable type. Has a `formFields` array (number readings with an optional unit/min/max, or yes/no items); tapping it opens `components/TaskFormScreen.tsx` to fill in those fields, with elapsed time tracked the same way a timer would be.
 - **`standard`** / **`stopwatch`** / **`checkbox`** — timer-based personal-habit item types from before the app's pivot to restaurant work checks. Kept in the schema for compatibility with old data; nothing in the UI creates them anymore.
@@ -139,7 +152,13 @@ After a task opened via the FAB's "scan to open" shortcut (see [nfc.md](nfc.md))
 - `lib/task-list-session-actions.ts` — session bookkeeping, including the lock helpers (`getOpenSessionLocks`, `unlockSession`) — see "Task list locking" above.
 - `lib/task-log-actions.ts` — `assertShiftListSessionAuthorized`, the server-side lock enforcement.
 - `app/api/task-lists/session-locks/route.ts`, `app/api/task-lists/[taskListId]/unlock-session/route.ts` — the lock-reading and manager-only unlock endpoints.
-- `lib/seed.ts` — idempotent seeding of default shift task lists/tasks for a new company.
+- `lib/seed.ts` — idempotent seeding of default shift task lists/tasks for a new company; creates a `TaskDefinition` + placement pair per seeded item.
+- `models/TaskDefinition.ts`, `models/Task.ts` — the definition/placement split (see "Company Task Catalog" above).
+- `lib/task-definitions.ts` — `resolveTasks`/`resolveTask` (the join every read goes through), `resolveMostRelevantPlacement` (the FAB-scan multi-placement resolver).
+- `app/api/task-definitions/route.ts`, `app/api/task-definitions/[id]/route.ts` — the "Available Tasks" catalog list + manager-only delete (blocked while placements exist).
+- `app/(app)/tasks/manage/page.tsx`, `components/ManageTasksView.tsx` — the "Available Tasks" manager page.
+- `components/AddExistingTaskSheet.tsx` — places an existing catalog entry into a list without creating a new definition.
+- `scripts/migrate-task-definitions.mjs` — one-off, idempotent migration that split every pre-existing `Task` into a `TaskDefinition` + placement pair.
 
 ## Depends on
 

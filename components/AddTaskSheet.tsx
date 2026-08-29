@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { X, Search, ChevronLeft } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 interface Template {
   _id: string;

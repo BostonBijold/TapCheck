@@ -1,5 +1,6 @@
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
+import TaskDefinition from "@/models/TaskDefinition";
 import TaskTemplate from "@/models/TaskTemplate";
 import {
   ensureSystemTemplates,
@@ -50,25 +51,41 @@ export async function seedDefaultTaskLists(companyId: string) {
   const sortByDefault = (templates: typeof openingTemplates, names: readonly string[]) =>
     [...templates].sort((a, b) => names.indexOf(a.name) - names.indexOf(b.name));
 
-  const insertForList = (
+  // Each seeded task is created as a TaskDefinition (the reusable saved
+  // check) plus a single Task placement referencing it — see the "Company
+  // Task Catalog" design. Nothing seeded here is placed in more than one
+  // list, so this is a 1:1 pairing today, but each seeded task still lands
+  // in the shared company catalog (Available Tasks) like any other.
+  const insertForList = async (
     taskListId: typeof opening._id,
     templates: typeof openingTemplates,
     names: readonly string[]
-  ) =>
-    Task.insertMany(
-      sortByDefault(templates, names).map((t, i) => ({
+  ) => {
+    const sorted = sortByDefault(templates, names);
+    const definitions = await TaskDefinition.insertMany(
+      sorted.map((t) => ({
         companyId,
-        taskListId,
         templateId: t._id,
         name: t.name,
         icon: t.icon,
         taskType: "form",
         projectedMinutes: t.defaultProjectedMinutes,
         formFields: t.formFields ?? [],
+        nfcTagUid: null,
+        isActive: true,
+      }))
+    );
+    await Task.insertMany(
+      definitions.map((d, i) => ({
+        companyId,
+        taskListId,
+        definitionId: d._id,
+        projectedMinutes: null,
         order: i,
         isActive: true,
       }))
     );
+  };
 
   await Promise.all([
     insertForList(opening._id, openingTemplates, DEFAULT_OPENING_NAMES),
@@ -98,16 +115,14 @@ export async function ensureAnytimeTaskList(companyId: string) {
     isDefault: false,
   });
 
-  await Task.insertMany([
+  const definitions = await TaskDefinition.insertMany([
     {
       companyId,
-      taskListId: list._id,
       templateId: null,
       name: "Fridge",
       icon: "🧊",
       taskType: "form",
       projectedMinutes: 2,
-      order: 0,
       isActive: true,
       formFields: [
         { key: "temperature", label: "Fridge temperature", type: "number", unit: "°F", min: 33, max: 40 },
@@ -115,13 +130,11 @@ export async function ensureAnytimeTaskList(companyId: string) {
     },
     {
       companyId,
-      taskListId: list._id,
       templateId: null,
       name: "Freezer",
       icon: "❄️",
       taskType: "form",
       projectedMinutes: 2,
-      order: 1,
       isActive: true,
       formFields: [
         { key: "temperature", label: "Freezer temperature", type: "number", unit: "°F", max: 0 },
@@ -129,13 +142,11 @@ export async function ensureAnytimeTaskList(companyId: string) {
     },
     {
       companyId,
-      taskListId: list._id,
       templateId: null,
       name: "Men's Room",
       icon: "🚹",
       taskType: "form",
       projectedMinutes: 3,
-      order: 2,
       isActive: true,
       formFields: [
         { key: "clean", label: "Clean", type: "boolean" },
@@ -144,13 +155,11 @@ export async function ensureAnytimeTaskList(companyId: string) {
     },
     {
       companyId,
-      taskListId: list._id,
       templateId: null,
       name: "Women's Room",
       icon: "🚺",
       taskType: "form",
       projectedMinutes: 3,
-      order: 3,
       isActive: true,
       formFields: [
         { key: "clean", label: "Clean", type: "boolean" },
@@ -158,4 +167,15 @@ export async function ensureAnytimeTaskList(companyId: string) {
       ],
     },
   ]);
+
+  await Task.insertMany(
+    definitions.map((d, i) => ({
+      companyId,
+      taskListId: list._id,
+      definitionId: d._id,
+      projectedMinutes: null,
+      order: i,
+      isActive: true,
+    }))
+  );
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { findSessionByApiKey } from "@/lib/api-key";
 import { triggerTask } from "@/lib/task-trigger";
+import { resolveTask } from "@/lib/task-definitions";
 import { NfcTagRequiredError } from "@/lib/task-log-actions";
 import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
@@ -94,9 +95,11 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  const resolvedTask = await resolveTask(task);
+
   let completed, started;
   try {
-    ({ completed, started } = await triggerTask(companyId, userId, routineItemId, task.taskType, routineGroupId, date));
+    ({ completed, started } = await triggerTask(companyId, userId, routineItemId, resolvedTask.taskType, routineGroupId, date));
   } catch (err) {
     if (err instanceof NfcTagRequiredError) {
       return NextResponse.json({ error: err.message }, { status: 409 });

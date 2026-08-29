@@ -24,11 +24,12 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
+import AddExistingTaskSheet from "@/components/AddExistingTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
 import NfcTagLinkedSetup from "@/components/NfcTagLinkedSetup";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { Capacitor } from "@capacitor/core";
-import type { TaskType, FormFieldDef } from "@/models/Task";
+import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
 
 export interface EditTask {
   _id: string;
@@ -445,6 +446,7 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
   const [tasks, setTasks] = useState<EditTask[]>(initialTasks);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [showAddSheet, setShowAddSheet] = useState(false);
+  const [showAddExistingSheet, setShowAddExistingSheet] = useState(false);
 
   // List settings state — name, start time, and the list-level default
   // scheduledDays pushed down onto every task when saved (see PATCH
@@ -587,6 +589,39 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
     ]);
     setShowAddSheet(false);
     router.refresh(); // invalidate Tasks page cache for when user navigates back
+  };
+
+  // Places an existing company saved task (TaskDefinition) into this list —
+  // see components/AddExistingTaskSheet.tsx. Same POST /api/tasks endpoint
+  // as handleAdd above, just with definitionId instead of name/icon/…, so
+  // no new TaskDefinition gets created — every list this ends up in shares
+  // the same name/icon/fields/NFC binding.
+  const handleAddExisting = async (definitionId: string) => {
+    const res = await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskListId: taskList._id, definitionId }),
+    });
+    const newTask = await res.json();
+    setTasks((prev) => [
+      ...prev,
+      {
+        _id: newTask._id,
+        name: newTask.name,
+        icon: newTask.icon,
+        projectedMinutes: newTask.projectedMinutes,
+        taskType: (newTask.taskType ?? "form") as TaskType,
+        formFields: newTask.formFields ?? [],
+        order: prev.length,
+        scheduledDays: newTask.scheduledDays ?? ALL_DAYS,
+        successThreshold: newTask.successThreshold ?? 7,
+        appIntentLastTriggeredAt: null,
+        nfcTagCode: null,
+        nfcTagUid: newTask.nfcTagUid ?? null,
+      },
+    ]);
+    setShowAddExistingSheet(false);
+    router.refresh();
   };
 
   const totalMins = tasks.reduce((s, t) => s + t.projectedMinutes, 0);
@@ -746,6 +781,16 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
           >
             + Add task to {taskList.name}
           </button>
+
+          {/* Place an existing saved task (see components/AddExistingTaskSheet.tsx) —
+              distinct from "+ Add task" above, which always creates a brand-new
+              one. See docs/features/task-lists.md's "Company Task Catalog" section. */}
+          <button
+            onClick={() => setShowAddExistingSheet(true)}
+            className="mt-2 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-mono text-xs py-3 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[40px]"
+          >
+            + Use an existing task
+          </button>
         </div>
       </div>
 
@@ -755,6 +800,14 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
           taskListName={taskList.name}
           onAdd={handleAdd}
           onClose={() => setShowAddSheet(false)}
+        />
+      )}
+
+      {showAddExistingSheet && (
+        <AddExistingTaskSheet
+          taskListId={taskList._id}
+          onAdd={handleAddExisting}
+          onClose={() => setShowAddExistingSheet(false)}
         />
       )}
     </div>

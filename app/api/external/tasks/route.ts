@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongoose";
 import { findSessionByApiKey } from "@/lib/api-key";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
+import { resolveTasks } from "@/lib/task-definitions";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,8 @@ export async function GET(req: NextRequest) {
   const taskListOrder = new Map(taskLists.map((tl, i) => [tl._id.toString(), i]));
   const taskListName = new Map(taskLists.map((tl) => [tl._id.toString(), tl.name]));
 
-  const tasks = await Task.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+  const rawTasks = await Task.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+  const tasks = await resolveTasks(rawTasks);
 
   // Stable sort by list order — tasks within a list keep the task-order sort
   // the query above already applied.

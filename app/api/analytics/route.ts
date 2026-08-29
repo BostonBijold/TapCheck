@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
+import { resolveTasks } from "@/lib/task-definitions";
 
 // anchorDate: client's local today (YYYY-MM-DD). Never derive from server UTC.
 // The 7-day view is a fixed Sunday–Saturday calendar week containing
@@ -43,7 +44,8 @@ export async function GET(req: NextRequest) {
   await connectDB();
 
   const taskLists = await TaskList.find({ companyId }).sort({ order: 1 }).lean();
-  const allTasks = await Task.find({ companyId, isActive: true }).lean();
+  const rawTasks = await Task.find({ companyId, isActive: true }).lean();
+  const allTasks = await resolveTasks(rawTasks);
   const logs = await TaskLog.find({ companyId, date: { $in: dates } }).lean();
 
   // Fast lookup: taskId → date → log

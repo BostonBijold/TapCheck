@@ -1,4 +1,4 @@
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 // Validates/sanitizes a client-supplied formFields payload — drops any entry
 // that doesn't have the minimum required shape instead of trusting

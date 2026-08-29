@@ -4,6 +4,7 @@ import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
 import User from "@/models/User";
 import type { CompletionState } from "@/models/TaskListSession";
+import { resolveTask } from "@/lib/task-definitions";
 
 // List-level session bookkeeping, layered on top of the per-task TaskLog
 // writes in lib/task-log-actions.ts. TaskLog stays the source of truth for
@@ -42,12 +43,14 @@ async function fetchTaskListTasksAndLogs(companyId: string, taskListId: string, 
 
 // First task (by order) in a single task list with no log at all for date.
 // Used by the external trigger-task endpoint's "advance to next task in the
-// list" step (Case 2).
+// list" step (Case 2). Resolved (joined with its TaskDefinition) since
+// every caller immediately needs .taskType to decide how to start it.
 export async function findNextTaskInList(companyId: string, taskListId: string, date: string) {
   const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, taskListId, date);
   if (tasks.length === 0) return null;
   const loggedIds = new Set(logs.map((l) => l.taskId.toString()));
-  return tasks.find((t) => !loggedIds.has(t._id.toString())) ?? null;
+  const next = tasks.find((t) => !loggedIds.has(t._id.toString()));
+  return next ? resolveTask(next) : null;
 }
 
 // True once every active task in the list has a terminal (done/missed/

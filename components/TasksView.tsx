@@ -14,7 +14,7 @@ import TodoSection, { type TodoEntry } from "@/components/TodoSection";
 import EditTodoSheet from "@/components/EditTodoSheet";
 import FABTodoSheet from "@/components/FABTodoSheet";
 import type { LogState } from "@/models/TaskLog";
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
 import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";

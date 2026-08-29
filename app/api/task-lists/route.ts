@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
+import { resolveTasks } from "@/lib/task-definitions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -18,13 +19,14 @@ export async function GET() {
 
   const taskListsWithTasks = await Promise.all(
     taskLists.map(async (taskList) => {
-      const tasks = await Task.find({
+      const rawTasks = await Task.find({
         taskListId: taskList._id,
         companyId,
         isActive: true,
       })
         .sort({ order: 1 })
         .lean();
+      const tasks = await resolveTasks(rawTasks);
 
       return {
         _id: taskList._id.toString(),

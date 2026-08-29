@@ -1,12 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Task from "@/models/Task";
+import TaskDefinition from "@/models/TaskDefinition";
 import { sanitizeFormFields } from "@/lib/form-fields";
+import { resolveTask } from "@/lib/task-definitions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-// DELETE /api/tasks/[id] — remove from the company's task list (soft delete)
+// DELETE /api/tasks/[id] — remove from the company's task list (soft
+// delete). Placement-only: the underlying TaskDefinition (and any other
+// list's placement of it) is untouched — it just drops back into the
+// "Available Tasks" catalog with one fewer placement, ready to be placed
+// again. See docs/features/task-lists.md's "Company Task Catalog" section.
 export async function DELETE(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -28,7 +34,17 @@ export async function DELETE(
   return NextResponse.json({ ok: true });
 }
 
-// PATCH /api/tasks/[id] — update name/icon/projectedMinutes
+// PATCH /api/tasks/[id] — update a task. Fields split between the two
+// layers they actually belong to (see models/Task.ts / TaskDefinition.ts):
+// name/icon/taskType/formFields write through to the TaskDefinition and so
+// cascade to every list this task is placed in ("the same physical check"),
+// while scheduledDays/successThreshold/projectedMinutes stay placement-only
+// — projectedMinutes in particular becomes this ONE placement's override of
+// the definition's default, not the default itself, since it's always
+// edited from a specific list's row.
+const DEFINITION_FIELDS = ["name", "icon", "taskType", "formFields"] as const;
+const PLACEMENT_FIELDS = ["projectedMinutes", "scheduledDays", "successThreshold"] as const;
+
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -39,14 +55,16 @@ export async function PATCH(
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const updates = await req.json();
-  const allowed = ["name", "icon", "projectedMinutes", "taskType", "scheduledDays", "successThreshold", "formFields"] as const;
-  const sanitized: Partial<Record<(typeof allowed)[number], unknown>> = {};
-  for (const key of allowed) {
-    if (key in updates) sanitized[key] = updates[key];
-  }
-  if ("formFields" in sanitized) sanitized.formFields = sanitizeFormFields(sanitized.formFields);
+  const definitionUpdates: Partial<Record<(typeof DEFINITION_FIELDS)[number], unknown>> = {};
+  const placementUpdates: Partial<Record<(typeof PLACEMENT_FIELDS)[number], unknown>> = {};
+  for (const key of DEFINITION_FIELDS) if (key in updates) definitionUpdates[key] = updates[key];
+  for (const key of PLACEMENT_FIELDS) if (key in updates) placementUpdates[key] = updates[key];
+  if ("formFields" in definitionUpdates) definitionUpdates.formFields = sanitizeFormFields(definitionUpdates.formFields);
 
   await connectDB();
+
+  const task = await Task.findOne({ _id: params.id, companyId }).lean();
+  if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   // Clamp threshold against whichever scheduledDays is now in effect —
   // the one just sent, or the task's existing one if only the threshold
@@ -54,32 +72,35 @@ export async function PATCH(
   // If neither is actually changing the threshold, preserve whatever it
   // already was (only clamping it down, never bumping it up to days.length
   // just because scheduledDays changed for an unrelated reason).
-  if ("scheduledDays" in sanitized || "successThreshold" in sanitized) {
-    const existing = await Task.findOne({ _id: params.id, companyId }).lean();
-    const days = Array.isArray(sanitized.scheduledDays)
-      ? (sanitized.scheduledDays as number[])
-      : existing?.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
-    const requestedThreshold = "successThreshold" in sanitized
-      ? Number(sanitized.successThreshold)
-      : existing?.successThreshold ?? days.length;
-    sanitized.successThreshold = Math.max(1, Math.min(requestedThreshold, days.length));
+  if ("scheduledDays" in placementUpdates || "successThreshold" in placementUpdates) {
+    const days = Array.isArray(placementUpdates.scheduledDays)
+      ? (placementUpdates.scheduledDays as number[])
+      : task.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6];
+    const requestedThreshold = "successThreshold" in placementUpdates
+      ? Number(placementUpdates.successThreshold)
+      : task.successThreshold ?? days.length;
+    placementUpdates.successThreshold = Math.max(1, Math.min(requestedThreshold, days.length));
   }
 
-  const task = await Task.findOneAndUpdate(
-    { _id: params.id, companyId },
-    { $set: sanitized },
-    { returnDocument: "after" }
-  );
-  if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (Object.keys(definitionUpdates).length > 0) {
+    await TaskDefinition.updateOne({ _id: task.definitionId, companyId }, { $set: definitionUpdates });
+  }
+  if (Object.keys(placementUpdates).length > 0) {
+    await Task.updateOne({ _id: task._id, companyId }, { $set: placementUpdates });
+  }
+
+  const updatedTask = await Task.findOne({ _id: task._id, companyId }).lean();
+  if (!updatedTask) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const resolved = await resolveTask(updatedTask);
 
   return NextResponse.json({
-    _id: task._id.toString(),
-    name: task.name,
-    icon: task.icon,
-    projectedMinutes: task.projectedMinutes,
-    taskType: task.taskType,
-    scheduledDays: task.scheduledDays,
-    successThreshold: task.successThreshold,
-    formFields: task.formFields,
+    _id: resolved._id.toString(),
+    name: resolved.name,
+    icon: resolved.icon,
+    projectedMinutes: resolved.projectedMinutes,
+    taskType: resolved.taskType,
+    scheduledDays: resolved.scheduledDays,
+    successThreshold: resolved.successThreshold,
+    formFields: resolved.formFields,
   });
 }

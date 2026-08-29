@@ -2,7 +2,7 @@
 
 # Task Templates API
 
-Covers the task-template catalog — the data consumed by [anytime-tasks.md](../features/anytime-tasks.md). Adding a task to any task list, and logging a task's daily state, both go through the shared endpoints documented in [task-lists-api.md](task-lists-api.md) (`/api/tasks`, `/api/task-logs`) — not duplicated here. This includes `scheduledDays`/`successThreshold` and `formFields` (task-lists-api.md's Tasks section) — every task is a `Task` regardless of which list it lives in, same collection, same fields, same clamping behavior, nothing template-specific about them.
+Covers the `TaskTemplate` catalog — the un-tied-to-any-company example catalog a `TaskDefinition` can be cloned from (see [task-lists.md](../features/task-lists.md)'s "Company Task Catalog" section) — and the data consumed by [anytime-tasks.md](../features/anytime-tasks.md). Adding a task to any task list, and logging a task's daily state, both go through the shared endpoints documented in [task-lists-api.md](task-lists-api.md) (`/api/tasks`, `/api/task-logs`) — not duplicated here. This includes `scheduledDays`/`successThreshold` (placement-level, on `Task`) and `formFields` (definition-level, on `TaskDefinition`) — same shapes, same clamping behavior as a template's own fields, nothing template-specific about them.
 
 **Auth**: same pattern as task-lists-api.md — `lib/session.ts`'s `resolveSessionUser()`, with a `SKIP_AUTH`-gated dev fallback, `401`/`403` otherwise.
 
@@ -16,7 +16,7 @@ Creates a new custom `TaskTemplate`. Request body: `{ name, icon, defaultProject
 
 Collection: `tasktemplates` (`models/TaskTemplate.ts`). Fields: `name`, `icon`, `defaultProjectedMinutes`, `category` (enum: `food_safety | cleaning | cash_handling | equipment | opening_closing | custom`), `timeOfDay: "morning" | "evening" | "any"` (a display/catalog hint only — unrelated to `TaskList.timeOfDay`, which has different possible values), `formFields`, `description?`, `isSystem`, `companyId: string | null`, `isActive`.
 
-`Task.templateId` is the only link back to a template, and it's a one-time copy made at creation time (`POST /api/tasks`, in task-lists-api.md) — editing or deleting a template afterward does not cascade to tasks already created from it.
+`TaskDefinition.templateId` (not `Task` — see task-lists-api.md's "Tasks & Task Definitions" section) is the only link back to a template, and it's a one-time copy made at creation time (`POST /api/tasks`'s new-definition path, in task-lists-api.md) — editing or deleting a template afterward does not cascade to definitions already created from it.
 
 ## Consumed by
 

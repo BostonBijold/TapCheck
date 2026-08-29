@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskLog from "@/models/TaskLog";
 import Task from "@/models/Task";
+import { resolveTask } from "@/lib/task-definitions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -27,11 +28,12 @@ export async function GET() {
     return NextResponse.json({ active: false });
   }
 
-  const task = await Task.findOne({ _id: log.taskId, companyId }).lean();
-  if (!task) {
+  const rawTask = await Task.findOne({ _id: log.taskId, companyId }).lean();
+  if (!rawTask) {
     // Dangling log pointing at a deleted task — nothing sensible to resume.
     return NextResponse.json({ active: false });
   }
+  const task = await resolveTask(rawTask);
 
   return NextResponse.json({
     active: true,

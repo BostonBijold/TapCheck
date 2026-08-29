@@ -1,5 +1,5 @@
 import TaskTemplate from "@/models/TaskTemplate";
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 interface SystemTemplate {
   name: string;

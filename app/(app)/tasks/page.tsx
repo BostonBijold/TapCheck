@@ -6,6 +6,7 @@ import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
 import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import { seedDefaultTaskLists, ensureAnytimeTaskList } from "@/lib/seed";
+import { resolveTasks } from "@/lib/task-definitions";
 import { calendarWeekDates } from "@/lib/week-dates";
 import TasksView from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
@@ -54,13 +55,14 @@ export default async function TasksPage({
   // Single query for every list's tasks instead of one query per list — the
   // result is already sorted by order, so grouping it in memory below
   // preserves each list's task order exactly as the old per-list query did.
-  const allTasks = await Task.find({
+  const rawTasks = await Task.find({
     taskListId: { $in: taskLists.map((tl) => tl._id) },
     companyId,
     isActive: true,
   })
     .sort({ order: 1 })
     .lean();
+  const allTasks = await resolveTasks(rawTasks);
 
   const tasksByTaskListId = new Map<string, typeof allTasks>();
   for (const task of allTasks) {
@@ -85,12 +87,15 @@ export default async function TasksPage({
         projectedMinutes: task.projectedMinutes,
         order: task.order,
         taskType: task.taskType,
-        // Existing documents predate these fields — Mongoose defaults only
-        // apply on create, so a .lean() read can come back undefined.
+        // scheduledDays/successThreshold are placement fields — existing
+        // documents predate them, and Mongoose defaults only apply on
+        // create, so a .lean() read can come back undefined. name/icon/
+        // formFields/nfcTagUid come resolved from resolveTasks above and
+        // are always present.
         scheduledDays: task.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         successThreshold: task.successThreshold ?? (task.scheduledDays?.length ?? 7),
-        formFields: task.formFields ?? [],
-        nfcTagUid: task.nfcTagUid ?? null,
+        formFields: task.formFields,
+        nfcTagUid: task.nfcTagUid,
       })),
     };
   });

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { findSessionByApiKey } from "@/lib/api-key";
 import { triggerTask } from "@/lib/task-trigger";
+import { resolveTask } from "@/lib/task-definitions";
 import { NfcTagRequiredError } from "@/lib/task-log-actions";
 import NfcTag from "@/models/NfcTag";
 import PendingNfcLink from "@/models/PendingNfcLink";
@@ -106,13 +107,15 @@ export async function GET(
   const taskListId = tag.taskListId ? tag.taskListId.toString() : null;
   const date = todayString();
 
+  const resolvedTask = await resolveTask(task);
+
   let completed, started;
   try {
     ({ completed, started } = await triggerTask(
       companyId,
       userId,
       task._id.toString(),
-      task.taskType,
+      resolvedTask.taskType,
       taskListId,
       date
     ));

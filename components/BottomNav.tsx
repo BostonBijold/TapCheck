@@ -143,17 +143,24 @@ export default function BottomNav() {
       return;
     }
     try {
-      const res = await fetch(`/api/tasks/by-nfc-uid?uid=${encodeURIComponent(result.uid)}`);
+      // Local date, not UTC — matches TasksView's own timezone-correction
+      // effect so it doesn't immediately overwrite this with a plain
+      // /tasks?date=... redirect before openTaskId gets consumed. Also fed
+      // to by-nfc-uid below (along with local minutes-since-midnight) so it
+      // can pick the most relevant placement when the same saved task is
+      // bound to this tag in more than one list — see
+      // lib/task-definitions.ts's resolveMostRelevantPlacement.
+      const localDate = new Date().toLocaleDateString("en-CA");
+      const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+      const res = await fetch(
+        `/api/tasks/by-nfc-uid?uid=${encodeURIComponent(result.uid)}&date=${localDate}&nowMinutes=${nowMinutes}`
+      );
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         flashScanMessage(body.error || "No task is linked to this tag.");
         return;
       }
       const { taskId } = (await res.json()) as { taskId: string };
-      // Local date, not UTC — matches TasksView's own timezone-correction
-      // effect so it doesn't immediately overwrite this with a plain
-      // /tasks?date=... redirect before openTaskId gets consumed.
-      const localDate = new Date().toLocaleDateString("en-CA");
       const url = `/tasks?openTaskId=${taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
       if (pathname === "/tasks") {
         router.replace(url);

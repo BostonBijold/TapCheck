@@ -1,7 +1,7 @@
 "use client";
 
 import { X } from "lucide-react";
-import type { FormFieldDef } from "@/models/Task";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 interface Props {
   fields: FormFieldDef[];

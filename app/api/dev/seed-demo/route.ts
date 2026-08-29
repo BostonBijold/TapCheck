@@ -3,6 +3,7 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
+import { resolveTasks } from "@/lib/task-definitions";
 import { DEV_USER_ID, DEV_COMPANY_ID } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -77,7 +78,8 @@ export async function GET() {
   await connectDB();
 
   const taskLists = await TaskList.find({ companyId: DEV_COMPANY_ID }).sort({ order: 1 }).lean();
-  const tasks  = await Task.find({ companyId: DEV_COMPANY_ID, isActive: true }).lean();
+  const rawTasks  = await Task.find({ companyId: DEV_COMPANY_ID, isActive: true }).lean();
+  const tasks = await resolveTasks(rawTasks);
 
   if (taskLists.length === 0) {
     return NextResponse.json(

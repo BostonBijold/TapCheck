@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskTemplate from "@/models/TaskTemplate";
 import Task from "@/models/Task";
+import TaskDefinition from "@/models/TaskDefinition";
 import { sanitizeFormFields } from "@/lib/form-fields";
 import { resolveSessionUser } from "@/lib/session";
 
@@ -19,12 +20,17 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  // Find template IDs already used in this list (if filtering)
+  // Find template IDs already used in this list (if filtering) — templateId
+  // lives on the TaskDefinition now (see models/TaskDefinition.ts), one
+  // layer above the placement, so this goes through definitionId.
   let excludedTemplateIds: string[] = [];
   if (taskListId) {
-    const existing = await Task.find({ taskListId, companyId, isActive: true }).lean();
-    excludedTemplateIds = existing
-      .map((t) => t.templateId?.toString())
+    const existing = await Task.find({ taskListId, companyId, isActive: true }).select("definitionId").lean();
+    const definitions = await TaskDefinition.find({ _id: { $in: existing.map((t) => t.definitionId) } })
+      .select("templateId")
+      .lean();
+    excludedTemplateIds = definitions
+      .map((d) => d.templateId?.toString())
       .filter(Boolean) as string[];
   }
 

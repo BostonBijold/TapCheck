@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { resolveSessionUser } from "@/lib/session";
 import { connectDB } from "@/lib/mongoose";
 import { triggerTask } from "@/lib/task-trigger";
+import { resolveTask, resolveTasks } from "@/lib/task-definitions";
 import { NfcTagRequiredError } from "@/lib/task-log-actions";
 import NfcTag from "@/models/NfcTag";
 import PendingNfcLink from "@/models/PendingNfcLink";
@@ -96,8 +97,9 @@ export default async function NfcTagPage({
     const isFresh = pending && Date.now() - pending.armedAt.getTime() < PENDING_LINK_MAX_AGE_MS;
 
     if (pending && isFresh) {
-      const task = await Task.findOne({ _id: pending.taskId, companyId, isActive: true }).lean();
-      if (task) {
+      const rawTask = await Task.findOne({ _id: pending.taskId, companyId, isActive: true }).lean();
+      if (rawTask) {
+        const task = await resolveTask(rawTask);
         tag.companyId = companyId;
         tag.taskId = task._id;
         tag.taskListId = task.taskListId;
@@ -114,7 +116,8 @@ export default async function NfcTagPage({
       }
     }
 
-    const tasks = await Task.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+    const rawTasks = await Task.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+    const tasks = await resolveTasks(rawTasks);
     return (
       <Shell>
         <NfcClaimTagPicker
@@ -127,8 +130,8 @@ export default async function NfcTagPage({
 
   // Claimed by this company — the everyday trigger case, open to any
   // signed-in company user (any employee on shift can trigger a task).
-  const task = await Task.findOne({ _id: tag.taskId, companyId, isActive: true }).lean();
-  if (!task) {
+  const rawTask = await Task.findOne({ _id: tag.taskId, companyId, isActive: true }).lean();
+  if (!rawTask) {
     return (
       <Shell>
         <h1 className="font-heading text-2xl text-text mb-2">Task not found</h1>
@@ -138,6 +141,7 @@ export default async function NfcTagPage({
       </Shell>
     );
   }
+  const task = await resolveTask(rawTask);
 
   const taskListId = tag.taskListId ? tag.taskListId.toString() : null;
   let completed, started;
@@ -152,7 +156,7 @@ export default async function NfcTagPage({
     ));
   } catch (err) {
     // This tap-to-trigger tag (identified by tagCode) is unrelated to the
-    // task's own bound scan-to-complete tag (Task.nfcTagUid) — see
+    // task's own bound scan-to-complete tag (TaskDefinition.nfcTagUid) — see
     // docs/features/nfc.md's "In-app scan-to-complete binding". A task with
     // one of those set can't be completed this way at all.
     if (err instanceof NfcTagRequiredError) {

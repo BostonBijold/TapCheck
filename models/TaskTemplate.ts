@@ -1,5 +1,5 @@
 import { Schema, Document, model, models } from "mongoose";
-import { FormFieldDefSchema, type FormFieldDef } from "@/models/Task";
+import { FormFieldDefSchema, type FormFieldDef } from "@/models/TaskDefinition";
 
 export type TaskCategory =
   | "food_safety"
