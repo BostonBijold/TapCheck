@@ -45,11 +45,6 @@ interface Props {
   logs?: Record<string, ExternalLog>;
   today: string;
   startIndex?: number;
-  // Set only when this session was auto-started/joined by the FAB's "scan to
-  // open" shortcut resolving to a shift-window task — see
-  // docs/features/nfc.md. Pre-satisfies that one task's own Scan NFC step,
-  // same short-circuit the standalone TaskFormScreen path already has.
-  preVerified?: { taskId: string; uid: string } | null;
   onClose: () => void;
   onFinish: () => void;
 }
@@ -96,15 +91,8 @@ const TIMELINE_COLOR: Record<TimelineColorState, string> = {
   pending: "#c7d1dc",     // border-light
 };
 
-export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerified = null, onClose, onFinish }: Props) {
+export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
-  // Single-use: seeded once from the prop, cleared the moment attention
-  // moves off the scanned task — never reapplied even if the user jumps back
-  // to it later, matching nfc.md's "single-use per open" rule.
-  const [armedVerification, setArmedVerification] = useState(preVerified);
-  useEffect(() => {
-    if (currentIndex !== startIndex) setArmedVerification(null);
-  }, [currentIndex, startIndex]);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
   const [sessionLogs, setSessionLogs] = useState<SessionLog[]>([]);
@@ -537,16 +525,11 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // filling in its fields, then returns to the session view for the next
   // task once advance() moves currentIndex forward. ──
   if (phase === "running" && isForm && currentTask) {
-    const preVerifiedNfcUid =
-      armedVerification && currentIndex === startIndex && armedVerification.taskId === currentTask._id
-        ? armedVerification.uid
-        : null;
     return (
       <TaskFormScreen
         item={currentTask}
         initialElapsed={elapsed}
         taskListName={taskListName}
-        preVerifiedNfcUid={preVerifiedNfcUid}
         onComplete={handleTaskFormDone}
         onMissed={handleMissed}
         onClose={handleClose}

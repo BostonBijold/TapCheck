@@ -93,7 +93,7 @@ Resolves a scanned tag's UID to a `TaskDefinition`, then — since one binding c
 
 Once a single `taskId` is resolved, `lib/task-list-session-actions.ts`'s `resolveFabScanTarget` decides what the FAB should do with it and the response is one of four shapes — see [nfc.md](../features/nfc.md)'s "FAB 'scan to open' shortcut":
 - `{ mode: "anytime", taskId }` — an anytime task, unchanged from before this resolver existed.
-- `{ mode: "session", taskId, taskListId }` — a shift-window task whose list's session is either unclaimed or already the caller's own; the client joins or auto-starts it. If the *originally* scanned task's own list was already fully resolved for today, `taskId`/`taskListId` here point at the nearest incomplete shift-window list's own first unresolved task instead (`resolveNearestIncompleteShiftList`), not the literal task the tag is bound to.
+- `{ mode: "session", taskId, taskListId }` — a shift-window task whose list's session is either unclaimed or already the caller's own; the client anchors just this one task to that list's session (starting/joining it) and opens it standalone — not the guided walkthrough. If the *originally* scanned task's own list was already fully resolved for today, `taskId`/`taskListId` here point at the nearest incomplete shift-window list's own first unresolved task instead (`resolveNearestIncompleteShiftList`), not the literal task the tag is bound to.
 - `{ mode: "locked", taskId, taskListId, lockedByName }` — a shift-window task whose list's session is held by someone else; the client shows this instead of navigating anywhere.
 - `{ mode: "complete" }` — the scanned task's list, and every other shift-window list, is already fully resolved for today; the client shows a message and navigates nowhere.
 

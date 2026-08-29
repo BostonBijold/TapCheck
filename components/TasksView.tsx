@@ -98,11 +98,6 @@ export default function TasksView({
   // just a bare uid) so it can never leak onto a different task opened by
   // any other path (tapping a task directly, resuming, session navigation).
   const [preVerified, setPreVerified] = useState<{ taskId: string; uid: string } | null>(null);
-  // Same idea as preVerified above, but for a FAB scan that resolved into a
-  // shift-window task's session instead of the standalone TaskFormScreen —
-  // kept separate since it feeds TaskListSessionView, a different child, and
-  // must never leak onto a task opened any other way.
-  const [sessionPreVerified, setSessionPreVerified] = useState<{ taskId: string; uid: string } | null>(null);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
   const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
@@ -160,11 +155,39 @@ export default function TasksView({
       router.replace("/tasks");
     }
     if (autoOpenSessionTaskId && autoOpenSessionListId) {
+      // A FAB scan starts/joins the list's session (so "Continue Tasks"
+      // reflects it afterward) but opens only the one physically-scanned
+      // task, standalone — not the guided walkthrough. Each tag is exactly
+      // one task; letting completion auto-advance into an unscanned next
+      // task would defeat the point of requiring a scan (proving the person
+      // is physically at that specific item) — see docs/features/nfc.md.
       const taskList = taskLists.find((tl) => tl._id === autoOpenSessionListId);
-      const startIndex = taskList?.tasks.findIndex((t) => t._id === autoOpenSessionTaskId) ?? -1;
-      if (taskList && startIndex !== -1) {
-        setActiveSession({ taskList, startIndex });
-        if (autoOpenVerifiedNfcUid) setSessionPreVerified({ taskId: autoOpenSessionTaskId, uid: autoOpenVerifiedNfcUid });
+      const found = taskList?.tasks.find((t) => t._id === autoOpenSessionTaskId) ?? null;
+      if (found) {
+        const listId = autoOpenSessionListId;
+        const uid = autoOpenVerifiedNfcUid;
+        (async () => {
+          // Anchoring this in_progress log with sessionTaskListId is what
+          // makes ensureOpenSession start/join the list's session
+          // server-side (see lib/task-log-actions.ts's startInProgressLog) —
+          // no separate session-creation call needed.
+          await fetch("/api/task-logs", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ taskId: found._id, date: today, state: "in_progress", sessionTaskListId: listId }),
+          });
+          try {
+            const res = await fetch(`/api/task-logs?date=${today}`);
+            if (res.ok) {
+              const fresh: TaskLogEntry[] = await res.json();
+              setLogs(Object.fromEntries(fresh.map((l) => [l.taskId, l])));
+            }
+          } catch { /* optimistic state already applied; will resync on next poll */ }
+          emitTaskLogChanged();
+          setTimerInitialElapsed(0);
+          setTimerItem(found);
+          if (uid) setPreVerified({ taskId: found._id, uid });
+        })();
       }
       router.replace("/tasks");
     }
@@ -682,7 +705,6 @@ export default function TasksView({
 
   const handleSessionFinish = useCallback(async () => {
     setActiveSession(null);
-    setSessionPreVerified(null);
     // Re-fetch logs immediately so isComplete is accurate before router.refresh() arrives.
     // TaskListSessionView writes directly to the DB without updating the parent
     // logs state, so without this the list would briefly re-open with the
@@ -777,7 +799,6 @@ export default function TasksView({
           logs={logs}
           today={selectedDate}
           startIndex={activeSession?.startIndex ?? 0}
-          preVerified={sessionPreVerified}
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
         />
