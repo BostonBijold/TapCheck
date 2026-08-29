@@ -37,7 +37,15 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const definition = await TaskDefinition.findOne({ companyId, nfcTagUid: uid.toLowerCase(), isActive: true }).lean();
+  // Binding (POST /api/tasks/[id]/nfc-tag) enforces one-tag-one-task by
+  // clearing this UID off any other definition at bind time, so this should
+  // never actually match more than one document — sorted defensively by
+  // most-recently-bound anyway, so stale pre-existing duplicate data (or a
+  // direct DB edit) resolves to the tag's real, current owner instead of an
+  // arbitrary one.
+  const definition = await TaskDefinition.findOne({ companyId, nfcTagUid: uid.toLowerCase(), isActive: true })
+    .sort({ updatedAt: -1 })
+    .lean();
   if (!definition) return NextResponse.json({ error: "No task is linked to this tag" }, { status: 404 });
 
   const taskId = await resolveMostRelevantPlacement(companyId, definition._id.toString(), date, nowMinutes);

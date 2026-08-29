@@ -75,6 +75,36 @@ export async function resolveTask<T extends LeanTaskLike>(task: T): Promise<T & 
   return resolved;
 }
 
+// Shared by both NFC-binding routes — app/api/tasks/[id]/nfc-tag (resolves
+// a specific list placement to its definitionId first) and
+// app/api/task-definitions/[id]/nfc-tag (binds a definition directly, so it
+// works even for one not yet placed in any list). A physical tag identifies
+// exactly one task, permanently (see docs/features/nfc.md's "FAB 'scan to
+// open' shortcut"), so binding it here always clears that UID off any OTHER
+// definition in the company first — without this, re-linking an
+// already-used tag would leave two definitions answering to the same UID,
+// and GET /api/tasks/by-nfc-uid's lookup could resolve to either one.
+export async function bindNfcTag(companyId: string, definitionId: string, uid: string) {
+  const normalizedUid = uid.toLowerCase();
+  await TaskDefinition.updateMany(
+    { companyId, nfcTagUid: normalizedUid, _id: { $ne: definitionId } },
+    { $set: { nfcTagUid: null } }
+  );
+  return TaskDefinition.findOneAndUpdate(
+    { _id: definitionId, companyId },
+    { $set: { nfcTagUid: normalizedUid } },
+    { returnDocument: "after" }
+  );
+}
+
+export async function unbindNfcTag(companyId: string, definitionId: string) {
+  return TaskDefinition.findOneAndUpdate(
+    { _id: definitionId, companyId },
+    { $set: { nfcTagUid: null } },
+    { returnDocument: "after" }
+  );
+}
+
 // Resolves a scanned/bound TaskDefinition to whichever of its active
 // placements is "most relevant right now" — needed because, unlike before
 // the catalog split, one physical tag (bound at the definition level) can

@@ -88,7 +88,8 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
             )}
           </div>
 
-          {/* Manager-only: the company's saved-task catalog — see
+          {/* Manager-only: task lists, standalone tasks, and the company's
+              saved-task catalog — see components/ManageTasksView.tsx and
               docs/features/task-lists.md's "Company Task Catalog" section. */}
           {isManager && (
             <Link
@@ -96,8 +97,8 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
               className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
             >
               <div>
-                <p className="font-body text-sm text-text">Available Tasks</p>
-                <p className="font-mono text-[10px] text-dim mt-0.5">Manage your company&rsquo;s saved-task catalog</p>
+                <p className="font-body text-sm text-text">Manage Tasks</p>
+                <p className="font-mono text-[10px] text-dim mt-0.5">Task lists, standalone tasks, and NFC tag bindings</p>
               </div>
               <ChevronRight size={16} className="text-dim flex-shrink-0" />
             </Link>

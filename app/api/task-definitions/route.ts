@@ -8,7 +8,7 @@ import { resolveSessionUser } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 // GET /api/task-definitions — the company's full saved-task catalog
-// ("Available Tasks"), regardless of which lists currently use them —
+// ("Company Task Catalog"), regardless of which lists currently use them —
 // see docs/features/task-lists.md's "Company Task Catalog" section.
 // Includes, per definition, which lists it's currently placed in (name +
 // placement id), so the manager UI can show "used in Opening, Closing" and

@@ -9,7 +9,6 @@ import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
 import TaskFormScreen from "@/components/TaskFormScreen";
 import TaskListSessionView from "@/components/TaskListSessionView";
 import AddTaskSheet from "@/components/AddTaskSheet";
-import AddTaskListSheet from "@/components/AddTaskListSheet";
 import TodoSection, { type TodoEntry } from "@/components/TodoSection";
 import EditTodoSheet from "@/components/EditTodoSheet";
 import FABTodoSheet from "@/components/FABTodoSheet";
@@ -100,7 +99,6 @@ export default function TasksView({
   const [preVerified, setPreVerified] = useState<{ taskId: string; uid: string } | null>(null);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
-  const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
   const [todos, setTodos] = useState<TodoEntry[]>(initialTodos);
   const [addTodoOpen, setAddTodoOpen] = useState(false);
   const [editingTodo, setEditingTodo] = useState<TodoEntry | null>(null);
@@ -803,15 +801,6 @@ export default function TasksView({
         />
       )}
 
-      {showAddTaskListSheet && (
-        <AddTaskListSheet
-          onCreated={(taskList) => {
-            setShowAddTaskListSheet(false);
-            setAddTaskSheetFor({ id: taskList._id, name: taskList.name });
-          }}
-          onClose={() => setShowAddTaskListSheet(false)}
-        />
-      )}
 
       {addTodoOpen && (
         <FABTodoSheet
@@ -830,7 +819,7 @@ export default function TasksView({
       )}
 
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <Header userName={userName} today={today} skipAuth={skipAuth} showManageLink={userRole === "manager"} />
 
         <>
           {/* Date navigation */}
@@ -878,17 +867,6 @@ export default function TasksView({
                 />
               ))}
             </div>
-
-            {/* Manager-only entry point into the "Add Task List" flow — name
-                + start time, then straight into AddTaskSheet for its tasks. */}
-            {userRole === "manager" && (
-              <button
-                onClick={() => setShowAddTaskListSheet(true)}
-                className="mt-4 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
-              >
-                + Add Task List
-              </button>
-            )}
 
             {/* To-dos for the day */}
             <TodoSection

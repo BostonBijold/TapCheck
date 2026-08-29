@@ -1,8 +1,7 @@
 "use client";
 
 import { useState, useMemo, useEffect } from "react";
-import Link from "next/link";
-import { Play, Settings, Unlock } from "lucide-react";
+import { Play, Unlock } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TaskRow, { type RowItem } from "@/components/TaskRow";
 import TaskCard from "@/components/TaskCard";
@@ -202,21 +201,12 @@ export default function TaskListCard({
           ) : null}
         </button>
 
-        <div className="flex items-center gap-3">
-          {!isComplete && (
-            <span className="font-mono text-xs">
-              <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
-              <span className="text-dim"> · {fmtMins(projectedMins)}</span>
-            </span>
-          )}
-          <Link
-            href={`/tasks/${taskList._id}/edit`}
-            aria-label={`Manage ${taskList.name}`}
-            className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-dim hover:text-olive transition-colors"
-          >
-            <Settings size={15} strokeWidth={1.75} />
-          </Link>
-        </div>
+        {!isComplete && (
+          <span className="font-mono text-xs">
+            <span className="text-gold">{doneCount}/{visibleTasks.length}</span>
+            <span className="text-dim"> · {fmtMins(projectedMins)}</span>
+          </span>
+        )}
       </div>
 
       {/* ── Collapsed: complete summary ──────────────────────────────────── */}

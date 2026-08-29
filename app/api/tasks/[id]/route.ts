@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // DELETE /api/tasks/[id] — remove from the company's task list (soft
 // delete). Placement-only: the underlying TaskDefinition (and any other
 // list's placement of it) is untouched — it just drops back into the
-// "Available Tasks" catalog with one fewer placement, ready to be placed
+// "Company Task Catalog" with one fewer placement, ready to be placed
 // again. See docs/features/task-lists.md's "Company Task Catalog" section.
 export async function DELETE(
   req: NextRequest,

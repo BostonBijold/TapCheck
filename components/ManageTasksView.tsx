@@ -1,10 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Nfc } from "lucide-react";
+import { Capacitor } from "@capacitor/core";
+import { ChevronLeft, ChevronRight, Nfc } from "lucide-react";
 import Header from "@/components/Header";
 import AppIcon from "@/components/AppIcon";
+import AddTaskListSheet from "@/components/AddTaskListSheet";
+import AddTaskSheet from "@/components/AddTaskSheet";
+import { scanNfcTag } from "@/lib/native/nfc-scan";
+import type { FormFieldDef } from "@/models/TaskDefinition";
 
 interface DefinitionPlacement {
   taskId: string;
@@ -23,22 +29,185 @@ interface Definition {
   placements: DefinitionPlacement[];
 }
 
+interface ManageTaskList {
+  _id: string;
+  name: string;
+  startTime: string | null;
+}
+
+interface StandaloneTask {
+  _id: string;
+  name: string;
+  icon: string;
+  projectedMinutes: number;
+}
+
 interface Props {
   userName: string;
   today: string;
   skipAuth: boolean;
+  taskLists: ManageTaskList[];
+  standaloneTasks: StandaloneTask[];
 }
 
-// Manager-only "Available Tasks" catalog — every saved task (TaskDefinition)
-// the company has, regardless of which lists currently use it. See
-// docs/features/task-lists.md's "Company Task Catalog" section. A saved
-// task can only be deleted once it's been removed from every list — this
-// view surfaces which lists still reference it so that's a clear next step
-// rather than an opaque error.
-export default function ManageTasksView({ userName, today, skipAuth }: Props) {
+function fmtTime(t: string) {
+  const [h, m] = t.split(":").map(Number);
+  const period = h >= 12 ? "PM" : "AM";
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
+}
+
+// ── Company task catalog row — scan-to-complete binding lives here, at the
+// definition level, so it works for a saved task regardless of which list
+// (if any) currently places it. See docs/features/nfc.md's "In-app
+// scan-to-complete binding" and docs/features/task-lists.md's "Company Task
+// Catalog" section. Mirrors TaskListEditView.tsx's SortableRow bind logic,
+// minus drag-and-drop and the tap-to-trigger "NFC Tag" panel (that one
+// stays placement-scoped, unaffected by this screen). ──
+function CatalogRow({
+  definition,
+  onDelete,
+  deleting,
+  blockedMessage,
+}: {
+  definition: Definition;
+  onDelete: (id: string) => void;
+  deleting: boolean;
+  blockedMessage: string | null;
+}) {
+  const [nfcTagUid, setNfcTagUid] = useState<string | null>(definition.nfcTagUid);
+  const [bindBusy, setBindBusy] = useState(false);
+  const [bindError, setBindError] = useState<string | null>(null);
+
+  async function handleScanToLink() {
+    setBindError(null);
+    if (!Capacitor.isNativePlatform()) {
+      setBindError("Open the app on your phone to scan a tag.");
+      return;
+    }
+    setBindBusy(true);
+    const result = await scanNfcTag();
+    if (result.status !== "ok") {
+      setBindBusy(false);
+      setBindError(result.status === "unsupported" ? "NFC isn't available on this device." : result.message);
+      return;
+    }
+    try {
+      const res = await fetch(`/api/task-definitions/${definition._id}/nfc-tag`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ uid: result.uid }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to bind tag");
+      setNfcTagUid(result.uid);
+    } catch (err) {
+      setBindError(err instanceof Error ? err.message : "Failed to bind tag");
+    } finally {
+      setBindBusy(false);
+    }
+  }
+
+  async function handleUnbindTag() {
+    setBindBusy(true);
+    setBindError(null);
+    try {
+      const res = await fetch(`/api/task-definitions/${definition._id}/nfc-tag`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unbind tag");
+      setNfcTagUid(null);
+    } catch (err) {
+      setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
+    } finally {
+      setBindBusy(false);
+    }
+  }
+
+  return (
+    <div className="bg-card rounded-card border border-border p-4">
+      <div className="flex items-center gap-3">
+        <div className="w-8 flex items-center justify-center flex-shrink-0">
+          <AppIcon name={definition.icon} size={18} className="text-muted" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="font-body text-sm text-text truncate">{definition.name}</p>
+          <p className="font-mono text-[10px] text-dim mt-0.5">
+            {definition.formFields.length} field{definition.formFields.length === 1 ? "" : "s"}
+            {definition.placements.length > 0 && (
+              <> · used in {definition.placements.map((p) => p.taskListName).join(", ")}</>
+            )}
+            {definition.placements.length === 0 && <> · not placed in any list</>}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 pt-3 border-t border-border">
+        <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5 flex items-center gap-1.5">
+          <Nfc size={11} strokeWidth={1.75} />
+          Scan-to-Complete Tag
+        </p>
+        {nfcTagUid ? (
+          <div className="flex items-center gap-2">
+            <span className="font-mono text-[11px] text-olive flex-1 truncate">
+              Bound · {nfcTagUid}
+            </span>
+            <button
+              type="button"
+              onClick={handleUnbindTag}
+              disabled={bindBusy}
+              className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
+            >
+              Unbind
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={handleScanToLink}
+            disabled={bindBusy}
+            className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
+          >
+            {bindBusy ? "Hold near tag…" : "Scan to Link"}
+          </button>
+        )}
+        {bindError && (
+          <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{bindError}</p>
+        )}
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-2">
+        {definition.placements.length > 0 ? (
+          <Link
+            href={`/tasks/${definition.placements[0].taskListId}/edit`}
+            className="font-mono text-[10px] text-olive uppercase tracking-widest"
+          >
+            Edit in {definition.placements[0].taskListName}
+          </Link>
+        ) : (
+          <span />
+        )}
+        <button
+          onClick={() => onDelete(definition._id)}
+          disabled={deleting}
+          className="font-mono text-[10px] text-burgundy-light uppercase tracking-widest disabled:opacity-50"
+        >
+          {deleting ? "Deleting…" : "Delete"}
+        </button>
+      </div>
+
+      {blockedMessage && (
+        <p className="mt-2 font-mono text-[10px] text-burgundy-light">{blockedMessage}</p>
+      )}
+    </div>
+  );
+}
+
+export default function ManageTasksView({ userName, today, skipAuth, taskLists, standaloneTasks }: Props) {
+  const router = useRouter();
   const [definitions, setDefinitions] = useState<Definition[] | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [blockedMessage, setBlockedMessage] = useState<{ id: string; message: string } | null>(null);
+
+  const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
+  const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => {
     fetch("/api/task-definitions")
@@ -60,20 +229,108 @@ export default function ManageTasksView({ userName, today, skipAuth }: Props) {
     setDeletingId(null);
   };
 
+  // Same "create list, then add its first tasks" chain as TasksView.tsx's
+  // own (now-removed) "+ Add Task List" flow — router.refresh() re-fetches
+  // this page's server data, which picks up the new list on the next render.
+  const handleAddTask = async (
+    templateId: string | null,
+    name: string,
+    icon: string,
+    projectedMinutes: number,
+    taskType: "standard" | "stopwatch" | "checkbox" | "form" = "form",
+    scheduledDays: number[] = [0, 1, 2, 3, 4, 5, 6],
+    successThreshold: number = 7,
+    formFields: FormFieldDef[] = []
+  ) => {
+    if (!addTaskSheetFor) return;
+    await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        taskListId: addTaskSheetFor.id,
+        templateId,
+        name,
+        icon,
+        projectedMinutes,
+        taskType,
+        scheduledDays,
+        successThreshold,
+        formFields,
+      }),
+    });
+    setAddTaskSheetFor(null);
+    router.refresh();
+  };
+
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
-          <Link href="/profile" className="flex items-center gap-1 text-muted font-body text-sm min-h-[44px]" aria-label="Back">
+          <Link href="/tasks" className="flex items-center gap-1 text-muted font-body text-sm min-h-[44px]" aria-label="Back">
             <ChevronLeft size={16} />
           </Link>
-          <h1 className="font-heading text-xl text-text">Available Tasks</h1>
+          <h1 className="font-heading text-xl text-text">Manage Tasks</h1>
         </div>
 
+        {/* ── Task Lists ─────────────────────────────────────────────────── */}
         <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3">
-          Your company&rsquo;s full saved-task catalog
+          Task Lists
+        </p>
+        <div className="space-y-2">
+          {taskLists.map((tl) => (
+            <Link
+              key={tl._id}
+              href={`/tasks/${tl._id}/edit`}
+              className="flex items-center justify-between bg-card rounded-card border border-border p-4 hover:bg-card-hover transition-colors"
+            >
+              <div className="min-w-0">
+                <p className="font-body text-sm text-text truncate">{tl.name}</p>
+                {tl.startTime && (
+                  <p className="font-mono text-[10px] text-dim mt-0.5">Starts {fmtTime(tl.startTime)}</p>
+                )}
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
+          ))}
+        </div>
+        <button
+          onClick={() => setShowAddTaskListSheet(true)}
+          className="mt-2 w-full flex items-center justify-center gap-2 border border-dashed border-border-light text-dim font-body text-sm py-3.5 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+        >
+          + Add Task List
+        </button>
+
+        {/* ── Standalone Tasks — the anytime lists' tasks, flattened; a
+            read-only overview, since editing them still happens via each
+            task's own list (Anytime Tasks) and NFC binding happens in the
+            catalog below regardless of which list a task sits in. ──────── */}
+        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3 mt-8">
+          Standalone Tasks
+        </p>
+        {standaloneTasks.length === 0 ? (
+          <p className="text-dim font-mono text-xs text-center py-6">No standalone tasks yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {standaloneTasks.map((t) => (
+              <div key={t._id} className="flex items-center gap-3 bg-card rounded-card border border-border p-4">
+                <div className="w-8 flex items-center justify-center flex-shrink-0">
+                  <AppIcon name={t.icon} size={18} className="text-muted" />
+                </div>
+                <p className="font-body text-sm text-text truncate flex-1">{t.name}</p>
+                <span className="font-mono text-[10px] text-dim flex-shrink-0">{t.projectedMinutes}m</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* ── Company task catalog — every saved task (TaskDefinition) the
+            company has, regardless of which lists currently use it. This is
+            where a physical NFC tag gets tied to a task, whether that task
+            lives in a standalone list or a scheduled one. ────────────────── */}
+        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3 mt-8">
+          Company Task Catalog
         </p>
 
         {definitions === null && (
@@ -88,56 +345,35 @@ export default function ManageTasksView({ userName, today, skipAuth }: Props) {
 
         <div className="space-y-2">
           {definitions?.map((d) => (
-            <div key={d._id} className="bg-card rounded-card border border-border p-4">
-              <div className="flex items-center gap-3">
-                <div className="w-8 flex items-center justify-center flex-shrink-0">
-                  <AppIcon name={d.icon} size={18} className="text-muted" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="font-body text-sm text-text truncate">{d.name}</p>
-                  <p className="font-mono text-[10px] text-dim mt-0.5">
-                    {d.formFields.length} field{d.formFields.length === 1 ? "" : "s"}
-                    {d.placements.length > 0 && (
-                      <> · used in {d.placements.map((p) => p.taskListName).join(", ")}</>
-                    )}
-                    {d.placements.length === 0 && <> · not placed in any list</>}
-                  </p>
-                </div>
-                {d.nfcTagUid && (
-                  <span className="flex items-center gap-1 font-mono text-[10px] text-olive bg-olive/10 px-2 py-1 rounded-pill flex-shrink-0">
-                    <Nfc size={11} strokeWidth={1.75} />
-                    Bound
-                  </span>
-                )}
-              </div>
-
-              <div className="mt-3 flex items-center justify-between gap-2">
-                {d.placements.length > 0 ? (
-                  <Link
-                    href={`/tasks/${d.placements[0].taskListId}/edit`}
-                    className="font-mono text-[10px] text-olive uppercase tracking-widest"
-                  >
-                    Edit in {d.placements[0].taskListName}
-                  </Link>
-                ) : (
-                  <span />
-                )}
-                <button
-                  onClick={() => handleDelete(d._id)}
-                  disabled={deletingId === d._id}
-                  className="font-mono text-[10px] text-burgundy-light uppercase tracking-widest disabled:opacity-50"
-                >
-                  {deletingId === d._id ? "Deleting…" : "Delete"}
-                </button>
-              </div>
-
-              {blockedMessage?.id === d._id && (
-                <p className="mt-2 font-mono text-[10px] text-burgundy-light">{blockedMessage.message}</p>
-              )}
-            </div>
+            <CatalogRow
+              key={d._id}
+              definition={d}
+              onDelete={handleDelete}
+              deleting={deletingId === d._id}
+              blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
+            />
           ))}
         </div>
       </div>
+
+      {addTaskSheetFor && (
+        <AddTaskSheet
+          taskListId={addTaskSheetFor.id}
+          taskListName={addTaskSheetFor.name}
+          onAdd={handleAddTask}
+          onClose={() => setAddTaskSheetFor(null)}
+        />
+      )}
+
+      {showAddTaskListSheet && (
+        <AddTaskListSheet
+          onCreated={(taskList) => {
+            setShowAddTaskListSheet(false);
+            setAddTaskSheetFor({ id: taskList._id, name: taskList.name });
+          }}
+          onClose={() => setShowAddTaskListSheet(false)}
+        />
+      )}
     </div>
   );
 }
