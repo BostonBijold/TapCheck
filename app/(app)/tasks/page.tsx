@@ -117,6 +117,16 @@ export default async function TasksPage({
     pausedSeconds: l.pausedSeconds ?? 0,
     state: l.state as LogState,
     formData: l.formData ?? null,
+    // Was missing from this mapping entirely — every fresh server render
+    // (e.g. the FAB's "Resume" pill navigating to ?resumeTimer=1, which is
+    // a full force-dynamic round-trip, not a client-only state change)
+    // reconstructed openInProgressTimer's decision from an always-null
+    // sessionTaskListId, so a session-anchored in-progress task always fell
+    // through to the standalone TimerScreen/TaskFormScreen branch instead
+    // of reopening the guided TaskListSessionView — "the task can be
+    // completed but the task list can't be continued." See TasksView.tsx's
+    // openInProgressTimer.
+    sessionTaskListId: l.sessionTaskListId ? l.sessionTaskListId.toString() : null,
   }));
 
   // 7-day streak logs
