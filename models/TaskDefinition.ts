@@ -77,7 +77,7 @@ const TaskDefinitionSchema = new Schema<ITaskDefinition>(
     companyId: { type: String, required: true, index: true },
     templateId: { type: Schema.Types.ObjectId, ref: "TaskTemplate", default: null },
     name: { type: String, required: true },
-    icon: { type: String, default: "✓" },
+    icon: { type: String, default: "list-checks" },
     taskType: { type: String, enum: ["standard", "stopwatch", "checkbox", "form"], default: "form" },
     formFields: { type: [FormFieldDefSchema], default: [] },
     projectedMinutes: { type: Number, default: 0 },

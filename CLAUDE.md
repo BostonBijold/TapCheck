@@ -181,7 +181,7 @@ Ownership-level — same reasoning as TaskList.
   companyId,
   templateId,        // ref TaskTemplate, null for custom tasks
   name,              // 'Walk-in Fridge Temp'
-  icon,              // icon key or raw emoji, e.g. '🧊'
+  icon,              // lucide icon key, e.g. 'refrigerator' — see components/AppIcon.tsx
   projectedMinutes,  // time budget for this task (also feeds the list's collapse-window math)
   order,
   isActive: bool,
@@ -407,43 +407,48 @@ Every seeded task is `taskType: 'form'` with its own `formFields`
 (number readings or yes/no checklist entries) — see `lib/seed-templates.ts`
 for each task's exact fields.
 
+Icons are lucide icon keys (`components/AppIcon.tsx`'s `ICON_MAP`), not
+emoji — the app renders a clean, monochrome icon set, not colorful pictorial
+glyphs. Raw emoji only ever appears as a graceful fallback for legacy data
+AppIcon doesn't recognize.
+
 ### Opening Shift
 | name | icon | projectedMinutes |
 |---|---|---|
-| Walk-in Fridge Temp | 🧊 | 2 |
-| Walk-in Freezer Temp | ❄️ | 2 |
-| Handwashing Stations Stocked | 🧼 | 3 |
-| Floors & Surfaces Clean | 🧹 | 5 |
-| Opening Cash Count | 💵 | 5 |
-| Staff Uniform & Hygiene | 👕 | 3 |
-| Opening Walkthrough | 📋 | 5 |
+| Walk-in Fridge Temp | `refrigerator` | 2 |
+| Walk-in Freezer Temp | `snowflake` | 2 |
+| Handwashing Stations Stocked | `droplets` | 3 |
+| Floors & Surfaces Clean | `spray-can` | 5 |
+| Opening Cash Count | `banknote` | 5 |
+| Staff Uniform & Hygiene | `shirt` | 3 |
+| Opening Walkthrough | `clipboard-check` | 5 |
 
 ### Mid-Shift
 | name | icon | projectedMinutes |
 |---|---|---|
-| Line Temp Check | 🌡️ | 3 |
-| Restock Check | 📦 | 5 |
-| Restroom Check | 🚻 | 3 |
-| Trash & Recycling | 🗑️ | 5 |
+| Line Temp Check | `thermometer` | 3 |
+| Restock Check | `package` | 5 |
+| Restroom Check | `toilet` | 3 |
+| Trash & Recycling | `trash-2` | 5 |
 
 ### Closing Shift
 | name | icon | projectedMinutes |
 |---|---|---|
-| Walk-in Fridge Temp (Close) | 🧊 | 2 |
-| Walk-in Freezer Temp (Close) | ❄️ | 2 |
-| Equipment Powered Down | 🔌 | 5 |
-| Deep Clean Kitchen | 🧽 | 15 |
-| Closing Cash Reconciliation | 💵 | 10 |
-| Trash Taken Out | 🗑️ | 5 |
-| Doors Locked / Alarm Set | 🔒 | 3 |
+| Walk-in Fridge Temp (Close) | `refrigerator` | 2 |
+| Walk-in Freezer Temp (Close) | `snowflake` | 2 |
+| Equipment Powered Down | `power-off` | 5 |
+| Deep Clean Kitchen | `sparkles` | 15 |
+| Closing Cash Reconciliation | `banknote` | 10 |
+| Trash Taken Out | `trash-2` | 5 |
+| Doors Locked / Alarm Set | `lock-keyhole` | 3 |
 
 ### Anytime Tasks (standalone, never collapses)
 | name | icon | projectedMinutes |
 |---|---|---|
-| Fridge | 🧊 | 2 |
-| Freezer | ❄️ | 2 |
-| Men's Room | 🚹 | 3 |
-| Women's Room | 🚺 | 3 |
+| Fridge | `refrigerator` | 2 |
+| Freezer | `snowflake` | 2 |
+| Men's Room | `toilet` | 3 |
+| Women's Room | `toilet` | 3 |
 
 See `lib/seed.ts` / `lib/seed-templates.ts` for the source of truth — this
 table is a quick reference, not authoritative.

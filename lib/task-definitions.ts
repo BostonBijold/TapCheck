@@ -34,7 +34,7 @@ interface LeanTaskLike {
 
 const FALLBACK: ResolvedTaskFields = {
   name: "Deleted task",
-  icon: "❓",
+  icon: "help-circle",
   taskType: "form",
   formFields: [],
   nfcTagUid: null,

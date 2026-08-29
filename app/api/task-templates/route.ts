@@ -4,6 +4,7 @@ import TaskTemplate from "@/models/TaskTemplate";
 import Task from "@/models/Task";
 import TaskDefinition from "@/models/TaskDefinition";
 import { sanitizeFormFields } from "@/lib/form-fields";
+import { ensureSystemTemplates } from "@/lib/seed-templates";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,12 @@ export async function GET(req: NextRequest) {
   const taskListId = req.nextUrl.searchParams.get("taskListId");
 
   await connectDB();
+
+  // Idempotent — re-syncs the system catalog's icon/fields on every browse
+  // (see lib/seed-templates.ts), not just for a brand-new company (which
+  // seeds it once via seedDefaultTaskLists). Keeps an existing company's
+  // catalog current after a system template's icon changes.
+  await ensureSystemTemplates();
 
   // Find template IDs already used in this list (if filtering) — templateId
   // lives on the TaskDefinition now (see models/TaskDefinition.ts), one

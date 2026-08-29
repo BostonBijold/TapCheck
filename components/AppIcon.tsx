@@ -2,7 +2,9 @@ import {
   Droplets, Shirt, Flame, Utensils, Dumbbell, Wind, BookOpen, Zap, Sun, Moon,
   ListChecks, Pill, Users, Footprints, PenLine, Sparkles, Cross, Activity,
   Phone, Target, Shield, Coffee, Star, Mountain, Compass, Book, Headphones,
-  TreePine, Clock, type LucideIcon,
+  TreePine, Clock, Refrigerator, Snowflake, Thermometer, SprayCan, Banknote,
+  ClipboardCheck, Package, Toilet, Trash2, PowerOff, LockKeyhole, Bug,
+  HelpCircle, type LucideIcon,
 } from "lucide-react";
 
 const ICON_MAP: Record<string, LucideIcon> = {
@@ -35,6 +37,21 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "headphones": Headphones,
   "tree-pine":  TreePine,
   "clock":      Clock,
+  // Restaurant task-catalog icons — see lib/seed-templates.ts/lib/seed.ts,
+  // which use these keys instead of raw emoji for every seeded task.
+  "refrigerator":    Refrigerator,
+  "snowflake":       Snowflake,
+  "thermometer":     Thermometer,
+  "spray-can":       SprayCan,
+  "banknote":        Banknote,
+  "clipboard-check": ClipboardCheck,
+  "package":         Package,
+  "toilet":          Toilet,
+  "trash-2":         Trash2,
+  "power-off":       PowerOff,
+  "lock-keyhole":    LockKeyhole,
+  "bug":             Bug,
+  "help-circle":     HelpCircle,
 };
 
 export const ICON_NAMES = Object.keys(ICON_MAP);

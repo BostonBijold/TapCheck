@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { X, ChevronRight } from "lucide-react";
+import { X, ChevronRight, CheckCircle2 } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TimelineBar from "@/components/TimelineBar";
 import TaskFormScreen from "@/components/TaskFormScreen";
@@ -561,7 +561,9 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
         <div className="flex-1 overflow-y-auto px-4 pb-4">
           <div className="text-center pt-16 pb-10">
-            <div className="text-5xl mb-4">🎯</div>
+            <div className="flex justify-center mb-4">
+              <CheckCircle2 size={48} strokeWidth={1.5} className="text-olive" />
+            </div>
             <h2 className="font-heading text-2xl text-text">{taskListName}</h2>
             <p className="font-mono text-olive text-sm mt-1 tracking-wide">Complete</p>
             <div className="flex justify-center gap-10 mt-8">
