@@ -740,6 +740,20 @@ export default function TasksView({
     [addTaskSheetFor, router]
   );
 
+  const handleAddExistingTask = useCallback(
+    async (definitionId: string) => {
+      if (!addTaskSheetFor) return;
+      await fetch("/api/tasks", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ taskListId: addTaskSheetFor.id, definitionId }),
+      });
+      setAddTaskSheetFor(null);
+      router.refresh();
+    },
+    [addTaskSheetFor, router]
+  );
+
   const totalDone = Object.values(logs).filter((l) => l.state === "done").length;
   const totalTasks = taskLists.reduce(
     (acc, tl) => acc + tl.tasks.filter((t) => isTaskVisibleOn(t, selectedDate)).length,
@@ -799,6 +813,7 @@ export default function TasksView({
           taskListId={addTaskSheetFor.id}
           taskListName={addTaskSheetFor.name}
           onAdd={handleAddTask}
+          onAddExisting={handleAddExistingTask}
           onClose={() => setAddTaskSheetFor(null)}
         />
       )}
@@ -947,7 +962,7 @@ export default function TasksView({
                 className="mt-10 w-full flex items-center justify-center gap-2 bg-card border border-border-light text-text font-body text-sm font-medium py-4 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
               >
                 <Settings size={18} strokeWidth={1.75} />
-                Manage Tasks
+                Manage
               </Link>
             )}
           </>

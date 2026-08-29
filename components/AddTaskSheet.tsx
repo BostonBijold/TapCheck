@@ -17,6 +17,17 @@ interface Template {
   formFields: FormFieldDef[];
 }
 
+// A task the company already has saved (TaskDefinition) — placing one of
+// these into this list reuses it (shared name/icon/fields/NFC binding)
+// rather than creating a new saved task, unlike picking a Template below.
+interface ExistingTask {
+  _id: string;
+  name: string;
+  icon: string;
+  formFields: unknown[];
+  placements: Array<{ taskListId: string }>;
+}
+
 interface Props {
   taskListId: string;
   taskListName: string;
@@ -30,6 +41,9 @@ interface Props {
     successThreshold: number,
     formFields: FormFieldDef[]
   ) => Promise<void>;
+  // Places an existing company saved task (TaskDefinition) into this list
+  // instead of creating a new one — see ExistingTask above.
+  onAddExisting: (definitionId: string) => Promise<void>;
   onClose: () => void;
 }
 
@@ -45,12 +59,14 @@ const CATEGORY_LABELS: Record<string, string> = {
   custom: "Custom",
 };
 
-export default function AddTaskSheet({ taskListId, taskListName, onAdd, onClose }: Props) {
+export default function AddTaskSheet({ taskListId, taskListName, onAdd, onAddExisting, onClose }: Props) {
   const [templates, setTemplates] = useState<Template[]>([]);
+  const [existingTasks, setExistingTasks] = useState<ExistingTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [view, setView] = useState<"browse" | "create">("browse");
   const [adding, setAdding] = useState<string | null>(null);
+  const [addingExisting, setAddingExisting] = useState<string | null>(null);
 
   // Custom form state
   const [customIcon, setCustomIcon] = useState("star");
@@ -77,11 +93,23 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onClose 
     fetch(`/api/task-templates?taskListId=${taskListId}`)
       .then((r) => r.json())
       .then((data) => { setTemplates(data); setLoading(false); });
+    fetch("/api/task-definitions")
+      .then((r) => r.json())
+      .then(setExistingTasks)
+      .catch(() => setExistingTasks([]));
   }, [taskListId]);
 
   useEffect(() => {
     if (view === "browse") searchRef.current?.focus();
   }, [view]);
+
+  // Already placed in this exact list — placing it twice has no meaning.
+  const availableExisting = existingTasks.filter(
+    (d) => !d.placements.some((p) => p.taskListId === taskListId)
+  );
+  const filteredExisting = availableExisting.filter((d) =>
+    search.trim() === "" || d.name.toLowerCase().includes(search.toLowerCase())
+  );
 
   const filtered = templates.filter((t) =>
     search.trim() === "" || t.name.toLowerCase().includes(search.toLowerCase())
@@ -102,6 +130,12 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onClose 
     // template's own formFields come along unedited.
     await onAdd(t._id, t.name, t.icon, t.defaultProjectedMinutes, "form", ALL_DAYS, 7, t.formFields ?? []);
     setAdding(null);
+  };
+
+  const handleAddExistingTask = async (d: ExistingTask) => {
+    setAddingExisting(d._id);
+    await onAddExisting(d._id);
+    setAddingExisting(null);
   };
 
   const handleSaveCustom = async () => {
@@ -201,10 +235,41 @@ export default function AddTaskSheet({ taskListId, taskListName, onAdd, onClose 
                   <p className="text-dim font-mono text-xs text-center py-8">Loading catalog…</p>
                 )}
 
-                {!loading && filtered.length === 0 && (
+                {!loading && filtered.length === 0 && filteredExisting.length === 0 && (
                   <p className="text-dim font-mono text-xs text-center py-8">
                     No tasks match &ldquo;{search}&rdquo;
                   </p>
+                )}
+
+                {/* Tasks the company already has saved — placing one reuses
+                    it (shared name/icon/fields/NFC binding) instead of
+                    creating a new saved task. */}
+                {filteredExisting.length > 0 && (
+                  <div className="mb-5">
+                    <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
+                      Your Saved Tasks
+                    </p>
+                    <div className="bg-bg rounded-card divide-y divide-border overflow-hidden">
+                      {filteredExisting.map((d) => (
+                        <div key={d._id} className="flex items-center gap-3 px-3 py-3">
+                          <div className="w-7 flex items-center justify-center flex-shrink-0">
+                            <AppIcon name={d.icon} size={17} className="text-muted" />
+                          </div>
+                          <span className="flex-1 font-body text-sm text-text">{d.name}</span>
+                          <span className="font-mono text-dim text-xs flex-shrink-0">
+                            {d.formFields.length} field{d.formFields.length === 1 ? "" : "s"}
+                          </span>
+                          <button
+                            onClick={() => handleAddExistingTask(d)}
+                            disabled={addingExisting === d._id}
+                            className="ml-2 bg-olive/15 hover:bg-olive/30 border border-olive/30 text-olive font-mono text-xs px-3 py-1.5 rounded-pill transition-colors disabled:opacity-50 flex-shrink-0"
+                          >
+                            {addingExisting === d._id ? "…" : "Add"}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 )}
 
                 {Object.entries(byCategory).map(([category, tasks]) => (

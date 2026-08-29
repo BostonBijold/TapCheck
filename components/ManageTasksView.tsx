@@ -270,6 +270,19 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
     router.refresh();
   };
 
+  // Places an existing company saved task (TaskDefinition) into the list
+  // just created — mirrors TaskListEditView.tsx's own handleAddExisting.
+  const handleAddExisting = async (definitionId: string) => {
+    if (!addTaskSheetFor) return;
+    await fetch("/api/tasks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ taskListId: addTaskSheetFor.id, definitionId }),
+    });
+    setAddTaskSheetFor(null);
+    router.refresh();
+  };
+
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
@@ -380,6 +393,7 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
           taskListId={addTaskSheetFor.id}
           taskListName={addTaskSheetFor.name}
           onAdd={handleAddTask}
+          onAddExisting={handleAddExisting}
           onClose={() => setAddTaskSheetFor(null)}
         />
       )}

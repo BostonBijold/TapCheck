@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { Nfc } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import type { TimerItem } from "@/components/TimerScreen";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
@@ -222,13 +223,32 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
       </div>
 
       <div className="px-4 pb-12 pt-4 space-y-3 w-full flex-shrink-0">
-        <button
-          onClick={handleSave}
-          disabled={scanning}
-          className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base disabled:opacity-60"
-        >
-          {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC" : "Save"}
-        </button>
+        {requiresNfcScan && !alreadyVerified ? (
+          // Same FAB shape/icon as BottomNav.tsx's "scan to open" FAB, just
+          // larger and inline rather than fixed — this is the moment the
+          // scan actually happens, not a shortcut into it.
+          <div className="flex flex-col items-center gap-3">
+            <button
+              onClick={handleSave}
+              disabled={scanning}
+              aria-label="Scan NFC tag to save"
+              className="w-24 h-24 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-200 disabled:opacity-70 active:opacity-90"
+            >
+              <Nfc size={40} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
+            </button>
+            <p className="font-mono text-xs text-dim uppercase tracking-widest">
+              {scanning ? "Hold near tag…" : "Scan NFC to Save"}
+            </p>
+          </div>
+        ) : (
+          <button
+            onClick={handleSave}
+            disabled={scanning}
+            className="w-full py-4 rounded-card bg-olive text-text font-body font-medium text-base disabled:opacity-60"
+          >
+            Save
+          </button>
+        )}
         <button
           onClick={onMissed}
           disabled={scanning}
