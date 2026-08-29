@@ -2,6 +2,8 @@
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
+import { Settings } from "lucide-react";
 import Header from "@/components/Header";
 import DateNav from "@/components/DateNav";
 import TaskListCard, { type TaskListCardTaskList } from "@/components/TaskListCard";
@@ -819,7 +821,7 @@ export default function TasksView({
       )}
 
       <div className="mx-auto max-w-mobile px-4 pb-28">
-        <Header userName={userName} today={today} skipAuth={skipAuth} showManageLink={userRole === "manager"} />
+        <Header userName={userName} today={today} skipAuth={skipAuth} />
 
         <>
           {/* Date navigation */}
@@ -934,6 +936,19 @@ export default function TasksView({
               <div className="text-center py-20">
                 <p className="text-muted text-sm">No tasks yet.</p>
               </div>
+            )}
+
+            {/* Manage Tasks entry point (managers only) — moved down here from
+                the top nav so it reads as a deliberate destination rather than
+                a small icon competing with the profile avatar. */}
+            {userRole === "manager" && (
+              <Link
+                href="/tasks/manage"
+                className="mt-10 w-full flex items-center justify-center gap-2 bg-card border border-border-light text-text font-body text-sm font-medium py-4 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+              >
+                <Settings size={18} strokeWidth={1.75} />
+                Manage Tasks
+              </Link>
             )}
           </>
       </div>
