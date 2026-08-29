@@ -43,7 +43,10 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const taskLists = await TaskList.find({ companyId }).sort({ order: 1 }).lean();
+  // Same startTime-first ordering as the Tasks/Manage pages (see
+  // app/(app)/tasks/page.tsx) — analytics rows follow the same list order
+  // the manager actually sees on the Tasks page, not raw insertion order.
+  const taskLists = await TaskList.find({ companyId }).sort({ startTime: 1, order: 1 }).lean();
   const rawTasks = await Task.find({ companyId, isActive: true }).lean();
   const allTasks = await resolveTasks(rawTasks);
   const logs = await TaskLog.find({ companyId, date: { $in: dates } }).lean();

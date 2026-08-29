@@ -54,7 +54,18 @@ export default async function TasksPage({
   const today = searchParams?.date ?? new Date().toISOString().split("T")[0];
   const weekDates = calendarWeekDates(today);
 
-  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+  // Sorted by startTime, not insertion order — a manager-created "1:00 PM"
+  // list should sit between the 10:00 AM and 6:00 PM ones regardless of
+  // when it was added, and a list's position should move automatically the
+  // moment its startTime changes rather than needing a separate manual
+  // reorder step. `order` is now only a same-time tie-breaker (e.g. a
+  // duplicated list — see POST .../duplicate — always sorts immediately
+  // after its source, since it inherits the same startTime but a strictly
+  // later `order`). Anytime lists (startTime: null) sort before every timed
+  // one under this key, but that's harmless — TasksView splits them into
+  // their own section immediately below and never treats this array's raw
+  // order as final for them.
+  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
 
   // Single query for every list's tasks instead of one query per list — the
   // result is already sorted by order, so grouping it in memory below

@@ -15,7 +15,9 @@ export async function GET() {
 
   await connectDB();
 
-  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+  // Same startTime-first ordering as the Tasks/Manage pages — see the note
+  // in app/(app)/tasks/page.tsx.
+  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
 
   const taskListsWithTasks = await Promise.all(
     taskLists.map(async (taskList) => {

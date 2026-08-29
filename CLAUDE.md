@@ -165,7 +165,10 @@ soft-delete these directly from the app — see "Task Lists" below.
   name,             // 'Opening Shift', 'Mid-Shift', 'Closing Shift', 'Anytime Tasks', or any manager-created name
   timeOfDay: 'morning' | 'evening' | 'custom' | 'anytime',
   startTime,        // 'HH:MM' — drives the time-aware collapse window (null for 'anytime' lists, which never collapse)
-  order,            // display order
+  order,            // same-`startTime` tie-breaker only — lists display sorted by
+                    // `startTime` (anytime lists, `startTime: null`, sort separately),
+                    // not by this field; a duplicated list inherits its source's
+                    // `startTime` with a strictly higher `order`, landing right after it
   isDefault: bool,
   isActive: bool,   // soft-delete flag — same convention as Task.isActive
   scheduledDays,    // 0=Sun..6=Sat — a default pushed down onto every Task in the list when changed

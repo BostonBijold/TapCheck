@@ -29,7 +29,11 @@ export default async function ManageTasksPage() {
 
   await connectDB();
 
-  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ order: 1 }).lean();
+  // Sorted by startTime, not insertion order — see the matching note in
+  // app/(app)/tasks/page.tsx. `order` is only a same-time tie-breaker, which
+  // is what makes a freshly duplicated list (same startTime as its source,
+  // strictly later `order`) land right next to the list it was copied from.
+  const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
   const scheduledTaskLists = taskLists.filter((tl) => tl.timeOfDay !== "anytime");
   const anytimeTaskListIds = taskLists.filter((tl) => tl.timeOfDay === "anytime").map((tl) => tl._id);
 
