@@ -4,6 +4,7 @@ import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import User from "@/models/User";
+import type { LogState } from "@/models/TaskLog";
 import type { CompletionState } from "@/models/TaskListSession";
 import { resolveTask } from "@/lib/task-definitions";
 
@@ -196,100 +197,34 @@ export async function incrementSessionPauseOrJump(companyId: string, taskListId:
   );
 }
 
-// First task (by order) in a list that isn't in a terminal state (done/
-// missed/rest) yet today — same "unfinished" semantics nextUnfinishedIndex
-// (TaskListSessionView.tsx) uses client-side, needed here so the server can
-// pick a sensible anchor task when redirecting a scan to a different list.
-async function firstUnresolvedTaskInList(companyId: string, taskListId: string, date: string): Promise<string | null> {
-  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, taskListId, date);
-  const terminalIds = new Set(
-    logs.filter((l) => l.state === "done" || l.state === "missed" || l.state === "rest").map((l) => l.taskId.toString())
-  );
-  const next = tasks.find((t) => !terminalIds.has(t._id.toString()));
-  return next ? next._id.toString() : null;
-}
-
-// Scanning a tag whose own list is already fully done today shouldn't just
-// reopen a finished list — look across every other shift-window list for the
-// nearest one still unresolved, same "closest startTime to now, tie-break by
-// order" scoring resolveMostRelevantPlacement already uses (not a new
-// convention). null nowMinutesLocal falls back to list order alone, matching
-// that same function's own fallback.
-async function resolveNearestIncompleteShiftList(
-  companyId: string,
-  performedByUserId: string,
-  date: string,
-  nowMinutesLocal: number | null
-): Promise<FabScanResolution> {
-  const shiftLists = await TaskList.find({ companyId, isActive: true, startTime: { $ne: null } })
-    .sort({ order: 1 })
-    .lean();
-
-  const incomplete = [];
-  for (const list of shiftLists) {
-    if (!(await isTaskListFullyResolved(companyId, list._id.toString(), date))) incomplete.push(list);
-  }
-  if (incomplete.length === 0) return { kind: "complete" };
-
-  let target = incomplete[0];
-  if (nowMinutesLocal != null) {
-    let bestDistance = Infinity;
-    for (const list of incomplete) {
-      if (!list.startTime) continue;
-      const [h, m] = list.startTime.split(":").map(Number);
-      const distance = Math.abs(h * 60 + m - nowMinutesLocal);
-      if (distance < bestDistance) {
-        target = list;
-        bestDistance = distance;
-      }
-    }
-  }
-
-  const targetTaskListId = target._id.toString();
-  const nextTaskId = await firstUnresolvedTaskInList(companyId, targetTaskListId, date);
-  if (!nextTaskId) return { kind: "complete" }; // defensive — target wasn't fully resolved a moment ago
-
-  const [lock] = await getOpenSessionLocks(companyId, [targetTaskListId], date);
-  if (lock && lock.performedByUserId !== performedByUserId) {
-    return { kind: "locked", taskId: nextTaskId, taskListId: targetTaskListId, lockedByName: lock.performedByName };
-  }
-  return { kind: "session", taskId: nextTaskId, taskListId: targetTaskListId };
-}
-
 // Decides what a FAB "scan to open" hit on taskId should do — see
 // docs/features/nfc.md's "FAB 'scan to open' shortcut". Read-only: never
-// creates or mutates a session itself. An anytime task (no startTime on its
-// list) is returned as-is, same as before this existed. A shift-window task
-// whose own list is already fully resolved today redirects to the nearest
-// incomplete shift-window list instead of reopening a finished one (see
-// resolveNearestIncompleteShiftList above). Otherwise it checks the existing
-// one-person-at-a-time lock (getOpenSessionLocks) before answering — "join"
-// and "auto-start" collapse into one "session" outcome since ensureOpenSession
-// (called automatically once the client's first POST /api/task-logs for that
-// list/date lands) is idempotent either way.
+// creates or mutates a session itself. A physical tag identifies exactly one
+// task, permanently — it never redirects to, or substitutes, a different
+// task, so the very first check is always "does this specific task already
+// have a log today," regardless of list type. Only a genuinely untouched
+// task falls through to the anytime/session/locked branches below.
 export type FabScanResolution =
+  | { kind: "already-logged"; taskId: string; state: LogState }
   | { kind: "anytime"; taskId: string }
   | { kind: "session"; taskId: string; taskListId: string }
-  | { kind: "locked"; taskId: string; taskListId: string; lockedByName: string }
-  | { kind: "complete" }; // every shift-window list is already fully resolved today
+  | { kind: "locked"; taskId: string; taskListId: string; lockedByName: string };
 
 export async function resolveFabScanTarget(
   companyId: string,
   performedByUserId: string,
   taskId: string,
-  date: string,
-  nowMinutesLocal: number | null
+  date: string
 ): Promise<FabScanResolution | null> {
   const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).select("taskListId").lean();
   if (!task) return null;
 
+  const existingLog = await TaskLog.findOne({ companyId, taskId, date }).select("state").lean();
+  if (existingLog) return { kind: "already-logged", taskId, state: existingLog.state as LogState };
+
   const taskListId = task.taskListId.toString();
   const list = await TaskList.findOne({ _id: taskListId, companyId }).select("startTime").lean();
   if (!list?.startTime) return { kind: "anytime", taskId };
-
-  if (await isTaskListFullyResolved(companyId, taskListId, date)) {
-    return resolveNearestIncompleteShiftList(companyId, performedByUserId, date, nowMinutesLocal);
-  }
 
   const [lock] = await getOpenSessionLocks(companyId, [taskListId], date);
   if (lock && lock.performedByUserId !== performedByUserId) {

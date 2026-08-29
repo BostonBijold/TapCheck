@@ -161,21 +161,30 @@ export default function BottomNav() {
         return;
       }
       const data = (await res.json()) as
+        | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
         | { mode: "anytime"; taskId: string }
         | { mode: "session"; taskId: string; taskListId: string }
-        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
-        | { mode: "complete" };
+        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string };
 
+      if (data.mode === "already-logged") {
+        // A tag is permanently tied to exactly one task — rescanning it is
+        // never a way to reopen or "continue" that task, only a status
+        // check. No navigation, same transient pill other scan outcomes use.
+        const message =
+          data.state === "in_progress" || data.state === "paused"
+            ? "Already started — this task is already in progress."
+            : data.state === "done"
+              ? "Already completed for today."
+              : data.state === "missed"
+                ? "Already marked missed for today."
+                : "Already marked as rest for today.";
+        flashScanMessage(message);
+        return;
+      }
       if (data.mode === "locked") {
         // Never fight an active session lock — no navigation, just the same
         // transient pill "no task linked"/"scan failed" already uses.
         flashScanMessage(`In progress by ${data.lockedByName} — try again once they finish.`);
-        return;
-      }
-      if (data.mode === "complete") {
-        // The scanned tag's list (and every other shift-window list) is
-        // already fully done today — nothing to redirect into.
-        flashScanMessage("All shift lists are already complete for today.");
         return;
       }
 
