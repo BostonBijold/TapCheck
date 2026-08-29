@@ -45,6 +45,13 @@ interface Props {
   logs?: Record<string, ExternalLog>;
   today: string;
   startIndex?: number;
+  // Set only when this session was auto-started/joined by the FAB's "scan
+  // to open" shortcut (see TasksView.tsx's autoOpenSessionTaskId effect and
+  // docs/features/nfc.md) — pre-satisfies the Scan NFC step for that one
+  // scanned task specifically. Keyed by taskId, not a bare uid, so jumping
+  // to any other task in this free-jump session never inherits it.
+  preVerifiedTaskId?: string | null;
+  preVerifiedNfcUid?: string | null;
   onClose: () => void;
   onFinish: () => void;
 }
@@ -91,7 +98,7 @@ const TIMELINE_COLOR: Record<TimelineColorState, string> = {
   pending: "#c7d1dc",     // border-light
 };
 
-export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, onClose, onFinish }: Props) {
+export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerifiedTaskId = null, preVerifiedNfcUid = null, onClose, onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
@@ -530,6 +537,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         item={currentTask}
         initialElapsed={elapsed}
         taskListName={taskListName}
+        preVerifiedNfcUid={currentTask._id === preVerifiedTaskId ? preVerifiedNfcUid : null}
         onComplete={handleTaskFormDone}
         onMissed={handleMissed}
         onClose={handleClose}

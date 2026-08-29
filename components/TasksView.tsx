@@ -155,39 +155,26 @@ export default function TasksView({
       router.replace("/tasks");
     }
     if (autoOpenSessionTaskId && autoOpenSessionListId) {
-      // A FAB scan starts/joins the list's session (so "Continue Tasks"
-      // reflects it afterward) but opens only the one physically-scanned
-      // task, standalone — not the guided walkthrough. Each tag is exactly
-      // one task; letting completion auto-advance into an unscanned next
-      // task would defeat the point of requiring a scan (proving the person
-      // is physically at that specific item) — see docs/features/nfc.md.
+      // A FAB scan on a shift-window task auto-starts (or joins) that list's
+      // session and lands the user directly on the scanned task — same
+      // free-jump guided walkthrough as tapping "Start Tasks" and then
+      // tapping straight to that one row. This is mechanically identical to
+      // the manual flow: setting activeSession is all that's needed —
+      // TaskListSessionView's own per-task effect anchors the in_progress
+      // log with sessionTaskListId on mount, which is what makes
+      // ensureOpenSession start/join the session server-side. See
+      // docs/features/nfc.md's "FAB scan → auto-start nearest shift-window
+      // list" section.
       const taskList = taskLists.find((tl) => tl._id === autoOpenSessionListId);
-      const found = taskList?.tasks.find((t) => t._id === autoOpenSessionTaskId) ?? null;
-      if (found) {
-        const listId = autoOpenSessionListId;
-        const uid = autoOpenVerifiedNfcUid;
-        (async () => {
-          // Anchoring this in_progress log with sessionTaskListId is what
-          // makes ensureOpenSession start/join the list's session
-          // server-side (see lib/task-log-actions.ts's startInProgressLog) —
-          // no separate session-creation call needed.
-          await fetch("/api/task-logs", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ taskId: found._id, date: today, state: "in_progress", sessionTaskListId: listId }),
-          });
-          try {
-            const res = await fetch(`/api/task-logs?date=${today}`);
-            if (res.ok) {
-              const fresh: TaskLogEntry[] = await res.json();
-              setLogs(Object.fromEntries(fresh.map((l) => [l.taskId, l])));
-            }
-          } catch { /* optimistic state already applied; will resync on next poll */ }
-          emitTaskLogChanged();
-          setTimerInitialElapsed(0);
-          setTimerItem(found);
-          if (uid) setPreVerified({ taskId: found._id, uid });
-        })();
+      const visible = taskList ? taskList.tasks.filter((t) => isTaskVisibleOn(t, today)) : [];
+      // Index into the SAME filtered/visible array TaskListSessionView is
+      // rendered against below (sessionTasks) — indexing against the raw,
+      // unfiltered taskList.tasks would drift out of sync whenever a task
+      // isn't scheduled today, landing on the wrong row entirely.
+      const startIndex = visible.findIndex((t) => t._id === autoOpenSessionTaskId);
+      if (taskList && startIndex !== -1) {
+        setActiveSession({ taskList, startIndex });
+        if (autoOpenVerifiedNfcUid) setPreVerified({ taskId: autoOpenSessionTaskId, uid: autoOpenVerifiedNfcUid });
       }
       router.replace("/tasks");
     }
@@ -705,6 +692,7 @@ export default function TasksView({
 
   const handleSessionFinish = useCallback(async () => {
     setActiveSession(null);
+    setPreVerified(null);
     // Re-fetch logs immediately so isComplete is accurate before router.refresh() arrives.
     // TaskListSessionView writes directly to the DB without updating the parent
     // logs state, so without this the list would briefly re-open with the
@@ -799,6 +787,8 @@ export default function TasksView({
           logs={logs}
           today={selectedDate}
           startIndex={activeSession?.startIndex ?? 0}
+          preVerifiedTaskId={preVerified?.taskId ?? null}
+          preVerifiedNfcUid={preVerified?.uid ?? null}
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
         />

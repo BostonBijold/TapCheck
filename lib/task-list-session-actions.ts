@@ -219,12 +219,34 @@ export async function resolveFabScanTarget(
   const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).select("taskListId").lean();
   if (!task) return null;
 
-  const existingLog = await TaskLog.findOne({ companyId, taskId, date }).select("state").lean();
-  if (existingLog) return { kind: "already-logged", taskId, state: existingLog.state as LogState };
-
   const taskListId = task.taskListId.toString();
   const list = await TaskList.findOne({ _id: taskListId, companyId }).select("startTime").lean();
-  if (!list?.startTime) return { kind: "anytime", taskId };
+  const isShiftWindow = !!list?.startTime;
+
+  const existingLog = await TaskLog.findOne({ companyId, taskId, date }).select("state").lean();
+
+  // A task mid-run (in_progress/paused) inside a shift-window list's open
+  // session isn't a dead end the way a terminal log is — the list's session
+  // is what carries lock state, not the tag, so rescanning the same tag
+  // while its session is active must jump straight back into that session
+  // at that task (same as tapping into an already-open session's row),
+  // locked out only if someone ELSE holds it. Never spawns a second
+  // start/duplicate. See docs/features/nfc.md.
+  if (existingLog && isShiftWindow && (existingLog.state === "in_progress" || existingLog.state === "paused")) {
+    const [lock] = await getOpenSessionLocks(companyId, [taskListId], date);
+    if (lock && lock.performedByUserId !== performedByUserId) {
+      return { kind: "locked", taskId, taskListId, lockedByName: lock.performedByName };
+    }
+    return { kind: "session", taskId, taskListId };
+  }
+
+  // Any other existing log (done/missed/rest, or in_progress/paused on an
+  // anytime task, which has no session/lock concept) is a dead end — a tag
+  // identifies exactly one task, permanently, and rescanning it is only
+  // ever a status check, never a way to reopen or advance into it.
+  if (existingLog) return { kind: "already-logged", taskId, state: existingLog.state as LogState };
+
+  if (!isShiftWindow) return { kind: "anytime", taskId };
 
   const [lock] = await getOpenSessionLocks(companyId, [taskListId], date);
   if (lock && lock.performedByUserId !== performedByUserId) {
