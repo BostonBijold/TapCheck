@@ -1,4 +1,5 @@
 import mongoose, { Schema, Document, model, models } from "mongoose";
+import type { FormFieldValue } from "@/models/TaskDefinition";
 
 export type LogState = "in_progress" | "paused" | "done" | "missed" | "rest";
 
@@ -30,7 +31,7 @@ export interface ITaskLog extends Document {
   sessionTaskListId?: mongoose.Types.ObjectId | null;
   // Set only on the terminal log for a "form" task (see
   // components/TaskFormScreen.tsx) — every other log leaves this null.
-  formData?: Record<string, string | number | boolean> | null;
+  formData?: Record<string, FormFieldValue> | null;
   // NFC/card identifier that triggered this log, if any — populated when a
   // log is started via a tag-triggered external path; null for an in-app
   // manual start. Field exists ahead of the NFC reader itself (separate

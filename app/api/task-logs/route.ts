@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskLog from "@/models/TaskLog";
 import type { LogState } from "@/models/TaskLog";
+import type { FormFieldValue } from "@/models/TaskDefinition";
 import {
   assertNfcVerified,
   assertShiftListSessionAuthorized,
@@ -170,7 +171,7 @@ export async function PATCH(req: NextRequest) {
     // components/TaskFormScreen.tsx. No validation against the task's
     // formFields shape yet — trusted as sent. Only meaningful with
     // state: "done"; ignored for "missed".
-    formData?: Record<string, string | number | boolean>;
+    formData?: Record<string, FormFieldValue>;
     // The UID TaskFormScreen.tsx's Scan NFC step just read, when the task
     // is bound to a tag — see docs/features/nfc.md. Omitted/null for any
     // task with no tag bound; completeInProgressLog rejects a "done" write

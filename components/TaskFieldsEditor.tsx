@@ -82,6 +82,23 @@ export default function TaskFieldsEditor({ fields, onChange }: Props) {
                 >
                   Yes / No
                 </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    updateField(i, {
+                      type: "checklist",
+                      unit: undefined,
+                      min: undefined,
+                      max: undefined,
+                      items: field.items && field.items.length > 0 ? field.items : [""],
+                    })
+                  }
+                  className={`px-3 py-1.5 rounded-card font-mono text-xs transition-colors ${
+                    field.type === "checklist" ? "bg-olive text-text" : "text-dim"
+                  }`}
+                >
+                  Checklist
+                </button>
               </div>
 
               {field.type === "number" && (
@@ -110,6 +127,52 @@ export default function TaskFieldsEditor({ fields, onChange }: Props) {
                 </>
               )}
             </div>
+
+            {/* Checklist sub-items — one item = a single check-it-off action
+                (e.g. "Take out garbage"); more than one = a checklist within
+                this checklist (e.g. "Store lights" / "Music" / "Open sign"),
+                all of which must be checked. */}
+            {field.type === "checklist" && (
+              <div className="space-y-1.5 pt-1">
+                {(field.items ?? [""]).map((item, itemIdx) => (
+                  <div key={itemIdx} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={item}
+                      onChange={(e) => {
+                        const items = [...(field.items ?? [""])];
+                        items[itemIdx] = e.target.value;
+                        updateField(i, { items });
+                      }}
+                      placeholder={
+                        (field.items?.length ?? 1) > 1 ? `Item ${itemIdx + 1}, e.g. Store lights` : "e.g. Take out garbage"
+                      }
+                      className="flex-1 bg-card border border-border rounded-card px-2 py-1.5 font-mono text-xs text-text placeholder:text-dim outline-none focus:border-olive"
+                    />
+                    {(field.items?.length ?? 0) > 1 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const items = (field.items ?? []).filter((_, idx2) => idx2 !== itemIdx);
+                          updateField(i, { items: items.length > 0 ? items : [""] });
+                        }}
+                        className="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded-full text-dim hover:text-burgundy-light transition-colors"
+                        aria-label="Remove item"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => updateField(i, { items: [...(field.items ?? [""]), ""] })}
+                  className="font-mono text-[10px] text-olive uppercase tracking-widest"
+                >
+                  + Add item
+                </button>
+              </div>
+            )}
           </div>
         ))}
       </div>
@@ -124,7 +187,7 @@ export default function TaskFieldsEditor({ fields, onChange }: Props) {
 
       {fields.length === 0 && (
         <p className="font-mono text-[10px] text-dim mt-2">
-          Add at least one field — a number reading or a yes/no answer.
+          Add at least one field — a number reading, a yes/no answer, or a checklist to check off.
         </p>
       )}
     </div>

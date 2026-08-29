@@ -12,23 +12,42 @@ export type TaskType = "standard" | "stopwatch" | "checkbox" | "form";
 // (not hardcoded to e.g. temperature) so the next form task (bathroom
 // clean, closing checklist) is just a different formFields array, no code
 // change. Only populated when taskType === "form"; empty otherwise.
+//
+// "boolean" is a yes/no *answer* (e.g. "Were floors clean?" — "No" is a
+// meaningful, savable result). "checklist" is a to-do *action* — a thing
+// the user must physically do and mark off (e.g. "Take out garbage"),
+// where the only state that lets the task save is checked. `items` holds
+// the checklist's sub-item labels; a single-item checklist (the common
+// case — one action, one check, e.g. "Take out garbage") renders as one
+// big checkbox using the field's own `label` as the prompt, while multiple
+// items (e.g. "Store lights" / "Music" / "Open sign") render as their own
+// rows under the field's label as a group heading — a checklist nested
+// inside the task's own checklist of fields. All items must be checked to
+// save, same as a required boolean answer.
 export interface FormFieldDef {
   key: string;              // stable key, e.g. "temperature"
   label: string;            // display label, e.g. "Walk-in temperature"
-  type: "number" | "text" | "boolean";
+  type: "number" | "text" | "boolean" | "checklist";
   unit?: string;             // e.g. "°F" — display only
   min?: number;               // optional pass/fail bound, number fields only — not yet enforced
   max?: number;
+  items?: string[];           // checklist fields only — sub-item labels, always >= 1 entry
 }
+
+// A checklist field's captured value is one boolean per item, keyed by that
+// item's label (see FormFieldDef.items above) — everything else stays a
+// single primitive. TaskLog.formData is a map of formFieldKey → this.
+export type FormFieldValue = string | number | boolean | Record<string, boolean>;
 
 export const FormFieldDefSchema = new Schema<FormFieldDef>(
   {
     key: { type: String, required: true },
     label: { type: String, required: true },
-    type: { type: String, enum: ["number", "text", "boolean"], required: true },
+    type: { type: String, enum: ["number", "text", "boolean", "checklist"], required: true },
     unit: { type: String, default: undefined },
     min: { type: Number, default: undefined },
     max: { type: Number, default: undefined },
+    items: { type: [String], default: undefined },
   },
   { _id: false }
 );

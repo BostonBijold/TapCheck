@@ -17,6 +17,16 @@ const num = (key: string, label: string, extra: Partial<FormFieldDef> = {}): For
   type: "number",
   ...extra,
 });
+// A to-do action to check off, not a yes/no question — e.g. "Take out
+// garbage" (one item, renders as a single checkbox) or "Store lights" /
+// "Music" / "Open sign" together (several items, all required) — see
+// FormFieldDef.type === "checklist" in models/TaskDefinition.ts.
+const checklist = (key: string, label: string, items?: string[]): FormFieldDef => ({
+  key,
+  label,
+  type: "checklist",
+  ...(items ? { items } : {}),
+});
 
 const SYSTEM_TEMPLATES: SystemTemplate[] = [
   // ── Opening ──────────────────────────────────────────────────────────────
@@ -61,9 +71,7 @@ const SYSTEM_TEMPLATES: SystemTemplate[] = [
     name: "Opening Walkthrough", icon: "clipboard-check", defaultProjectedMinutes: 5,
     category: "opening_closing", timeOfDay: "morning",
     formFields: [
-      bool("lights", "Lights on"),
-      bool("signage", "Signage / A-frame out"),
-      bool("music", "Music / ambiance on"),
+      checklist("walkthrough", "Checklist", ["Store lights", "Music / ambiance", "Signage / A-frame out"]),
     ],
   },
 
@@ -125,7 +133,7 @@ const SYSTEM_TEMPLATES: SystemTemplate[] = [
   {
     name: "Trash Taken Out", icon: "trash-2", defaultProjectedMinutes: 5,
     category: "cleaning", timeOfDay: "evening",
-    formFields: [bool("taken_out", "Trash taken to dumpster")],
+    formFields: [checklist("taken_out", "Take out garbage")],
   },
   {
     name: "Doors Locked / Alarm Set", icon: "lock-keyhole", defaultProjectedMinutes: 3,

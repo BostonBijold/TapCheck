@@ -7,6 +7,7 @@ import TimelineBar from "@/components/TimelineBar";
 import TaskFormScreen from "@/components/TaskFormScreen";
 import type { RowItem } from "@/components/TaskRow";
 import type { LogState } from "@/models/TaskLog";
+import type { FormFieldValue } from "@/models/TaskDefinition";
 import { emitTaskLogChanged } from "@/lib/task-log-events";
 import { updateRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
 import { projectedFinishTime, staticBaselineFinish, type TaskProjection } from "@/lib/projected-finish";
@@ -401,7 +402,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       taskId: string,
       state: LogState,
       actualMinutes: number,
-      formData?: Record<string, string | number | boolean>,
+      formData?: Record<string, FormFieldValue>,
       verifiedNfcUid?: string | null
     ) => {
       // A form-task completion carries captured field values — route
@@ -431,7 +432,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   );
 
   const advance = useCallback(
-    async (state: LogState, actualMinutes: number, formData?: Record<string, string | number | boolean>, verifiedNfcUid?: string | null) => {
+    async (state: LogState, actualMinutes: number, formData?: Record<string, FormFieldValue>, verifiedNfcUid?: string | null) => {
       if (!currentTask) return;
       const log: SessionLog = { taskId: currentTask._id, state, actualMinutes };
       setSessionLogs((prev) => [...prev, log]);
@@ -523,7 +524,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   };
   const handleMissed = () => advance("missed", 0);
   const handleRest = () => advance("rest", 0);
-  const handleTaskFormDone = (formData: Record<string, string | number | boolean>, actualMinutes: number, verifiedNfcUid?: string | null) =>
+  const handleTaskFormDone = (formData: Record<string, FormFieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) =>
     advance("done", actualMinutes, formData, verifiedNfcUid);
 
   // ── Form task: full-screen takeover, same component/shape TasksView uses

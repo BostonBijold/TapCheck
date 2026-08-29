@@ -2,6 +2,7 @@ import TaskLog from "@/models/TaskLog";
 import type { LogState } from "@/models/TaskLog";
 import Task from "@/models/Task";
 import TaskDefinition from "@/models/TaskDefinition";
+import type { FormFieldValue } from "@/models/TaskDefinition";
 import TaskList from "@/models/TaskList";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
 
@@ -90,7 +91,7 @@ export function serializeLog(l: {
   pausedSeconds?: number | null;
   state: LogState;
   sessionTaskListId?: { toString(): string } | null;
-  formData?: Record<string, string | number | boolean> | null;
+  formData?: Record<string, FormFieldValue> | null;
   tagId?: string | null;
 }) {
   return {
@@ -361,7 +362,7 @@ export async function completeInProgressLog(
   taskId: string,
   date: string,
   fallbackMinutes = 1,
-  formData: Record<string, string | number | boolean> | null = null,
+  formData: Record<string, FormFieldValue> | null = null,
   verifiedNfcUid: string | null = null
 ) {
   await assertNfcVerified(taskId, verifiedNfcUid);

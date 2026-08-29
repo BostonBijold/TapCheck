@@ -6,6 +6,7 @@ import StreakDots from "@/components/StreakDots";
 import type { RowItem } from "@/components/TaskRow";
 import type { TaskLogEntry } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
+import type { FormFieldValue } from "@/models/TaskDefinition";
 
 interface Props {
   item: RowItem;
@@ -22,7 +23,7 @@ interface Props {
   onStartTimer: () => void;
   onStateChange: (
     state: LogState | null,
-    opts?: { actualMinutes?: number; isBackEntry?: boolean; formData?: Record<string, string | number | boolean> }
+    opts?: { actualMinutes?: number; isBackEntry?: boolean; formData?: Record<string, FormFieldValue> }
   ) => void;
 }
 
@@ -59,15 +60,21 @@ export default function TaskCard({
   const [showSkips, setShowSkips] = useState(false);
   // Back-entry field capture for a form task — see TaskRow.tsx
   // for the same pattern in the timed-groups row.
-  const [backFormValues, setBackFormValues] = useState<Record<string, string | number | boolean>>({});
+  const [backFormValues, setBackFormValues] = useState<Record<string, FormFieldValue>>({});
   const formFields = item.formFields ?? [];
   const backFormComplete =
     !isForm || formFields.every((f) => {
       const v = backFormValues[f.key];
-      return f.type === "boolean" ? v !== undefined : v !== undefined && v !== "";
+      if (f.type === "boolean") return v !== undefined;
+      if (f.type === "checklist") {
+        const items = f.items && f.items.length > 0 ? f.items : [f.label];
+        const checked = (v as Record<string, boolean> | undefined) ?? {};
+        return items.every((label) => checked[label] === true);
+      }
+      return v !== undefined && v !== "";
     });
 
-  function setBackField(key: string, value: string | number | boolean) {
+  function setBackField(key: string, value: FormFieldValue) {
     setBackFormValues((v) => ({ ...v, [key]: value }));
   }
 
@@ -283,7 +290,43 @@ export default function TaskCard({
           a retroactive check still needs its readings, not just a duration. */}
       {isForm && isBackEntry && (
         <div className="ml-10 space-y-2">
-          {formFields.map((f) => (
+          {formFields.map((f) => {
+            if (f.type === "checklist") {
+              const items = f.items && f.items.length > 0 ? f.items : [f.label];
+              const isSingle = items.length === 1;
+              const checked = (backFormValues[f.key] as Record<string, boolean> | undefined) ?? {};
+              const toggleItem = (label: string) => setBackField(f.key, { ...checked, [label]: !checked[label] });
+              return (
+                <div key={f.key} className="space-y-1">
+                  {!isSingle && (
+                    <span className="font-mono text-[10px] text-dim uppercase tracking-widest">{f.label}</span>
+                  )}
+                  {items.map((label) => {
+                    const isChecked = checked[label] === true;
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => toggleItem(label)}
+                        className={`w-full flex items-center gap-2 px-3 py-1.5 rounded-card border font-mono text-xs ${
+                          isChecked ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex-shrink-0 w-4 h-4 rounded border flex items-center justify-center ${
+                            isChecked ? "bg-olive border-olive" : "border-border-light"
+                          }`}
+                        >
+                          {isChecked && <span className="text-bg text-[9px] leading-none">✓</span>}
+                        </span>
+                        <span className="flex-1 text-left">{isSingle ? f.label : label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              );
+            }
+            return (
             <div key={f.key} className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] text-dim uppercase tracking-widest">
                 {f.label}{f.unit ? ` (${f.unit})` : ""}
@@ -321,7 +364,8 @@ export default function TaskCard({
                 />
               )}
             </div>
-          ))}
+            );
+          })}
           <button
             onClick={() =>
               onStateChange("done", {

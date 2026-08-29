@@ -4,9 +4,10 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Nfc, Check } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import type { TimerItem } from "@/components/TimerScreen";
+import type { FormFieldValue } from "@/models/TaskDefinition";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 
-type FieldValue = string | number | boolean;
+type FieldValue = FormFieldValue;
 
 interface Props {
   item: TimerItem;
@@ -37,6 +38,18 @@ function pad(n: number) {
 // focal element, since the point of a form task is the data, not the
 // duration. See docs/features/timer.md for the elapsed-time convention
 // this mirrors.
+// A checklist field's sub-items — falls back to the field's own label when
+// none were set (the "single check" case, e.g. "Take out garbage" — one
+// action, one box, no separate item text needed). See models/TaskDefinition.ts.
+function checklistItems(f: { label: string; items?: string[] }): string[] {
+  return f.items && f.items.length > 0 ? f.items : [f.label];
+}
+
+function isChecklistComplete(f: { label: string; items?: string[] }, value: FieldValue | undefined): boolean {
+  const checked = (value as Record<string, boolean> | undefined) ?? {};
+  return checklistItems(f).every((label) => checked[label] === true);
+}
+
 export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, onComplete, onMissed, onClose }: Props) {
   const fields = item.formFields ?? [];
 
@@ -96,7 +109,15 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     // All fields required for the MVP — no optional-field logic yet.
     for (const f of fields) {
       const v = values[f.key];
-      if (f.type === "boolean" ? v === undefined : v === undefined || v === "") {
+      if (f.type === "boolean" && v === undefined) {
+        setError(`${f.label} is required`);
+        return;
+      }
+      if (f.type === "checklist" && !isChecklistComplete(f, v)) {
+        setError(`Check off everything in ${f.label}`);
+        return;
+      }
+      if (f.type !== "boolean" && f.type !== "checklist" && (v === undefined || v === "")) {
         setError(`${f.label} is required`);
         return;
       }
@@ -173,7 +194,49 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
       </div>
 
       <div className="flex-1 overflow-y-auto px-4 space-y-5">
-        {fields.map((f) => (
+        {fields.map((f) => {
+          if (f.type === "checklist") {
+            const items = checklistItems(f);
+            const isSingle = items.length === 1;
+            const checked = (values[f.key] as Record<string, boolean> | undefined) ?? {};
+            const toggleItem = (label: string) => setField(f.key, { ...checked, [label]: !checked[label] });
+            return (
+              <div key={f.key} className="space-y-1.5">
+                {/* A single-item checklist ("Take out garbage") skips the
+                    label row above its own row — showing the action twice
+                    would be redundant. A multi-item one keeps it as the
+                    group heading above its rows. */}
+                {!isSingle && (
+                  <label className="font-mono text-[10px] text-dim uppercase tracking-widest">{f.label}</label>
+                )}
+                <div className="space-y-2">
+                  {items.map((label) => {
+                    const isChecked = checked[label] === true;
+                    return (
+                      <button
+                        key={label}
+                        type="button"
+                        onClick={() => toggleItem(label)}
+                        className={`w-full flex items-center gap-3 py-3 px-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
+                          isChecked ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                        }`}
+                      >
+                        <span
+                          className={`flex-shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+                            isChecked ? "bg-olive border-olive" : "border-border-light"
+                          }`}
+                        >
+                          {isChecked && <Check size={13} strokeWidth={3} className="text-bg" />}
+                        </span>
+                        <span className="flex-1 text-left">{isSingle ? f.label : label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          }
+          return (
           <div key={f.key} className="space-y-1.5">
             <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
               {f.label}
@@ -217,7 +280,8 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               />
             )}
           </div>
-        ))}
+          );
+        })}
 
         {error && <p className="font-mono text-xs text-burgundy-light">{error}</p>}
       </div>

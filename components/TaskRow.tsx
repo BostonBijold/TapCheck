@@ -170,14 +170,25 @@ export default function TaskRow({
             <div className="space-y-1.5">
               {formFields.map((f) => {
                 const v = log.formData?.[f.key];
+                let display: string;
+                if (v === undefined) {
+                  display = "—";
+                } else if (f.type === "checklist") {
+                  const items = f.items && f.items.length > 0 ? f.items : [f.label];
+                  const checked = v as Record<string, boolean>;
+                  const checkedCount = items.filter((label) => checked?.[label] === true).length;
+                  display = items.length === 1 ? "✓ Done" : `${checkedCount}/${items.length} checked`;
+                } else if (typeof v === "boolean") {
+                  display = v ? "Yes" : "No";
+                } else {
+                  display = String(v);
+                }
                 return (
                   <div key={f.key} className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[10px] text-dim uppercase tracking-widest">
                       {f.label}{f.unit ? ` (${f.unit})` : ""}
                     </span>
-                    <span className="font-mono text-xs text-text">
-                      {v === undefined ? "—" : typeof v === "boolean" ? (v ? "Yes" : "No") : String(v)}
-                    </span>
+                    <span className="font-mono text-xs text-text">{display}</span>
                   </div>
                 );
               })}

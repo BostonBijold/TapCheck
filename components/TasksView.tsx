@@ -15,7 +15,7 @@ import TodoSection, { type TodoEntry } from "@/components/TodoSection";
 import EditTodoSheet from "@/components/EditTodoSheet";
 import FABTodoSheet from "@/components/FABTodoSheet";
 import type { LogState } from "@/models/TaskLog";
-import type { FormFieldDef } from "@/models/TaskDefinition";
+import type { FormFieldDef, FormFieldValue } from "@/models/TaskDefinition";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
 import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
@@ -33,7 +33,7 @@ export interface TaskLogEntry {
   pausedSeconds?: number; // elapsed seconds banked from an earlier running segment (see models/TaskLog)
   state: LogState;
   sessionTaskListId?: string | null; // set when this in_progress timer is anchored inside a Task List Session
-  formData?: Record<string, string | number | boolean> | null; // captured readings for a form task — see TaskRow.tsx's view-only shift-list rows
+  formData?: Record<string, FormFieldValue> | null; // captured readings for a form task — see TaskRow.tsx's view-only shift-list rows
 }
 
 export type WeekLog = { taskId: string; date: string; state: LogState; actualMinutes: number | null };
@@ -443,7 +443,7 @@ export default function TasksView({
         isBackEntry?: boolean;
         startedAt?: string;
         completedAt?: string;
-        formData?: Record<string, string | number | boolean>;
+        formData?: Record<string, FormFieldValue>;
       }
     ) => {
       const prev = logs[taskId];
@@ -648,7 +648,7 @@ export default function TasksView({
   // from startedAt (see completeInProgressLog); the client-computed value
   // here is only the fallback, same as the standalone timer's Done button.
   const handleTaskFormComplete = useCallback(
-    async (formData: Record<string, string | number | boolean>, actualMinutes: number, verifiedNfcUid?: string | null) => {
+    async (formData: Record<string, FormFieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) => {
       if (!timerItem) return;
       const taskId = timerItem._id;
       const res = await fetch("/api/task-logs", {
