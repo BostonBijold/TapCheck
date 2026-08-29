@@ -1,6 +1,7 @@
 import mongoose from "mongoose";
 import TaskListSession from "@/models/TaskListSession";
 import Task from "@/models/Task";
+import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import User from "@/models/User";
 import type { CompletionState } from "@/models/TaskListSession";
@@ -193,4 +194,37 @@ export async function incrementSessionPauseOrJump(companyId: string, taskListId:
     { companyId, taskListId, date, status: "in_progress" },
     { $inc: { pauseOrJumpCount: 1 } }
   );
+}
+
+// Decides what a FAB "scan to open" hit on taskId should do — see
+// docs/features/nfc.md's "FAB 'scan to open' shortcut". Read-only: never
+// creates or mutates a session itself. An anytime task (no startTime on its
+// list) is returned as-is, same as before this existed. A shift-window task
+// checks the existing one-person-at-a-time lock (getOpenSessionLocks) before
+// answering — "join" and "auto-start" collapse into one "session" outcome
+// since ensureOpenSession (called automatically once the client's first
+// POST /api/task-logs for that list/date lands) is idempotent either way.
+export type FabScanResolution =
+  | { kind: "anytime"; taskId: string }
+  | { kind: "session"; taskId: string; taskListId: string }
+  | { kind: "locked"; taskId: string; taskListId: string; lockedByName: string };
+
+export async function resolveFabScanTarget(
+  companyId: string,
+  performedByUserId: string,
+  taskId: string,
+  date: string
+): Promise<FabScanResolution | null> {
+  const task = await Task.findOne({ _id: taskId, companyId, isActive: true }).select("taskListId").lean();
+  if (!task) return null;
+
+  const taskListId = task.taskListId.toString();
+  const list = await TaskList.findOne({ _id: taskListId, companyId }).select("startTime").lean();
+  if (!list?.startTime) return { kind: "anytime", taskId };
+
+  const [lock] = await getOpenSessionLocks(companyId, [taskListId], date);
+  if (lock && lock.performedByUserId !== performedByUserId) {
+    return { kind: "locked", taskId, taskListId, lockedByName: lock.performedByName };
+  }
+  return { kind: "session", taskId, taskListId };
 }

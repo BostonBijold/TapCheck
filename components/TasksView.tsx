@@ -63,6 +63,8 @@ interface Props {
   autoResumeTimer?: boolean;
   autoOpenTaskId?: string | null; // set by BottomNav.tsx's FAB "scan to open" shortcut
   autoOpenVerifiedNfcUid?: string | null; // the UID that scan already read — pre-satisfies that task's own Scan NFC step, see TaskFormScreen.tsx
+  autoOpenSessionTaskId?: string | null; // set when the FAB scan resolved to a shift-window task — see docs/features/nfc.md
+  autoOpenSessionListId?: string | null; // that task's parent list, to join/auto-start its session
 }
 
 interface ActiveSession {
@@ -78,6 +80,8 @@ export default function TasksView({
   autoResumeTimer = false,
   autoOpenTaskId = null,
   autoOpenVerifiedNfcUid = null,
+  autoOpenSessionTaskId = null,
+  autoOpenSessionListId = null,
 }: Props) {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -94,11 +98,11 @@ export default function TasksView({
   // just a bare uid) so it can never leak onto a different task opened by
   // any other path (tapping a task directly, resuming, session navigation).
   const [preVerified, setPreVerified] = useState<{ taskId: string; uid: string } | null>(null);
-  // True only while timerItem was opened via the FAB's "scan to open"
-  // shortcut — gates the "continue this task list?" prompt below, see the
-  // "Task List Locking" design's FAB-scan section.
-  const [openedViaFabScan, setOpenedViaFabScan] = useState(false);
-  const [continuePrompt, setContinuePrompt] = useState<ActiveSession | null>(null);
+  // Same idea as preVerified above, but for a FAB scan that resolved into a
+  // shift-window task's session instead of the standalone TaskFormScreen —
+  // kept separate since it feeds TaskListSessionView, a different child, and
+  // must never leak onto a task opened any other way.
+  const [sessionPreVerified, setSessionPreVerified] = useState<{ taskId: string; uid: string } | null>(null);
   const [activeSession, setActiveSession] = useState<ActiveSession | null>(null);
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
   const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
@@ -151,13 +155,21 @@ export default function TasksView({
       if (found) {
         setTimerInitialElapsed(0);
         setTimerItem(found);
-        setOpenedViaFabScan(true);
         if (autoOpenVerifiedNfcUid) setPreVerified({ taskId: found._id, uid: autoOpenVerifiedNfcUid });
       }
       router.replace("/tasks");
     }
+    if (autoOpenSessionTaskId && autoOpenSessionListId) {
+      const taskList = taskLists.find((tl) => tl._id === autoOpenSessionListId);
+      const startIndex = taskList?.tasks.findIndex((t) => t._id === autoOpenSessionTaskId) ?? -1;
+      if (taskList && startIndex !== -1) {
+        setActiveSession({ taskList, startIndex });
+        if (autoOpenVerifiedNfcUid) setSessionPreVerified({ taskId: autoOpenSessionTaskId, uid: autoOpenVerifiedNfcUid });
+      }
+      router.replace("/tasks");
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [autoStartNext, autoAddTask, autoOpenTaskId, autoOpenVerifiedNfcUid]);
+  }, [autoStartNext, autoAddTask, autoOpenTaskId, autoOpenVerifiedNfcUid, autoOpenSessionTaskId, autoOpenSessionListId]);
 
   // Shared by both resume effects below — finds the day's in_progress log.
   // Only one is ever in_progress at a time (jumping to a different task
@@ -616,7 +628,6 @@ export default function TasksView({
       }
       emitTaskLogChanged();
       setTimerItem(null);
-      setOpenedViaFabScan(false);
       endRoutineActivity();
     },
     [timerItem, selectedDate]
@@ -630,7 +641,6 @@ export default function TasksView({
     async (formData: Record<string, string | number | boolean>, actualMinutes: number, verifiedNfcUid?: string | null) => {
       if (!timerItem) return;
       const taskId = timerItem._id;
-      const wasFabScan = openedViaFabScan;
       const res = await fetch("/api/task-logs", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -644,31 +654,13 @@ export default function TasksView({
         throw new Error(body.error || "Failed to complete task — please try again.");
       }
       const saved: TaskLogEntry = await res.json();
-      const freshLogs = { ...logs, [taskId]: saved };
-      setLogs(freshLogs);
+      setLogs((l) => ({ ...l, [taskId]: saved }));
       emitTaskLogChanged();
       setTimerItem(null);
       setPreVerified(null);
-      setOpenedViaFabScan(false);
       endRoutineActivity();
-
-      // FAB-scan continue prompt — see the "Task List Locking" design's FAB-
-      // scan section. Only offered when this task belongs to a shift-window
-      // list, that list has other tasks today still untouched, and no one
-      // else already holds that list's session (joining your own open
-      // session, or starting a fresh one, is still fine).
-      if (wasFabScan) {
-        const parentList = scheduledTaskLists.find((tl) => tl.tasks.some((t) => t._id === taskId));
-        const lock = parentList ? sessionLocks[parentList._id] : undefined;
-        if (parentList && (!lock || lock.performedByUserId === userId)) {
-          const nextIndex = parentList.tasks.findIndex(
-            (t) => isTaskVisibleOn(t, selectedDate) && !freshLogs[t._id]
-          );
-          if (nextIndex !== -1) setContinuePrompt({ taskList: parentList, startIndex: nextIndex });
-        }
-      }
     },
-    [timerItem, selectedDate, openedViaFabScan, scheduledTaskLists, sessionLocks, logs, userId]
+    [timerItem, selectedDate]
   );
 
   const handleTimerMissed = useCallback(async () => {
@@ -685,12 +677,12 @@ export default function TasksView({
     emitTaskLogChanged();
     setTimerItem(null);
     setPreVerified(null);
-    setOpenedViaFabScan(false);
     endRoutineActivity();
   }, [timerItem, selectedDate]);
 
   const handleSessionFinish = useCallback(async () => {
     setActiveSession(null);
+    setSessionPreVerified(null);
     // Re-fetch logs immediately so isComplete is accurate before router.refresh() arrives.
     // TaskListSessionView writes directly to the DB without updating the parent
     // logs state, so without this the list would briefly re-open with the
@@ -761,7 +753,7 @@ export default function TasksView({
             preVerifiedNfcUid={preVerified?.taskId === timerItem._id ? preVerified.uid : null}
             onComplete={handleTaskFormComplete}
             onMissed={handleTimerMissed}
-            onClose={() => { setTimerItem(null); setPreVerified(null); setOpenedViaFabScan(false); }}
+            onClose={() => { setTimerItem(null); setPreVerified(null); }}
           />
         ) : (
           <TimerScreen
@@ -783,46 +775,10 @@ export default function TasksView({
           logs={logs}
           today={selectedDate}
           startIndex={activeSession?.startIndex ?? 0}
+          preVerified={sessionPreVerified}
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
         />
-      )}
-
-      {/* FAB-scan continue prompt — see handleTaskFormComplete and the
-          "Task List Locking" design's FAB-scan section. A genuine one-off
-          helper, not a replacement for the session: choosing to continue
-          just claims/rejoins that list's session like any other touch. */}
-      {continuePrompt && (
-        <>
-          <div className="fixed inset-0 bg-black/60 z-40" onClick={() => setContinuePrompt(null)} />
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-5">
-            <div className="w-full max-w-mobile bg-card rounded-2xl p-5 space-y-4">
-              <div>
-                <h2 className="font-heading text-base text-text">Continue {continuePrompt.taskList.name}?</h2>
-                <p className="font-mono text-xs text-dim mt-1">
-                  There are more tasks left in this list today.
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setContinuePrompt(null)}
-                  className="flex-1 border border-border-light text-dim py-3 rounded-card text-sm font-body min-h-[44px]"
-                >
-                  Not now
-                </button>
-                <button
-                  onClick={() => {
-                    setActiveSession(continuePrompt);
-                    setContinuePrompt(null);
-                  }}
-                  className="flex-1 bg-olive text-text py-3 rounded-card text-sm font-body font-medium min-h-[44px]"
-                >
-                  Continue Tasks
-                </button>
-              </div>
-            </div>
-          </div>
-        </>
       )}
 
       {addTaskSheetFor && (

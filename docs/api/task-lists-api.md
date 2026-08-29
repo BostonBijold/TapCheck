@@ -91,6 +91,11 @@ Manager-only (`403` for an employee). Still addressed by `[id]` (a specific plac
 ### `GET /api/tasks/by-nfc-uid?uid=<uid>&date=<local date>&nowMinutes=<local minutes since midnight>`
 Resolves a scanned tag's UID to a `TaskDefinition`, then — since one binding can now back more than one placement — to whichever placement is "most relevant right now" via `lib/task-definitions.ts`'s `resolveMostRelevantPlacement` (documented as a judgment call, not a settled spec): skip anything already resolved today, prefer whichever list's `startTime` is closest to `nowMinutes`, fall back to list/placement order. `date`/`nowMinutes` are optional (the client's local values — see `components/BottomNav.tsx`) and degrade to a simpler fallback without them.
 
+Once a single `taskId` is resolved, `lib/task-list-session-actions.ts`'s `resolveFabScanTarget` decides what the FAB should do with it and the response is one of three shapes — see [nfc.md](../features/nfc.md)'s "FAB 'scan to open' shortcut":
+- `{ mode: "anytime", taskId }` — an anytime task, unchanged from before this resolver existed.
+- `{ mode: "session", taskId, taskListId }` — a shift-window task whose list's session is either unclaimed or already the caller's own; the client joins or auto-starts it.
+- `{ mode: "locked", taskId, taskListId, lockedByName }` — a shift-window task whose list's session is held by someone else; the client shows this instead of navigating anywhere.
+
 ## Task Logs
 
 Collection: `tasklogs`. Schema (`models/TaskLog.ts`): `companyId`, `performedByUserId` (the specific person who did it — an attribute, not part of the uniqueness key below), `taskId` (ref), `date` (`YYYY-MM-DD`), `actualMinutes?`, `startedAt?: Date` (null while `paused`), `completedAt?: Date`, `pausedSeconds` (default `0`), `state: "in_progress" | "paused" | "done" | "missed" | "rest"`, `note?`, `isBackEntry` (default `false`), `sessionTaskListId?: ObjectId | null` (ref `TaskList`, see below), `formData?: Record<string, string | number | boolean> | null` (see below), `tagId?: string | null`, plus timestamps. A **unique** compound index on `{ companyId, taskId, date }` means there is always exactly one log per task per day for the whole company — not per person, since any employee on shift might complete a given task — every write below is an upsert against that key, never a duplicate insert.

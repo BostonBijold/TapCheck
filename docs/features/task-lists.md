@@ -128,9 +128,7 @@ This is enforced server-side too, not just by removing the buttons — `lib/task
 
 An unlocked session (`performedByUserId: null`) behaves exactly like a brand-new one for claiming purposes: `ensureOpenSession` claims it for whoever next starts a task in that list, the same mechanism that stamps it on a session's first-ever touch. `GET /api/task-lists/session-locks?date=<date>` (polled by `TasksView.tsx` alongside logs) reports which of the company's shift-window lists currently have a *claimed* lock — an unlocked session reports no lock at all.
 
-### FAB-scan → continue-list prompt
-
-After a task opened via the FAB's "scan to open" shortcut (see [nfc.md](nfc.md)) is completed through `TaskFormScreen`'s Save, `TasksView.tsx`'s `handleTaskFormComplete` checks whether that task's parent list has other tasks today still untouched (no log at all) and isn't locked by someone else. If so, a small prompt offers to jump straight into that list's session at the next pending task ("Continue Tasks") or stay standalone ("Not now") — a one-off convenience, not a replacement for the session: continuing just claims/rejoins the list's session like any other touch.
+**A FAB scan is a fourth way into a shift-window list's session**, alongside tapping "Start Tasks"/"Continue Tasks" or resuming a paused task — see [nfc.md](nfc.md)'s "FAB 'scan to open' shortcut". It's subject to this same lock: `lib/task-list-session-actions.ts`'s `resolveFabScanTarget` checks `getOpenSessionLocks` before answering, so a scan that lands on a list someone else already holds surfaces the same "In progress by `<name>`" state instead of silently joining — a scan never bypasses the lock any more than a button tap would.
 
 ### Manager-only Undo
 
@@ -149,7 +147,7 @@ After a task opened via the FAB's "scan to open" shortcut (see [nfc.md](nfc.md))
 - `components/AddTaskListSheet.tsx` — the "Add Task List" name+start-time step, manager-only.
 - `lib/task-visibility.ts` — day-of-week visibility gate (see "Day-of-week visibility" above).
 - `lib/task-progress.ts` — the shared weekly-progress math (see "Weekly schedule + success threshold" above).
-- `lib/task-list-session-actions.ts` — session bookkeeping, including the lock helpers (`getOpenSessionLocks`, `unlockSession`) — see "Task list locking" above.
+- `lib/task-list-session-actions.ts` — session bookkeeping, including the lock helpers (`getOpenSessionLocks`, `unlockSession`) and the FAB-scan resolver (`resolveFabScanTarget`) — see "Task list locking" above and [nfc.md](nfc.md).
 - `lib/task-log-actions.ts` — `assertShiftListSessionAuthorized`, the server-side lock enforcement.
 - `app/api/task-lists/session-locks/route.ts`, `app/api/task-lists/[taskListId]/unlock-session/route.ts` — the lock-reading and manager-only unlock endpoints.
 - `lib/seed.ts` — idempotent seeding of default shift task lists/tasks for a new company; creates a `TaskDefinition` + placement pair per seeded item.

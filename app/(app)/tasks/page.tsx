@@ -18,7 +18,11 @@ export const dynamic = "force-dynamic";
 export default async function TasksPage({
   searchParams,
 }: {
-  searchParams?: { startNext?: string; addTask?: string; date?: string; resumeTimer?: string; openTaskId?: string; verifiedNfcUid?: string };
+  searchParams?: {
+    startNext?: string; addTask?: string; date?: string; resumeTimer?: string;
+    openTaskId?: string; verifiedNfcUid?: string;
+    openSessionTaskId?: string; openSessionListId?: string;
+  };
 }) {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
@@ -151,6 +155,8 @@ export default async function TasksPage({
       autoResumeTimer={!!searchParams?.resumeTimer}
       autoOpenTaskId={searchParams?.openTaskId ?? null}
       autoOpenVerifiedNfcUid={searchParams?.verifiedNfcUid ?? null}
+      autoOpenSessionTaskId={searchParams?.openSessionTaskId ?? null}
+      autoOpenSessionListId={searchParams?.openSessionListId ?? null}
     />
   );
 }

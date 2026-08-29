@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskDefinition from "@/models/TaskDefinition";
 import { resolveMostRelevantPlacement } from "@/lib/task-definitions";
+import { resolveFabScanTarget } from "@/lib/task-list-session-actions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +26,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId } = sessionUser;
+  const { companyId, userId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const uid = req.nextUrl.searchParams.get("uid");
@@ -42,5 +43,9 @@ export async function GET(req: NextRequest) {
   const taskId = await resolveMostRelevantPlacement(companyId, definition._id.toString(), date, nowMinutes);
   if (!taskId) return NextResponse.json({ error: "No task is linked to this tag" }, { status: 404 });
 
-  return NextResponse.json({ taskId: taskId.toString() });
+  const resolution = await resolveFabScanTarget(companyId, userId, taskId.toString(), date);
+  if (!resolution) return NextResponse.json({ error: "No task is linked to this tag" }, { status: 404 });
+
+  const { kind, ...rest } = resolution;
+  return NextResponse.json({ mode: kind, ...rest });
 }

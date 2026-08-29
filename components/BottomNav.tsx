@@ -160,8 +160,22 @@ export default function BottomNav() {
         flashScanMessage(body.error || "No task is linked to this tag.");
         return;
       }
-      const { taskId } = (await res.json()) as { taskId: string };
-      const url = `/tasks?openTaskId=${taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
+      const data = (await res.json()) as
+        | { mode: "anytime"; taskId: string }
+        | { mode: "session"; taskId: string; taskListId: string }
+        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string };
+
+      if (data.mode === "locked") {
+        // Never fight an active session lock — no navigation, just the same
+        // transient pill "no task linked"/"scan failed" already uses.
+        flashScanMessage(`In progress by ${data.lockedByName} — try again once they finish.`);
+        return;
+      }
+
+      const url =
+        data.mode === "anytime"
+          ? `/tasks?openTaskId=${data.taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`
+          : `/tasks?openSessionTaskId=${data.taskId}&openSessionListId=${data.taskListId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
       if (pathname === "/tasks") {
         router.replace(url);
       } else {
