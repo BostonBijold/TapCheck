@@ -148,6 +148,7 @@ export default function TasksView({
     }
     if (autoOpenTaskId) {
       const found = taskLists.flatMap((tl) => tl.tasks).find((t) => t._id === autoOpenTaskId) ?? null;
+      console.log("[FAB scan] autoOpenTaskId=", autoOpenTaskId, "found=", !!found, "taskLists loaded=", taskLists.length);
       if (found) {
         setTimerInitialElapsed(0);
         setTimerItem(found);
