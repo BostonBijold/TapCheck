@@ -340,6 +340,8 @@ export default function TaskListCard({
                   onToggleExpand={() =>
                     setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
                   }
+                  canUndo={userRole === "manager"}
+                  onUndo={() => onStateChange(task._id, null)}
                 />
               ))}
             </div>

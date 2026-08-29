@@ -114,7 +114,7 @@ A shift-window list's tasks (any list with a `startTime` — Opening/Mid/Closing
 
 ### Shift-list rows are view-only
 
-`TaskRow.tsx` has no Start/Missed/Rest/Undo/Edit-time actions at all — tapping a row only expands it to show its current state and, for a `form` task already `done`, the captured field readings (`TaskLog.formData`, threaded down through `TasksView`/`app/(app)/tasks/page.tsx`). The only way to move a shift-list task forward is that list's own session.
+`TaskRow.tsx` has no Start/Missed/Rest/Edit-time actions at all — tapping a row only expands it to show its current state and, for a `form` task already `done`, the captured field readings (`TaskLog.formData`, threaded down through `TasksView`/`app/(app)/tasks/page.tsx`). The only way to *move a shift-list task forward* is that list's own session. The one exception is Undo, which stays available as a manager-only escape hatch (`canUndo`/`onUndo` props, same gating as `TaskCard.tsx` — see "Manager-only Undo" below) — a mistake in an already-logged entry still needs to be correctable even though the row otherwise can't be touched directly.
 
 This is enforced server-side too, not just by removing the buttons — `lib/task-log-actions.ts`'s `assertShiftListSessionAuthorized(companyId, taskId, sessionTaskListId)` rejects (`403`) any `POST`/`PATCH` to `/api/task-logs` for a shift-list task unless `sessionTaskListId` (a fresh request's own param when starting a timer, or the log's already-carried-over `sessionTaskListId` for a terminal write) matches that task's own `taskListId`. The per-task `in_progress` start `TaskListSessionView.tsx` fires the moment a task becomes current stamps that anchor before Done/Missed/Rest ever becomes reachable, so anything that actually came through the session is authorized; a direct call bypassing it has nothing to match and is rejected. An anytime task is never restricted (its list has no `startTime`).
 
@@ -141,7 +141,7 @@ After a task opened via the FAB's "scan to open" shortcut (see [nfc.md](nfc.md))
 - `app/(app)/tasks/page.tsx` — server component: auth, seeding, loads task lists/tasks/logs for the selected date.
 - `components/TasksView.tsx` — top-level client state: selected date, logs map, opens/closes the timer/session/add-task-list overlays, all the `handleStateChange`/`handleStartTimer`/… handlers.
 - `components/TaskListCard.tsx` — per-list card: collapse logic, completion check, the "Start Tasks" button's three lock states, renders `TaskRow` (or `TaskCard` for an anytime list).
-- `components/TaskRow.tsx` — per-task row for a shift-window list — view-only, see "Task list locking" above.
+- `components/TaskRow.tsx` — per-task row for a shift-window list — view-only aside from manager-only Undo, see "Task list locking" above.
 - `components/TaskCard.tsx` — per-task card for an anytime list — the full action panel (all states above).
 - `components/TaskListSessionView.tsx` — sequential multi-task session (see [timer.md](timer.md)).
 - `components/DateNav.tsx` — the `< Today >` date picker driving `selectedDate`.

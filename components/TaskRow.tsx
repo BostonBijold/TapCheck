@@ -28,6 +28,12 @@ interface Props {
   selectedDate: string;
   today: string; // YYYY-MM-DD — marks today's dot and what counts as "future" in StreakDots
   onToggleExpand: () => void;
+  // Manager-only escape hatch — a shift-list row otherwise has no actions
+  // at all (see the note above), but a mistake still needs to be
+  // correctable. Same manager-only gating as TaskCard.tsx's Undo — see
+  // docs/features/task-lists.md's "Manager-only Undo" section.
+  canUndo: boolean;
+  onUndo: () => void;
 }
 
 function fmtMins(mins: number) {
@@ -66,14 +72,16 @@ const LABEL: Record<LogState, string> = {
 // a shift-window list, whose tasks can only move forward through that
 // list's own "Start Tasks"/"Continue Tasks" session, never tapped and
 // changed here directly. So this row is tap-to-expand-and-view only: no
-// Start/Missed/Rest/Undo/Edit-time actions, just the task's current state
-// and (for a form task) whatever readings were captured when it was
-// completed through the session. See the "Task List Locking" design in
-// docs/features/task-lists.md.
+// Start/Missed/Rest/Edit-time actions, just the task's current state and
+// (for a form task) whatever readings were captured when it was completed
+// through the session. The one exception is Undo, which stays available
+// but manager-only (canUndo) — the escape hatch for a logged mistake, same
+// gating as TaskCard.tsx's Undo. See docs/features/task-lists.md's "Task
+// list locking" and "Manager-only Undo" sections.
 export default function TaskRow({
   item, log, weekLogs, weekDates,
   isExpanded, selectedDate, today,
-  onToggleExpand,
+  onToggleExpand, canUndo, onUndo,
 }: Props) {
   const state = log?.state ?? null;
   const isCheckbox = item.taskType === "checkbox";
@@ -179,6 +187,15 @@ export default function TaskRow({
               {LABEL[state]}
               {log?.actualMinutes != null ? ` · ${fmtMins(log.actualMinutes)}` : ""}
             </p>
+          )}
+
+          {state && canUndo && (
+            <button
+              onClick={onUndo}
+              className="mt-2 font-mono text-[9px] text-dim uppercase tracking-widest"
+            >
+              Undo
+            </button>
           )}
         </div>
       )}
