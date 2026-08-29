@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
-import { ChevronLeft, ChevronRight, Nfc } from "lucide-react";
+import { ChevronLeft, ChevronRight, Copy, Nfc } from "lucide-react";
 import Header from "@/components/Header";
 import AppIcon from "@/components/AppIcon";
 import AddTaskListSheet from "@/components/AddTaskListSheet";
@@ -208,6 +208,14 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
 
   const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  const handleDuplicateTaskList = async (id: string) => {
+    setDuplicatingId(id);
+    await fetch(`/api/task-lists/${id}/duplicate`, { method: "POST" });
+    setDuplicatingId(null);
+    router.refresh();
+  };
 
   useEffect(() => {
     fetch("/api/task-definitions")
@@ -280,19 +288,30 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
         </p>
         <div className="space-y-2">
           {taskLists.map((tl) => (
-            <Link
-              key={tl._id}
-              href={`/tasks/${tl._id}/edit`}
-              className="flex items-center justify-between bg-card rounded-card border border-border p-4 hover:bg-card-hover transition-colors"
-            >
-              <div className="min-w-0">
-                <p className="font-body text-sm text-text truncate">{tl.name}</p>
-                {tl.startTime && (
-                  <p className="font-mono text-[10px] text-dim mt-0.5">Starts {fmtTime(tl.startTime)}</p>
-                )}
-              </div>
-              <ChevronRight size={16} className="text-dim flex-shrink-0" />
-            </Link>
+            <div key={tl._id} className="flex items-center gap-1 bg-card rounded-card border border-border">
+              <Link
+                href={`/tasks/${tl._id}/edit`}
+                className="flex-1 min-w-0 flex items-center justify-between p-4 hover:bg-card-hover transition-colors rounded-l-card"
+              >
+                <div className="min-w-0">
+                  <p className="font-body text-sm text-text truncate">{tl.name}</p>
+                  {tl.startTime && (
+                    <p className="font-mono text-[10px] text-dim mt-0.5">Starts {fmtTime(tl.startTime)}</p>
+                  )}
+                </div>
+                <ChevronRight size={16} className="text-dim flex-shrink-0 ml-2" />
+              </Link>
+              <button
+                type="button"
+                onClick={() => handleDuplicateTaskList(tl._id)}
+                disabled={duplicatingId === tl._id}
+                aria-label={`Duplicate ${tl.name}`}
+                title="Duplicate task list"
+                className="flex-shrink-0 w-11 h-11 mr-1 flex items-center justify-center text-dim hover:text-olive transition-colors disabled:opacity-40"
+              >
+                <Copy size={15} strokeWidth={1.75} />
+              </button>
+            </div>
           ))}
         </div>
         <button

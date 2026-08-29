@@ -1,0 +1,73 @@
+import { NextRequest, NextResponse } from "next/server";
+import { connectDB } from "@/lib/mongoose";
+import TaskList from "@/models/TaskList";
+import Task from "@/models/Task";
+import { resolveSessionUser } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
+
+// POST /api/task-lists/[taskListId]/duplicate — manager-only. Copies the
+// list itself (name, timeOfDay/startTime, scheduledDays) plus every active
+// task placement in it, appended at the end of the company's list order —
+// same nextOrder convention as creating a brand-new list (POST
+// /api/task-lists). Each copied placement points at the SAME
+// TaskDefinition as its source (definitionId is copied, not duplicated) —
+// duplicating a list is meant to reuse the company's existing saved checks
+// in a new schedule, not fork a second, independent copy of each one (that
+// would silently split its TaskLog history/streak and NFC binding away
+// from the original — see docs/features/task-lists.md's "Company Task
+// Catalog" section on what a shared TaskDefinition means). Only
+// scheduledDays/successThreshold/projectedMinutes/order — the placement-
+// level fields — get copied per task.
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { taskListId: string } }
+) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, role } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+
+  await connectDB();
+
+  const source = await TaskList.findOne({ _id: params.taskListId, companyId, isActive: true }).lean();
+  if (!source) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  const sourceTasks = await Task.find({ taskListId: source._id, companyId, isActive: true })
+    .sort({ order: 1 })
+    .lean();
+
+  const topList = await TaskList.findOne({ companyId }).sort({ order: -1 }).lean();
+  const nextOrder = topList ? topList.order + 1 : 0;
+
+  const newList = await TaskList.create({
+    companyId,
+    name: `${source.name} (Copy)`,
+    timeOfDay: source.timeOfDay,
+    startTime: source.startTime ?? null,
+    order: nextOrder,
+    isDefault: false,
+    scheduledDays: source.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+  });
+
+  if (sourceTasks.length > 0) {
+    await Task.insertMany(
+      sourceTasks.map((t) => ({
+        taskListId: newList._id,
+        companyId,
+        definitionId: t.definitionId,
+        projectedMinutes: t.projectedMinutes ?? null,
+        order: t.order,
+        scheduledDays: t.scheduledDays ?? source.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+        successThreshold: t.successThreshold ?? 7,
+      }))
+    );
+  }
+
+  return NextResponse.json({
+    _id: newList._id.toString(),
+    name: newList.name,
+    startTime: newList.startTime ?? null,
+  });
+}
