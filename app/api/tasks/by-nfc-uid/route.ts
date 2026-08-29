@@ -43,7 +43,7 @@ export async function GET(req: NextRequest) {
   const taskId = await resolveMostRelevantPlacement(companyId, definition._id.toString(), date, nowMinutes);
   if (!taskId) return NextResponse.json({ error: "No task is linked to this tag" }, { status: 404 });
 
-  const resolution = await resolveFabScanTarget(companyId, userId, taskId.toString(), date);
+  const resolution = await resolveFabScanTarget(companyId, userId, taskId.toString(), date, nowMinutes);
   if (!resolution) return NextResponse.json({ error: "No task is linked to this tag" }, { status: 404 });
 
   const { kind, ...rest } = resolution;

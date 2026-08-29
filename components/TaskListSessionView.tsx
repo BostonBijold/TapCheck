@@ -545,6 +545,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       <TaskFormScreen
         item={currentTask}
         initialElapsed={elapsed}
+        taskListName={taskListName}
         preVerifiedNfcUid={preVerifiedNfcUid}
         onComplete={handleTaskFormDone}
         onMissed={handleMissed}
@@ -767,6 +768,12 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
           <X size={16} />
         </button>
         <span className="font-mono text-muted text-sm">{currentIndex + 1} of {tasks.length}</span>
+      </div>
+
+      {/* Which shift/list is running — otherwise nothing on this screen says
+          so once you're past the initial "Start Tasks" tap. */}
+      <div className="px-4 pb-1 flex-shrink-0 text-center">
+        <span className="font-mono text-[10px] uppercase tracking-widest text-olive">{taskListName}</span>
       </div>
 
       {/* Live projected finish time — see lib/projected-finish.ts. Amber

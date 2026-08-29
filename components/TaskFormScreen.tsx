@@ -10,6 +10,7 @@ type FieldValue = string | number | boolean;
 interface Props {
   item: TimerItem;
   initialElapsed?: number; // seconds already elapsed (from server startedAt on resume)
+  taskListName?: string | null; // shown as a small kicker above the task name — which shift/list this belongs to
   // Set when the FAB's "scan to open" shortcut (components/BottomNav.tsx)
   // is what opened this exact task — the user already proved the tag was
   // present on the way in, so Save works immediately instead of demanding a
@@ -35,7 +36,7 @@ function pad(n: number) {
 // focal element, since the point of a form task is the data, not the
 // duration. See docs/features/timer.md for the elapsed-time convention
 // this mirrors.
-export default function TaskFormScreen({ item, initialElapsed = 0, preVerifiedNfcUid = null, onComplete, onMissed, onClose }: Props) {
+export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, onComplete, onMissed, onClose }: Props) {
   const fields = item.formFields ?? [];
 
   const [elapsed, setElapsed] = useState(initialElapsed);
@@ -156,6 +157,9 @@ export default function TaskFormScreen({ item, initialElapsed = 0, preVerifiedNf
       </div>
 
       <div className="text-center px-4 mt-4 mb-6 flex-shrink-0">
+        {taskListName && (
+          <p className="font-mono text-[10px] uppercase tracking-widest text-olive mb-2">{taskListName}</p>
+        )}
         <div className="flex justify-center mb-3">
           <AppIcon name={item.icon} size={40} strokeWidth={1.25} className="text-text" />
         </div>

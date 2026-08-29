@@ -17,6 +17,7 @@ export interface TimerItem {
 interface Props {
   item: TimerItem;
   initialElapsed?: number; // seconds already elapsed (from server startedAt on resume)
+  taskListName?: string | null; // shown as a small kicker above the task name — which shift/list this belongs to
   onComplete: (actualMinutes: number) => void;
   onMissed: () => void;
   onClose: () => void;
@@ -28,7 +29,7 @@ function pad(n: number) {
 
 const STOPWATCH_SOFT_CAP = 30 * 60; // ring fills over 30 minutes, stays full after
 
-export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMissed, onClose }: Props) {
+export default function TimerScreen({ item, initialElapsed = 0, taskListName = null, onComplete, onMissed, onClose }: Props) {
   const isStopwatch = item.taskType === "stopwatch";
 
   const [elapsed, setElapsed] = useState(initialElapsed);
@@ -116,6 +117,9 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
 
         <div className="flex-1 flex flex-col select-none">
           <div className="text-center px-4 mt-6">
+            {taskListName && (
+              <p className="font-mono text-[10px] uppercase tracking-widest text-olive mb-2">{taskListName}</p>
+            )}
             <div className="flex justify-center mb-3">
               <AppIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
             </div>
@@ -203,6 +207,9 @@ export default function TimerScreen({ item, initialElapsed = 0, onComplete, onMi
 
       <div className="flex-1 flex flex-col select-none">
         <div className="text-center px-4 mt-6">
+          {taskListName && (
+            <p className="font-mono text-[10px] uppercase tracking-widest text-olive mb-2">{taskListName}</p>
+          )}
           <div className="flex justify-center mb-3">
             <AppIcon name={item.icon} size={44} strokeWidth={1.25} className="text-text" />
           </div>

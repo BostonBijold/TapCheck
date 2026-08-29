@@ -750,6 +750,7 @@ export default function TasksView({
           <TaskFormScreen
             item={timerItem}
             initialElapsed={timerInitialElapsed}
+            taskListName={findTaskListName(timerItem._id)}
             preVerifiedNfcUid={preVerified?.taskId === timerItem._id ? preVerified.uid : null}
             onComplete={handleTaskFormComplete}
             onMissed={handleTimerMissed}
@@ -759,6 +760,7 @@ export default function TasksView({
           <TimerScreen
             item={timerItem}
             initialElapsed={timerInitialElapsed}
+            taskListName={findTaskListName(timerItem._id)}
             onComplete={handleTimerComplete}
             onMissed={handleTimerMissed}
             onClose={() => setTimerItem(null)}

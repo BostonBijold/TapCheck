@@ -163,12 +163,19 @@ export default function BottomNav() {
       const data = (await res.json()) as
         | { mode: "anytime"; taskId: string }
         | { mode: "session"; taskId: string; taskListId: string }
-        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string };
+        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+        | { mode: "complete" };
 
       if (data.mode === "locked") {
         // Never fight an active session lock — no navigation, just the same
         // transient pill "no task linked"/"scan failed" already uses.
         flashScanMessage(`In progress by ${data.lockedByName} — try again once they finish.`);
+        return;
+      }
+      if (data.mode === "complete") {
+        // The scanned tag's list (and every other shift-window list) is
+        // already fully done today — nothing to redirect into.
+        flashScanMessage("All shift lists are already complete for today.");
         return;
       }
 
