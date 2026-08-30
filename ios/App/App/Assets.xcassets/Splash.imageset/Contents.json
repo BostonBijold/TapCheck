@@ -1,56 +1,56 @@
 {
-  "images" : [
+  "images": [
     {
-      "filename" : "Gemini_Generated_Image_xb75cfxb75cfxb75 2.jpeg",
-      "idiom" : "universal",
-      "scale" : "1x"
+      "filename": "Default@1x~universal~anyany.png",
+      "idiom": "universal",
+      "scale": "1x"
     },
     {
-      "appearances" : [
+      "appearances": [
         {
-          "appearance" : "luminosity",
-          "value" : "dark"
+          "appearance": "luminosity",
+          "value": "dark"
         }
       ],
-      "filename" : "Gemini_Generated_Image_xb75cfxb75cfxb75 3.jpeg",
-      "idiom" : "universal",
-      "scale" : "1x"
+      "filename": "Default@1x~universal~anyany-dark.png",
+      "idiom": "universal",
+      "scale": "1x"
     },
     {
-      "filename" : "Gemini_Generated_Image_xb75cfxb75cfxb75 1.jpeg",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename": "Default@2x~universal~anyany.png",
+      "idiom": "universal",
+      "scale": "2x"
     },
     {
-      "appearances" : [
+      "appearances": [
         {
-          "appearance" : "luminosity",
-          "value" : "dark"
+          "appearance": "luminosity",
+          "value": "dark"
         }
       ],
-      "filename" : "Gemini_Generated_Image_xb75cfxb75cfxb75 4.jpeg",
-      "idiom" : "universal",
-      "scale" : "2x"
+      "filename": "Default@2x~universal~anyany-dark.png",
+      "idiom": "universal",
+      "scale": "2x"
     },
     {
-      "filename" : "Gemini_Generated_Image_xb75cfxb75cfxb75.jpeg",
-      "idiom" : "universal",
-      "scale" : "3x"
+      "filename": "Default@3x~universal~anyany.png",
+      "idiom": "universal",
+      "scale": "3x"
     },
     {
-      "appearances" : [
+      "appearances": [
         {
-          "appearance" : "luminosity",
-          "value" : "dark"
+          "appearance": "luminosity",
+          "value": "dark"
         }
       ],
-      "filename" : "Gemini_Generated_Image_xb75cfxb75cfxb75 5.jpeg",
-      "idiom" : "universal",
-      "scale" : "3x"
+      "filename": "Default@3x~universal~anyany-dark.png",
+      "idiom": "universal",
+      "scale": "3x"
     }
   ],
-  "info" : {
-    "author" : "xcode",
-    "version" : 1
+  "info": {
+    "author": "xcode",
+    "version": 1
   }
 }
