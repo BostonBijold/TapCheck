@@ -12,6 +12,7 @@ import { emitTaskLogChanged } from "@/lib/task-log-events";
 import { updateRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
 import { projectedFinishTime, staticBaselineFinish, type TaskProjection } from "@/lib/projected-finish";
 import { computeTimeline, type TimelineColorState } from "@/lib/task-timeline";
+import { TASK_TRANSITION_MS } from "@/lib/task-transition";
 
 interface SessionLog {
   taskId: string;
@@ -112,6 +113,11 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // jump-to-task handler, all of which re-fetch rather than trust stale state.
   const [latestLogs, setLatestLogs] = useState<Record<string, DayLogRecord>>({});
   const [jumpNotice, setJumpNotice] = useState<string | null>(null);
+  // True for the TASK_TRANSITION_MS window between a completion actually
+  // saving and the task list moving on to whatever's next — holds the
+  // just-finished task's card on screen playing its exit animation instead
+  // of instantly cutting to the next one. See advance() below.
+  const [transitioning, setTransitioning] = useState(false);
 
   const currentTask = tasks[currentIndex];
   const isCheckbox = currentTask?.taskType === "checkbox";
@@ -446,19 +452,29 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         throw err;
       }
 
-      // Skip past anything already FINISHED today (done/missed/rest), from
-      // ANY source — an earlier API call, a manual tap elsewhere, or this
-      // session itself. An in_progress or paused task is deliberately NOT
-      // skipped — it becomes current instead, resuming from its real banked
-      // time, since it's just something you (or another source) started
-      // earlier and haven't finished yet, not something to bypass. The walk
-      // below wraps back to the start of the list rather than stopping at
-      // the end, so a paused/pending task earlier in the list (jumped away
-      // from or jumped over) still gets revisited instead of silently
-      // ending the session. Re-fetch rather than trust sessionLogs/
-      // externalLogs, since either can be stale relative to an out-of-band
-      // completion that just happened.
-      const records = await fetchDayLogs();
+      // The save is confirmed good — hold the just-finished task's card on
+      // screen playing its exit animation (task-advance-out, via
+      // `transitioning`) for TASK_TRANSITION_MS before actually moving on,
+      // instead of cutting to the next task the instant the network call
+      // resolves. Overlaps with fetchDayLogs rather than stacking after it,
+      // so this never adds latency beyond what the fetch already takes.
+      setTransitioning(true);
+      const [records] = await Promise.all([
+        // Skip past anything already FINISHED today (done/missed/rest), from
+        // ANY source — an earlier API call, a manual tap elsewhere, or this
+        // session itself. An in_progress or paused task is deliberately NOT
+        // skipped — it becomes current instead, resuming from its real banked
+        // time, since it's just something you (or another source) started
+        // earlier and haven't finished yet, not something to bypass. The walk
+        // below wraps back to the start of the list rather than stopping at
+        // the end, so a paused/pending task earlier in the list (jumped away
+        // from or jumped over) still gets revisited instead of silently
+        // ending the session. Re-fetch rather than trust sessionLogs/
+        // externalLogs, since either can be stale relative to an out-of-band
+        // completion that just happened.
+        fetchDayLogs(),
+        new Promise<void>((resolve) => setTimeout(resolve, TASK_TRANSITION_MS)),
+      ]);
       const finishedIds = new Set(sessionLogs.map((l) => l.taskId));
       finishedIds.add(currentTask._id);
       for (const r of records) {
@@ -473,6 +489,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         setIsRunning(false);
         endRoutineActivity();
       }
+      setTransitioning(false);
     },
     [currentTask, currentIndex, tasks, saveLog, sessionLogs, fetchDayLogs]
   );
@@ -537,9 +554,12 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // Keyed by task id so advancing from one form task straight into
       // another (e.g. two NFC-bound checklist tasks back to back) actually
       // remounts this screen — resetting its field values/elapsed clock, and
-      // replaying TaskFormScreen's own .task-advance entrance — instead of
+      // replaying TaskFormScreen's own entrance animation — instead of
       // silently reusing the previous task's component instance with only
-      // its props swapped.
+      // its props swapped. `exiting` flips true (same instance, same key —
+      // currentTask/currentIndex hasn't moved yet) for the hold described at
+      // advance()'s `transitioning` above, then this instance unmounts as
+      // the key changes to whichever task comes next.
       <TaskFormScreen
         key={currentTask._id}
         item={currentTask}
@@ -549,6 +569,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         onComplete={handleTaskFormDone}
         onMissed={handleMissed}
         onClose={handleClose}
+        exiting={transitioning}
       />
     );
   }
@@ -804,10 +825,15 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         />
       </div>
 
-      {/* Keyed by task id so every advance — including a scan-triggered one —
-          replays task-advance (globals.css) here, the same "new task" cue
-          TaskFormScreen's own full-screen takeover gets. */}
-      <div key={currentTask._id} className="flex flex-col select-none task-advance">
+      {/* Same task-advance-in/-out swap as TaskFormScreen's own full-screen
+          takeover — `transitioning` flips this to -out for the outgoing
+          task's hold (advance()'s TASK_TRANSITION_MS window) while still
+          keyed/mounted as that task, then the key change to whichever task
+          comes next remounts it fresh into -in. */}
+      <div
+        key={currentTask._id}
+        className={`flex flex-col select-none ${transitioning ? "task-advance-out pointer-events-none" : "task-advance-in"}`}
+      >
         <div className="text-center px-4 pt-2 pb-3 flex-shrink-0">
           <div className="flex justify-center mb-3">
             <AppIcon name={currentTask.icon} size={44} strokeWidth={1.25} className="text-text" />
@@ -895,7 +921,10 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
 
       {/* ── Checkbox: big done button instead of ring ── */}
       {isCheckbox && (
-        <div key={currentTask._id} className="flex-1 flex items-center justify-center px-4 task-advance">
+        <div
+          key={currentTask._id}
+          className={`flex-1 flex items-center justify-center px-4 ${transitioning ? "task-advance-out pointer-events-none" : "task-advance-in"}`}
+        >
           <button
             onClick={handleDone}
             className="w-44 h-44 rounded-full bg-olive/10 border-2 border-olive/40 flex flex-col items-center justify-center gap-2 active:bg-olive/20 transition-colors"

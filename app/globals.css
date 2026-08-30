@@ -75,20 +75,34 @@ body {
   }
 }
 
-/* Task List Session — the current-task display (icon/name/ring or the form
-   task's own full-screen takeover) replays this on every advance, so a scan
-   or Done tap reads as "moved to a new task" even when the surrounding chrome
-   (timeline, progress counter) doesn't otherwise change enough to notice.
-   Slides in from the right, like the next card in a swiped stack. */
+/* Task card swap — the current-task display (icon/name/ring, the checkbox
+   button, or the form task's own full-screen takeover) plays -out then -in
+   around every advance (a completed NFC scan, Done/Missed/Rest, or opening a
+   standalone task), so it reads as one card physically swapping for the next
+   rather than an instant content flip — see TaskFormScreen.tsx's `exiting`
+   prop and TaskListSessionView.tsx's `transitioning` state, which hold the
+   outgoing card on screen in its -out state for TASK_TRANSITION_MS before
+   the next card actually mounts. Deliberately full-width-ish travel (80px) —
+   a small nudge read as a "flash," not a swipe. */
 @keyframes task-advance-in {
-  from { opacity: 0; transform: translateX(32px); }
+  from { opacity: 0; transform: translateX(80px); }
   to { opacity: 1; transform: translateX(0); }
 }
-.task-advance {
-  animation: task-advance-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+@keyframes task-advance-out {
+  from { opacity: 1; transform: translateX(0); }
+  to { opacity: 0; transform: translateX(-80px); }
+}
+.task-advance-in {
+  animation: task-advance-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.task-advance-out {
+  animation: task-advance-out 260ms cubic-bezier(0.4, 0, 1, 1) both;
 }
 @media (prefers-reduced-motion: reduce) {
-  .task-advance { animation: none; }
+  .task-advance-in,
+  .task-advance-out {
+    animation: none;
+  }
 }
 
 /* Scrollbar */

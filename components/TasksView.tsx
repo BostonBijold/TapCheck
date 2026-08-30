@@ -20,6 +20,7 @@ import { isTaskVisibleOn } from "@/lib/task-visibility";
 import { useTodoActions } from "@/lib/useTodoActions";
 import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { startRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
+import { TASK_TRANSITION_MS } from "@/lib/task-transition";
 
 const LOG_POLL_MS = 2000;
 
@@ -92,6 +93,12 @@ export default function TasksView({
   );
   const [liveWeekLogs, setLiveWeekLogs] = useState<WeekLog[]>(weekLogs);
   const [timerItem, setTimerItem] = useState<TimerItem | null>(null);
+  // True for the TASK_TRANSITION_MS window between a standalone form task's
+  // completion actually saving and this screen closing back to the Tasks
+  // list — holds TaskFormScreen mounted just long enough to play its exit
+  // animation instead of vanishing the instant the save resolves. See
+  // handleTaskFormComplete below.
+  const [closingTimerItem, setClosingTimerItem] = useState(false);
   const [timerInitialElapsed, setTimerInitialElapsed] = useState(0);
   // Set alongside timerItem only by the autoOpenTaskId branch below — the
   // FAB's "scan to open" shortcut already read this task's tag on the way
@@ -666,8 +673,15 @@ export default function TasksView({
       const saved: TaskLogEntry = await res.json();
       setLogs((l) => ({ ...l, [taskId]: saved }));
       emitTaskLogChanged();
+      // Saved — hold this screen up playing its exit animation
+      // (task-advance-out, via TaskFormScreen's `exiting` prop) before
+      // actually closing back to the Tasks list, instead of vanishing the
+      // instant the PATCH resolves.
+      setClosingTimerItem(true);
+      await new Promise((resolve) => setTimeout(resolve, TASK_TRANSITION_MS));
       setTimerItem(null);
       setPreVerified(null);
+      setClosingTimerItem(false);
       endRoutineActivity();
     },
     [timerItem, selectedDate]
@@ -780,6 +794,7 @@ export default function TasksView({
             onComplete={handleTaskFormComplete}
             onMissed={handleTimerMissed}
             onClose={() => { setTimerItem(null); setPreVerified(null); }}
+            exiting={closingTimerItem}
           />
         ) : (
           <TimerScreen

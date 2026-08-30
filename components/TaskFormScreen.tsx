@@ -26,6 +26,13 @@ interface Props {
   onComplete: (formData: Record<string, FieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) => Promise<void>;
   onMissed: () => void;
   onClose: () => void;
+  // Set by the caller once a completion has actually been saved and it's
+  // holding this screen mounted just long enough to play its exit animation
+  // (globals.css's task-advance-out) before swapping to the next task or
+  // closing back to the list — see TaskListSessionView's `transitioning`
+  // state and TasksView's handleTaskFormComplete, both keyed off
+  // lib/task-transition.ts's TASK_TRANSITION_MS. Never true on first mount.
+  exiting?: boolean;
 }
 
 function pad(n: number) {
@@ -50,7 +57,7 @@ function isChecklistComplete(f: { label: string; items?: string[] }, value: Fiel
   return checklistItems(f).every((label) => checked[label] === true);
 }
 
-export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, onComplete, onMissed, onClose }: Props) {
+export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, onComplete, onMissed, onClose, exiting = false }: Props) {
   const fields = item.formFields ?? [];
 
   const [elapsed, setElapsed] = useState(initialElapsed);
@@ -169,11 +176,18 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   const timeDisplay = `${pad(Math.floor(elapsed / 60))}:${pad(elapsed % 60)}`;
 
   return (
-    // task-advance (globals.css) plays on every mount — including a fresh
-    // remount when TaskListSessionView advances straight from one form task
-    // into another (see its key={currentTask._id}) — so landing here always
-    // reads as "new task," not just a silent prop swap.
-    <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto task-advance">
+    // task-advance-in plays on mount (every fresh task, including a remount
+    // when TaskListSessionView advances straight from one form task into
+    // another — see its key={currentTask._id}). task-advance-out takes over
+    // once the caller flips `exiting` true, right after a completion actually
+    // saved — see the `exiting` prop doc above. pointer-events-none while
+    // exiting guards against a second tap landing on a screen that's already
+    // on its way out.
+    <div
+      className={`fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto ${
+        exiting ? "task-advance-out pointer-events-none" : "task-advance-in"
+      }`}
+    >
       <div className="flex items-center justify-between px-4 pt-10 pb-2 flex-shrink-0">
         <button onClick={onClose} className="font-mono text-dim text-sm min-h-[44px] pr-4 flex items-center">
           ← back
