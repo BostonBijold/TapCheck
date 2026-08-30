@@ -39,7 +39,7 @@ function toLoggedState(l: { state: LogState; actualMinutes: number | null }) {
 // solid red = explicitly marked missed.
 function dotClass({ state, timing }: DayBreakdown): string {
   if (state === "done") {
-    return timing === "amber" ? "bg-amber" : "bg-olive";
+    return timing === "amber" ? "bg-amber" : "bg-done";
   }
   switch (state) {
     case "rest": return "bg-blue-muted";

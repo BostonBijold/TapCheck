@@ -662,7 +662,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
                         {variance > 0 ? `+${variance}m` : variance < 0 ? `${variance}m` : "on target"}
                       </span>
                     )}
-                    <span className={`font-mono text-xs ml-1 ${log.state === "done" ? "text-olive" : log.state === "missed" ? "text-burgundy-light" : "text-blue-muted"}`}>
+                    <span className={`font-mono text-xs ml-1 ${log.state === "done" ? "text-done" : log.state === "missed" ? "text-burgundy-light" : "text-blue-muted"}`}>
                       {log.state === "done" ? "✓" : log.state === "missed" ? "✗" : "~"}
                     </span>
                   </div>
@@ -1062,7 +1062,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
                         : `${task.projectedMinutes}m`}
                 </span>
                 {log && (
-                  <span className={`font-mono text-xs flex-shrink-0 ml-1 ${log.state === "done" ? "text-olive" : log.state === "missed" ? "text-burgundy-light" : "text-blue-muted"}`}>
+                  <span className={`font-mono text-xs flex-shrink-0 ml-1 ${log.state === "done" ? "text-done" : log.state === "missed" ? "text-burgundy-light" : "text-blue-muted"}`}>
                     {log.state === "done" ? "✓" : log.state === "missed" ? "✗" : "~"}
                   </span>
                 )}

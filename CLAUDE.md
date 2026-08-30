@@ -78,9 +78,10 @@ comments at the relevant files:
 
 ### Colors
 White-background, high-readability palette with a single brand accent
-(blue) and a minimal red reserved for errors/missed — everything else is a
-neutral slate/gray. Amber survives as a functional timer-warning status
-color (on-track → warning → over-target), not a brand accent.
+(blue), a green reserved for confirmed-complete indicators, and a minimal
+red for errors/missed — everything else is a neutral slate/gray. Amber
+survives as a functional timer-warning status color (on-track → warning →
+over-target), not a brand accent.
 ```
 bg:             #ffffff   (white — all backgrounds)
 card:           #f8fafc   (card surfaces)
@@ -88,8 +89,16 @@ card-hover:     #f1f5f9
 text:           #0f172a   (near-black, high contrast)
 muted:          #64748b
 dim:            #94a3b8
-olive:          #2563eb   (primary accent — actions, streaks, done states)
+olive:          #2563eb   (primary accent — actions, buttons, links, streaks)
 olive-light:    #3b82f6
+done:           #22b37c   (TapCheck Green — sampled from the logo's own
+                           checkmark; completion badges/borders/dots ONLY —
+                           e.g. a task card's "✓ Done" pill, StreakDots'
+                           done dot — kept distinct from olive so "this is
+                           actually finished" reads apart from ordinary blue
+                           actions/buttons, especially now that blue also
+                           covers TaskFormScreen/TaskListSessionView's
+                           task-swap transition backdrop)
 gold:           #3b82f6   (special-item highlights — same accent family)
 tobacco:        #78716c   (neutral — past-window states)
 burgundy:       #dc2626   (missed, over-timer states)
@@ -101,7 +110,9 @@ border-light:   #cbd5e1
 ```
 Token *names* (olive, gold, burgundy, etc.) are kept from the previous dark
 theme for continuity with existing component code — only their hex values
-changed. Don't read the names as literal colors.
+changed. Don't read the names as literal colors. `done` is the one
+exception: a genuinely new token (not inherited from the old theme), added
+specifically to separate completion indicators from the broader blue accent.
 
 ### Typography
 - **Headings**: Playfair Display (serif)

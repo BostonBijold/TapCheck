@@ -91,7 +91,7 @@ function fmtMins(mins: number) {
 const STATE_COLOR: Record<LogState, string> = {
   in_progress: "text-amber",
   paused:      "text-amber",
-  done:        "text-olive",
+  done:        "text-done",
   missed:      "text-burgundy-light",
   rest:        "text-blue-muted",
 };
@@ -187,7 +187,7 @@ export default function TaskListCard({
         <button className="flex items-center gap-2 text-left flex-1" onClick={toggle}>
           <h2 className="font-heading text-lg text-text">{taskList.name}</h2>
           {isComplete && !isPastDate ? (
-            <span className="font-mono text-[10px] text-olive bg-olive/10 px-2 py-0.5 rounded-pill">
+            <span className="font-mono text-[10px] text-done bg-done/10 px-2 py-0.5 rounded-pill">
               ✓ Done
             </span>
           ) : beforeWindow && taskList.startTime ? (
@@ -213,7 +213,7 @@ export default function TaskListCard({
       {effectivelyCollapsed && isComplete && (
         <button
           onClick={toggle}
-          className="w-full text-left bg-card rounded-card border-l-[3px] border-olive px-4 py-3.5 hover:bg-card-hover transition-colors"
+          className="w-full text-left bg-card rounded-card border-l-[3px] border-done px-4 py-3.5 hover:bg-card-hover transition-colors"
         >
           {projectedMins > 0 && (
             <div className="flex items-center gap-3 mb-3">

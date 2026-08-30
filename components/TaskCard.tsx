@@ -81,10 +81,10 @@ export default function TaskCard({
   // ── Completed state ────────────────────────────────────────────────────────
   if (state === "done") {
     return (
-      <div className="bg-card rounded-card border-l-[3px] border-l-olive px-4 py-3.5">
+      <div className="bg-card rounded-card border-l-[3px] border-l-done px-4 py-3.5">
         <div className="flex items-center gap-3">
           <div className="w-7 flex items-center justify-center flex-shrink-0">
-            <AppIcon name={item.icon} size={17} className="text-olive/60" />
+            <AppIcon name={item.icon} size={17} className="text-done/60" />
           </div>
           <div className="flex-1 min-w-0">
             <p className="font-body text-sm text-dim line-through leading-tight">{item.name}</p>
@@ -101,7 +101,7 @@ export default function TaskCard({
             </div>
           </div>
           <div className="flex flex-col items-end gap-0.5 flex-shrink-0">
-            <span className="font-mono text-xs text-olive bg-olive/10 px-2 py-0.5 rounded-pill">
+            <span className="font-mono text-xs text-done bg-done/10 px-2 py-0.5 rounded-pill">
               ✓ Done
             </span>
             {isTimed && actual != null && hasDuration && (
