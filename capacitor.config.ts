@@ -1,11 +1,11 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.bostonbijold.tapcheck',
-  appName: 'TapCheck',
+  appId: 'com.bostonbijold.chrps',
+  appName: "Ch'rps",
   webDir: 'public',
   server: {
-    url: 'https://tap-check.vercel.app',
+    url: 'https://chrps.vercel.app',
     cleartext: false,
     allowNavigation: ['accounts.google.com']
   },

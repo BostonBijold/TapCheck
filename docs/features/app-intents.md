@@ -3,10 +3,13 @@
 # App Intents — Native Check Triggers
 
 > Note: this doc's prose has been updated for the app's pivot from personal
-> habits to restaurant work checks, but the underlying Swift code (file/type
-> names like `HabitEntity.swift`, `TriggerHabitIntent`, `fetchHabits`) and
-> the "Be One" name shown to Siri/Shortcuts are native-project concerns not
-> touched by this pass — see CLAUDE.md for the pivot's current scope.
+> habits to restaurant work checks, but the underlying Swift code's
+> `Habit`/`Routine`-prefixed file and type names (`HabitEntity.swift`,
+> `TriggerHabitIntent`, `fetchHabits`, `RoutineActivity`) are a native-project
+> concern not touched by this pass — see CLAUDE.md for the pivot's current
+> scope. The app's own brand name shown to Siri/Shortcuts (`ChrpsAPI`,
+> `ChrpsShortcuts`, "Ch'rps") *was* renamed as part of the Ch'rps rebrand,
+> unlike that Habit/Routine vocabulary.
 
 Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets the app declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual checks, with no URL or API key ever touching a Shortcut. This is now the **only** supported way to trigger a check from outside the app; an earlier NFC-tag/Universal-Link-based system (per-card URLs, a claim flow, `NfcTag`/`PendingNfcLink` models) was removed once this shipped — everything it did, App Intents does better, including physical taps (see "Physical NFC tags" below).
 
@@ -31,7 +34,7 @@ App Intents code runs independent of the WebView — possibly via a background l
 - **`lib/native/api-key-bridge.ts`** — the JS-side `registerPlugin<ApiKeyBridgePlugin>("ApiKeyBridge")` wrapper.
 - **Bootstrapped from two call sites**, both already `Capacitor.isNativePlatform()`-gated no-ops on web:
   1. `components/ProfileView.tsx`'s existing API-key fetch (already there for the copy-to-clipboard card) now also pushes the key to Keychain.
-  2. `components/NativeBootstrap.tsx` (globally mounted in `app/layout.tsx`) does the same fetch-and-push on every native cold start — closing the gap where an intent invoked before the user ever opened Profile would find nothing in Keychain. If Be One is installed but Profile has never been opened *and* the app hasn't been cold-launched natively even once, the key genuinely isn't there yet — `TriggerHabitIntent` surfaces a clear, actionable error in that case rather than failing silently (see below).
+  2. `components/NativeBootstrap.tsx` (globally mounted in `app/layout.tsx`) does the same fetch-and-push on every native cold start — closing the gap where an intent invoked before the user ever opened Profile would find nothing in Keychain. If Ch'rps is installed but Profile has never been opened *and* the app hasn't been cold-launched natively even once, the key genuinely isn't there yet — `TriggerHabitIntent` surfaces a clear, actionable error in that case rather than failing silently (see below).
 
 ## Swift file layout
 
@@ -39,7 +42,7 @@ App Intents code runs independent of the WebView — possibly via a background l
 ios/App/App/
   KeychainHelper.swift
   ApiKeyBridgePlugin.swift
-  BeOneAPI.swift             — baseURL, triggerHabit, BeOneAPIError. Moved out of
+  ChrpsAPI.swift             — baseURL, triggerHabit, ChrpsAPIError. Moved out of
                                 HabitEntityQuery.swift (where it originally lived inline) when
                                 the Live Activity feature needed to share it with a second
                                 target — see docs/features/live-activity.md. Now dual
@@ -49,26 +52,26 @@ ios/App/App/
     HabitEntityQuery.swift    — EntityQuery + EntityStringQuery, backed by a 45s-TTL actor
                                  cache (HabitCache) so the Shortcuts editor's search field
                                  doesn't hit the network on every keystroke; also hosts
-                                 fetchHabits as an App-only extension on the BeOneAPI enum
+                                 fetchHabits as an App-only extension on the ChrpsAPI enum
                                  above (its response decodes into [HabitEntity], which the
                                  Live Activity's extension target doesn't compile, hence not
-                                 in BeOneAPI.swift itself)
+                                 in ChrpsAPI.swift itself)
     TriggerHabitIntent.swift  — the AppIntent itself; POSTs to the existing
                                  /api/external/trigger-task, no new trigger logic
-    BeOneShortcuts.swift      — AppShortcutsProvider; this alone is what makes the action
+    ChrpsShortcuts.swift      — AppShortcutsProvider; this alone is what makes the action
                                  appear in the Shortcuts gallery/Siri/Spotlight, no
                                  Info.plist configuration needed
 ```
 
-A second AppIntent, `CompleteHabitFromActivityIntent` (the Live Activity's "Done" button), also calls into `BeOneAPI.triggerHabit` — see [`live-activity.md`](live-activity.md).
+A second AppIntent, `CompleteHabitFromActivityIntent` (the Live Activity's "Done" button), also calls into `ChrpsAPI.triggerHabit` — see [`live-activity.md`](live-activity.md).
 
-`BeOneAPI`'s base URL (`https://tap-check.vercel.app`) is a hardcoded Swift constant matching `capacitor.config.ts`'s `server.url` — there's no way to share the JS config into native code, so this is a place that needs updating manually if the production domain ever changes.
+`ChrpsAPI`'s base URL (`https://chrps.vercel.app`) is a hardcoded Swift constant matching `capacitor.config.ts`'s `server.url` — there's no way to share the JS config into native code, so this is a place that needs updating manually if the production domain ever changes.
 
-**`ios/App/App/SceneDelegate.swift` must construct `MainViewController()`, not a bare `CAPBridgeViewController()`.** It was the latter until this feature exposed the bug — meaning `MainViewController`'s overrides, including `capacitorDidLoad()`'s plugin registration (and even the pre-existing scroll-bounce fix, unrelated to any of this), silently never ran, ever. Confirmed on-device: `NSLog`, `os_log(.fault)`, and raw stderr/stdout writes placed directly in `MainViewController.viewDidLoad()` produced zero output through any capture mechanism, even in a fully non-accelerated, traditionally-linked build — the only remaining explanation was that the class was never instantiated. Symptom, if this regresses again: the "Trigger Habit" Shortcuts action resolves its habit picker fine (native Capacitor bridge basics still work) but every run fails with `BeOneAPIError.notSignedIn` regardless of being actually signed in, because `ApiKeyBridgePlugin` was never registered to receive the key in the first place.
+**`ios/App/App/SceneDelegate.swift` must construct `MainViewController()`, not a bare `CAPBridgeViewController()`.** It was the latter until this feature exposed the bug — meaning `MainViewController`'s overrides, including `capacitorDidLoad()`'s plugin registration (and even the pre-existing scroll-bounce fix, unrelated to any of this), silently never ran, ever. Confirmed on-device: `NSLog`, `os_log(.fault)`, and raw stderr/stdout writes placed directly in `MainViewController.viewDidLoad()` produced zero output through any capture mechanism, even in a fully non-accelerated, traditionally-linked build — the only remaining explanation was that the class was never instantiated. Symptom, if this regresses again: the "Trigger Habit" Shortcuts action resolves its habit picker fine (native Capacitor bridge basics still work) but every run fails with `ChrpsAPIError.notSignedIn` regardless of being actually signed in, because `ApiKeyBridgePlugin` was never registered to receive the key in the first place.
 
 ## Local date, not server UTC
 
-`BeOneAPI.triggerHabit` sends an explicit `date` param (`YYYY-MM-DD`, computed from `DateFormatter` with `timeZone = .current`) rather than leaving it out. Confirmed on-device: without it, `POST /api/external/trigger-task` defaults to the *server's* UTC date, and a trigger fired at 7pm Mountain time landed on tomorrow's log — invisible on today's view. The web client never hits this, since `TasksView.tsx` has its own effect that compares the server-rendered UTC `today` against `new Date().toLocaleDateString("en-CA")` (the browser's local date) and redirects to correct it on every load/foreground; the App Intent path has no equivalent correction, so it has to get the date right itself up front instead.
+`ChrpsAPI.triggerHabit` sends an explicit `date` param (`YYYY-MM-DD`, computed from `DateFormatter` with `timeZone = .current`) rather than leaving it out. Confirmed on-device: without it, `POST /api/external/trigger-task` defaults to the *server's* UTC date, and a trigger fired at 7pm Mountain time landed on tomorrow's log — invisible on today's view. The web client never hits this, since `TasksView.tsx` has its own effect that compares the server-rendered UTC `today` against `new Date().toLocaleDateString("en-CA")` (the browser's local date) and redirects to correct it on every load/foreground; the App Intent path has no equivalent correction, so it has to get the date right itself up front instead.
 
 ## `openAppWhenRun = false`
 
@@ -76,7 +79,7 @@ A second AppIntent, `CompleteHabitFromActivityIntent` (the Live Activity's "Done
 
 ## Connection status in Manage Habit
 
-There's no Apple-provided hook for "a user configured a Shortcut with this task as its parameter" — the Shortcuts editor never talks to a server just because someone picked a value from `HabitEntityQuery`'s list. The only signal Be One ever gets is when the Shortcut actually **runs**. So rather than pretend to track individual Shortcuts, `models/AppIntentLink.ts` records usage: `{ userId, taskId, lastTriggeredAt }`, upserted by `POST /api/external/trigger-task` whenever the caller passes `source: "app_intent"` (see [`api/external-api.md`](../api/external-api.md#post-apiexternaltrigger-task)) — `TriggerHabitIntent`'s `BeOneAPI.triggerHabit` always sends this.
+There's no Apple-provided hook for "a user configured a Shortcut with this task as its parameter" — the Shortcuts editor never talks to a server just because someone picked a value from `HabitEntityQuery`'s list. The only signal Ch'rps ever gets is when the Shortcut actually **runs**. So rather than pretend to track individual Shortcuts, `models/AppIntentLink.ts` records usage: `{ userId, taskId, lastTriggeredAt }`, upserted by `POST /api/external/trigger-task` whenever the caller passes `source: "app_intent"` (see [`api/external-api.md`](../api/external-api.md#post-apiexternaltrigger-task)) — `TriggerHabitIntent`'s `ChrpsAPI.triggerHabit` always sends this.
 
 `app/(app)/tasks/[taskListId]/edit/page.tsx` loads these and passes `appIntentLastTriggeredAt` to `components/TaskListEditView.tsx`, which shows a "Siri & Shortcuts — Connected · last used {date}" line in the per-task edit panel whenever it's non-null. Nothing here blocks a task from being picked by multiple different Shortcuts, or an NFC Automation on top of one of them; the badge is just "has this ever been triggered via App Intent," not an exclusive slot.
 
@@ -92,6 +95,6 @@ Raised `IPHONEOS_DEPLOYMENT_TARGET` from `15.0` to `17.0` (all 4 occurrences in 
 
 1. Rebuild and install the app on-device — native code changed, so a web-only deploy isn't enough; this app runs in Capacitor server-URL mode (`capacitor.config.ts`'s `server.url` points at the live Next.js deployment), so the *JS* side of any change ships on a normal web deploy, but Swift changes need an actual `xcodebuild`/install cycle.
 2. Open the app once (Profile, or just a cold launch) so the API key reaches Keychain.
-3. In the Shortcuts app, the "Trigger Habit" action should appear under Be One — add it to a new Shortcut, or ask Siri directly ("Trigger a habit in Be One").
+3. In the Shortcuts app, the "Trigger Habit" action should appear under Ch'rps — add it to a new Shortcut, or ask Siri directly ("Trigger a habit in Ch'rps").
 4. Pick a habit from the live picker. No URL, no API key entry.
 5. For a physical tap: Automation → + → NFC → scan any tag → Run Shortcut → the Shortcut built in step 3-4. No app-specific tag setup of any kind.

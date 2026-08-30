@@ -21,7 +21,7 @@ if (!uri) {
   process.exit(1);
 }
 
-const DOMAIN = "tap-check.vercel.app";
+const DOMAIN = "chrps.vercel.app";
 const COUNT = Number(process.argv[2]) > 0 ? Number(process.argv[2]) : 10;
 
 // Excludes 0/O and 1/l/I — avoids ambiguity if a tagCode ever needs to be

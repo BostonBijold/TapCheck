@@ -16,7 +16,7 @@ export async function GET() {
       apps: [],
       details: [
         {
-          appID: "X3DPK5Y29G.com.bostonbijold.tapcheck",
+          appID: "X3DPK5Y29G.com.bostonbijold.chrps",
           paths: ["/nfc/*"],
         },
       ],

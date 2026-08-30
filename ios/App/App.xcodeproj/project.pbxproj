@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1592F30D62789D1F610E3CB6 /* BeOneShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BD5617E197AEE38F5575E9 /* BeOneShortcuts.swift */; };
+		1592F30D62789D1F610E3CB6 /* ChrpsShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BD5617E197AEE38F5575E9 /* ChrpsShortcuts.swift */; };
 		18452759304095690025BE61 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 18452758304095690025BE61 /* WidgetKit.framework */; };
 		1845275B304095690025BE61 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1845275A304095690025BE61 /* SwiftUI.framework */; };
 		1845276C3040956A0025BE61 /* RoutineActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 18452756304095690025BE61 /* RoutineActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -22,12 +22,12 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		7538C3E4D4E825678198C8F7 /* RoutineActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4DAFFA55EBB5146C26AD59 /* RoutineActivityAttributes.swift */; };
-		7C642174DD6A3808A8C5D490 /* BeOneAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31DBB55409C5C3B136E3F86 /* BeOneAPI.swift */; };
+		7C642174DD6A3808A8C5D490 /* ChrpsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */; };
 		931BD366EC752B25D702E40E /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759F4251D226A83E45523A97 /* KeychainHelper.swift */; };
 		95188469829199D735AA7DA8 /* NfcScanPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		AC49076C0AECEAE985237245 /* LiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */; };
-		AD534EE11123EBD8AA473F25 /* BeOneAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31DBB55409C5C3B136E3F86 /* BeOneAPI.swift */; };
+		AD534EE11123EBD8AA473F25 /* ChrpsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */; };
 		C615BE245A32A985ACB0910F /* HabitEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */; };
 		D4E7B32E715C132C2F3066A1 /* HabitEntityQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */; };
 		D9FFB5487F97B6B99F0256FD /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759F4251D226A83E45523A97 /* KeychainHelper.swift */; };
@@ -76,7 +76,7 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		589FC9ECDCB68AA23B353864 /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
-		70BD5617E197AEE38F5575E9 /* BeOneShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BeOneShortcuts.swift; sourceTree = "<group>"; };
+		70BD5617E197AEE38F5575E9 /* ChrpsShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChrpsShortcuts.swift; sourceTree = "<group>"; };
 		759F4251D226A83E45523A97 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		7F56C32234441094199A01A3 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
 		8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerHabitIntent.swift; sourceTree = "<group>"; };
@@ -84,7 +84,7 @@
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NfcScanPlugin.swift; sourceTree = "<group>"; };
-		D31DBB55409C5C3B136E3F86 /* BeOneAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = BeOneAPI.swift; sourceTree = "<group>"; };
+		D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChrpsAPI.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -137,7 +137,7 @@
 				2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */,
 				3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */,
 				8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */,
-				70BD5617E197AEE38F5575E9 /* BeOneShortcuts.swift */,
+				70BD5617E197AEE38F5575E9 /* ChrpsShortcuts.swift */,
 			);
 			path = AppIntents;
 			sourceTree = "<group>";
@@ -179,7 +179,7 @@
 				759F4251D226A83E45523A97 /* KeychainHelper.swift */,
 				327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */,
 				22DECD5BCD5F89314C4C77F4 /* AppIntents */,
-				D31DBB55409C5C3B136E3F86 /* BeOneAPI.swift */,
+				D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */,
 				9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */,
 				BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */,
 				0F4DAFFA55EBB5146C26AD59 /* RoutineActivityAttributes.swift */,
@@ -302,7 +302,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				931BD366EC752B25D702E40E /* KeychainHelper.swift in Sources */,
-				7C642174DD6A3808A8C5D490 /* BeOneAPI.swift in Sources */,
+				7C642174DD6A3808A8C5D490 /* ChrpsAPI.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -318,8 +318,8 @@
 				C615BE245A32A985ACB0910F /* HabitEntity.swift in Sources */,
 				D4E7B32E715C132C2F3066A1 /* HabitEntityQuery.swift in Sources */,
 				303E5691EEB919AA7EEACAB6 /* TriggerHabitIntent.swift in Sources */,
-				1592F30D62789D1F610E3CB6 /* BeOneShortcuts.swift in Sources */,
-				AD534EE11123EBD8AA473F25 /* BeOneAPI.swift in Sources */,
+				1592F30D62789D1F610E3CB6 /* ChrpsShortcuts.swift in Sources */,
+				AD534EE11123EBD8AA473F25 /* ChrpsAPI.swift in Sources */,
 				AC49076C0AECEAE985237245 /* LiveActivityPlugin.swift in Sources */,
 				95188469829199D735AA7DA8 /* NfcScanPlugin.swift in Sources */,
 				7538C3E4D4E825678198C8F7 /* RoutineActivityAttributes.swift in Sources */,
@@ -383,7 +383,7 @@
 				MARKETING_VERSION = 1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.tapcheck.RoutineActivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.chrps.RoutineActivity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -422,7 +422,7 @@
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MARKETING_VERSION = 1.0;
 				MTL_FAST_MATH = YES;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.tapcheck.RoutineActivity;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.chrps.RoutineActivity;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -573,7 +573,7 @@
 				);
 				MARKETING_VERSION = 1.0;
 				OTHER_SWIFT_FLAGS = "$(inherited) \"-D\" \"COCOAPODS\" \"-DDEBUG\"";
-				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.tapcheck;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.chrps;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
@@ -598,7 +598,7 @@
 					"@executable_path/Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.tapcheck;
+				PRODUCT_BUNDLE_IDENTIFIER = com.bostonbijold.chrps;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "";

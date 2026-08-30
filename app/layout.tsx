@@ -25,13 +25,13 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "TapCheck",
+  title: "Ch'rps",
   description: "Shift checks, done right, every time.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "TapCheck",
+    title: "Ch'rps",
   },
   icons: {
     icon: [

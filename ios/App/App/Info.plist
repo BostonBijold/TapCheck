@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>TapCheck</string>
+	<string>Ch'rps</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -27,7 +27,7 @@
 	<key>NSSupportsLiveActivities</key>
 	<true/>
 	<key>NFCReaderUsageDescription</key>
-	<string>TapCheck uses NFC to link a physical tag to a task and to verify it when the task is completed.</string>
+	<string>Ch'rps uses NFC to link a physical tag to a task and to verify it when the task is completed.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

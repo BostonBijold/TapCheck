@@ -3,7 +3,7 @@ import AppIntents
 // Declaring this is what makes TriggerHabitIntent appear automatically in
 // the Shortcuts app gallery, Siri, and Spotlight — no Info.plist config,
 // no user-built Shortcut required. See docs/features/app-intents.md.
-struct BeOneShortcuts: AppShortcutsProvider {
+struct ChrpsShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
             intent: TriggerHabitIntent(),
