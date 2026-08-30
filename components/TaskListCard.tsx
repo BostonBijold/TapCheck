@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useRef } from "react";
 import { Play, Unlock } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TaskRow, { type RowItem } from "@/components/TaskRow";
@@ -160,6 +160,17 @@ export default function TaskListCard({
       }, 600);
       return () => clearTimeout(t);
     }
+  }, [isComplete, isPastDate]);
+
+  // Undoing the last completed task in a list flips isComplete back to
+  // false — re-expand out of the collapsed summary strip so the now-pending
+  // task is visible again, mirroring the collapse effect above.
+  const wasComplete = useRef(isComplete);
+  useEffect(() => {
+    if (wasComplete.current && !isComplete && !isPastDate) {
+      setIsCollapsed(false);
+    }
+    wasComplete.current = isComplete;
   }, [isComplete, isPastDate]);
 
   const doneCount = visibleTasks.filter((t) => logs[t._id]?.state === "done").length;

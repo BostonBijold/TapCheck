@@ -480,6 +480,7 @@ export default function TasksView({
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ taskId, date: selectedDate }),
         });
+        emitTaskLogChanged();
       } else if (opts?.startedAt && opts?.completedAt) {
         // Manual time edit — use PATCH with explicit timestamps
         const mins = Math.max(1, Math.round(
