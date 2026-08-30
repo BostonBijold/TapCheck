@@ -596,70 +596,86 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
     const doneCount = allLogs.filter((l) => l.state === "done").length;
 
     return (
-      <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
-        <div className="flex-1 overflow-y-auto px-4 pb-4">
-          <div className="text-center pt-16 pb-10">
-            <div className="flex justify-center mb-4">
-              <CheckCircle2 size={48} strokeWidth={1.5} className="text-olive" />
-            </div>
-            <h2 className="font-heading text-2xl text-text">{taskListName}</h2>
-            <p className="font-mono text-olive text-sm mt-1 tracking-wide">Complete</p>
-            <div className="flex justify-center gap-10 mt-8">
-              <div>
-                <p className="font-mono text-2xl text-text">{totalActual}m</p>
-                <p className="font-mono text-dim text-[10px] uppercase tracking-widest mt-1">actual</p>
+      // Same blue-backdrop + bordered-card treatment as the running view's
+      // current-task card and TaskFormScreen — the last task's card exits
+      // into this same blue field (see advance()'s transitioning hold right
+      // before setPhase("summary")), so the receipt reads as one more card
+      // in the same stack, not a different kind of screen.
+      <div
+        className="fixed inset-0 z-50 flex items-stretch justify-center"
+        style={{
+          background: "#2563eb",
+          paddingTop: "calc(env(safe-area-inset-top) + 14px)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
+          paddingLeft: "14px",
+          paddingRight: "14px",
+        }}
+      >
+        <div className="w-full max-w-mobile rounded-[28px] border-2 border-white/25 bg-bg shadow-2xl overflow-hidden flex flex-col task-advance-in">
+          <div className="flex-1 overflow-y-auto px-4 pb-4">
+            <div className="text-center pt-16 pb-10">
+              <div className="flex justify-center mb-4">
+                <CheckCircle2 size={48} strokeWidth={1.5} className="text-olive" />
               </div>
-              {totalProjected > 0 && (
+              <h2 className="font-heading text-2xl text-text">{taskListName}</h2>
+              <p className="font-mono text-olive text-sm mt-1 tracking-wide">Complete</p>
+              <div className="flex justify-center gap-10 mt-8">
                 <div>
-                  <p className="font-mono text-2xl text-muted">{totalProjected}m</p>
-                  <p className="font-mono text-dim text-[10px] uppercase tracking-widest mt-1">projected</p>
+                  <p className="font-mono text-2xl text-text">{totalActual}m</p>
+                  <p className="font-mono text-dim text-[10px] uppercase tracking-widest mt-1">actual</p>
                 </div>
-              )}
-              <div>
-                <p className="font-mono text-2xl text-text">{doneCount}/{tasks.length}</p>
-                <p className="font-mono text-dim text-[10px] uppercase tracking-widest mt-1">completed</p>
+                {totalProjected > 0 && (
+                  <div>
+                    <p className="font-mono text-2xl text-muted">{totalProjected}m</p>
+                    <p className="font-mono text-dim text-[10px] uppercase tracking-widest mt-1">projected</p>
+                  </div>
+                )}
+                <div>
+                  <p className="font-mono text-2xl text-text">{doneCount}/{tasks.length}</p>
+                  <p className="font-mono text-dim text-[10px] uppercase tracking-widest mt-1">completed</p>
+                </div>
               </div>
+            </div>
+
+            <div className="bg-card rounded-card overflow-hidden divide-y divide-border">
+              {tasks.map((task) => {
+                const log = logMap[task._id];
+                if (!log) return null;
+                const isTaskCheckbox = task.taskType === "checkbox";
+                const isTaskStopwatch = task.taskType === "stopwatch";
+                const isTaskForm = task.taskType === "form";
+                const variance =
+                  log.state === "done" && !isTaskCheckbox && !isTaskStopwatch && !isTaskForm
+                    ? log.actualMinutes - task.projectedMinutes
+                    : null;
+                return (
+                  <div key={task._id} className="flex items-center gap-3 px-4 py-3">
+                    <div className="w-7 flex items-center justify-center flex-shrink-0">
+                      <AppIcon name={task.icon} size={16} className="text-muted" />
+                    </div>
+                    <span className="flex-1 font-body text-sm text-text truncate">{task.name}</span>
+                    {log.state === "done" && log.actualMinutes > 0 && (
+                      <span className="font-mono text-xs text-muted mr-1">{log.actualMinutes}m</span>
+                    )}
+                    {variance !== null && (
+                      <span className={`font-mono text-xs ${variance > 0 ? "text-tobacco" : variance < 0 ? "text-olive-light" : "text-dim"}`}>
+                        {variance > 0 ? `+${variance}m` : variance < 0 ? `${variance}m` : "on target"}
+                      </span>
+                    )}
+                    <span className={`font-mono text-xs ml-1 ${log.state === "done" ? "text-olive" : log.state === "missed" ? "text-burgundy-light" : "text-blue-muted"}`}>
+                      {log.state === "done" ? "✓" : log.state === "missed" ? "✗" : "~"}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
-          <div className="bg-card rounded-card overflow-hidden divide-y divide-border">
-            {tasks.map((task) => {
-              const log = logMap[task._id];
-              if (!log) return null;
-              const isTaskCheckbox = task.taskType === "checkbox";
-              const isTaskStopwatch = task.taskType === "stopwatch";
-              const isTaskForm = task.taskType === "form";
-              const variance =
-                log.state === "done" && !isTaskCheckbox && !isTaskStopwatch && !isTaskForm
-                  ? log.actualMinutes - task.projectedMinutes
-                  : null;
-              return (
-                <div key={task._id} className="flex items-center gap-3 px-4 py-3">
-                  <div className="w-7 flex items-center justify-center flex-shrink-0">
-                    <AppIcon name={task.icon} size={16} className="text-muted" />
-                  </div>
-                  <span className="flex-1 font-body text-sm text-text truncate">{task.name}</span>
-                  {log.state === "done" && log.actualMinutes > 0 && (
-                    <span className="font-mono text-xs text-muted mr-1">{log.actualMinutes}m</span>
-                  )}
-                  {variance !== null && (
-                    <span className={`font-mono text-xs ${variance > 0 ? "text-tobacco" : variance < 0 ? "text-olive-light" : "text-dim"}`}>
-                      {variance > 0 ? `+${variance}m` : variance < 0 ? `${variance}m` : "on target"}
-                    </span>
-                  )}
-                  <span className={`font-mono text-xs ml-1 ${log.state === "done" ? "text-olive" : log.state === "missed" ? "text-burgundy-light" : "text-blue-muted"}`}>
-                    {log.state === "done" ? "✓" : log.state === "missed" ? "✗" : "~"}
-                  </span>
-                </div>
-              );
-            })}
+          <div className="px-4 py-4 flex-shrink-0 border-t border-border">
+            <button onClick={onFinish} className="w-full py-4 rounded-card bg-olive text-text font-body font-medium">
+              Finish
+            </button>
           </div>
-        </div>
-
-        <div className="px-4 py-4 flex-shrink-0 border-t border-border">
-          <button onClick={onFinish} className="w-full py-4 rounded-card bg-olive text-text font-body font-medium">
-            Finish
-          </button>
         </div>
       </div>
     );
