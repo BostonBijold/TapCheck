@@ -772,6 +772,7 @@ export default function TasksView({
       {timerItem && (
         timerItem.taskType === "form" ? (
           <TaskFormScreen
+            key={timerItem._id}
             item={timerItem}
             initialElapsed={timerInitialElapsed}
             taskListName={findTaskListName(timerItem._id)}

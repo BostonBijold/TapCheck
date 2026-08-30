@@ -534,7 +534,14 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // task once advance() moves currentIndex forward. ──
   if (phase === "running" && isForm && currentTask) {
     return (
+      // Keyed by task id so advancing from one form task straight into
+      // another (e.g. two NFC-bound checklist tasks back to back) actually
+      // remounts this screen — resetting its field values/elapsed clock, and
+      // replaying TaskFormScreen's own .task-advance entrance — instead of
+      // silently reusing the previous task's component instance with only
+      // its props swapped.
       <TaskFormScreen
+        key={currentTask._id}
         item={currentTask}
         initialElapsed={elapsed}
         taskListName={taskListName}
@@ -797,7 +804,10 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         />
       </div>
 
-      <div className="flex flex-col select-none">
+      {/* Keyed by task id so every advance — including a scan-triggered one —
+          replays task-advance (globals.css) here, the same "new task" cue
+          TaskFormScreen's own full-screen takeover gets. */}
+      <div key={currentTask._id} className="flex flex-col select-none task-advance">
         <div className="text-center px-4 pt-2 pb-3 flex-shrink-0">
           <div className="flex justify-center mb-3">
             <AppIcon name={currentTask.icon} size={44} strokeWidth={1.25} className="text-text" />
@@ -885,7 +895,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
 
       {/* ── Checkbox: big done button instead of ring ── */}
       {isCheckbox && (
-        <div className="flex-1 flex items-center justify-center px-4">
+        <div key={currentTask._id} className="flex-1 flex items-center justify-center px-4 task-advance">
           <button
             onClick={handleDone}
             className="w-44 h-44 rounded-full bg-olive/10 border-2 border-olive/40 flex flex-col items-center justify-center gap-2 active:bg-olive/20 transition-colors"

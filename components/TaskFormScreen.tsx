@@ -169,7 +169,11 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   const timeDisplay = `${pad(Math.floor(elapsed / 60))}:${pad(elapsed % 60)}`;
 
   return (
-    <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto">
+    // task-advance (globals.css) plays on every mount — including a fresh
+    // remount when TaskListSessionView advances straight from one form task
+    // into another (see its key={currentTask._id}) — so landing here always
+    // reads as "new task," not just a silent prop swap.
+    <div className="fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto task-advance">
       <div className="flex items-center justify-between px-4 pt-10 pb-2 flex-shrink-0">
         <button onClick={onClose} className="font-mono text-dim text-sm min-h-[44px] pr-4 flex items-center">
           ← back

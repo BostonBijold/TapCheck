@@ -75,6 +75,22 @@ body {
   }
 }
 
+/* Task List Session — the current-task display (icon/name/ring or the form
+   task's own full-screen takeover) replays this on every advance, so a scan
+   or Done tap reads as "moved to a new task" even when the surrounding chrome
+   (timeline, progress counter) doesn't otherwise change enough to notice.
+   Slides in from the right, like the next card in a swiped stack. */
+@keyframes task-advance-in {
+  from { opacity: 0; transform: translateX(32px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.task-advance {
+  animation: task-advance-in 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .task-advance { animation: none; }
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 4px;
