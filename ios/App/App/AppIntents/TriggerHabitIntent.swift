@@ -6,7 +6,7 @@ import AppIntents
 // docs/features/app-intents.md.
 struct TriggerHabitIntent: AppIntent {
     static var title: LocalizedStringResource = "Trigger Habit"
-    static var description = IntentDescription("Starts, completes, or advances a TapCheck task.")
+    static var description = IntentDescription("Starts, completes, or advances a Ch'rps task.")
 
     // Runs without launching the app or showing any UI — parity with the
     // existing silent NFC Automation path (works with the phone locked).
@@ -23,9 +23,9 @@ struct TriggerHabitIntent: AppIntent {
 
     func perform() async throws -> some IntentResult & ProvidesDialog {
         guard let apiKey = KeychainHelper.load() else {
-            throw BeOneAPIError.notSignedIn
+            throw ChrpsAPIError.notSignedIn
         }
-        try await BeOneAPI.triggerHabit(apiKey: apiKey, routineItemId: habit.id, routineGroupId: habit.groupId, source: "app_intent")
+        try await ChrpsAPI.triggerHabit(apiKey: apiKey, routineItemId: habit.id, routineGroupId: habit.groupId, source: "app_intent")
         return .result(dialog: "Triggered \(habit.name)")
     }
 }

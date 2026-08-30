@@ -16,8 +16,8 @@ import Foundation
 // which is App-target-only, so pulling it into this dual-membership file
 // would fail to compile in the RoutineActivity target. fetchHabits stays
 // as an App-only extension on this enum in HabitEntityQuery.swift instead.
-enum BeOneAPI {
-    static let baseURL = URL(string: "https://tap-check.vercel.app")!
+enum ChrpsAPI {
+    static let baseURL = URL(string: "https://chrps.vercel.app")!
 
     struct TriggerResponse: Decodable {
         let ok: Bool
@@ -59,7 +59,7 @@ enum BeOneAPI {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw BeOneAPIError.requestFailed
+            throw ChrpsAPIError.requestFailed
         }
         return try JSONDecoder().decode(TriggerResponse.self, from: data)
     }
@@ -80,22 +80,22 @@ enum BeOneAPI {
 
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw BeOneAPIError.requestFailed
+            throw ChrpsAPIError.requestFailed
         }
         return try JSONDecoder().decode(TriggerResponse.self, from: data)
     }
 }
 
-enum BeOneAPIError: Error, CustomLocalizedStringResourceConvertible {
+enum ChrpsAPIError: Error, CustomLocalizedStringResourceConvertible {
     case notSignedIn
     case requestFailed
 
     var localizedStringResource: LocalizedStringResource {
         switch self {
         case .notSignedIn:
-            return "Not signed in to TapCheck yet — open the app once and visit your Profile page, then try again."
+            return "Not signed in to Ch'rps yet — open the app once and visit your Profile page, then try again."
         case .requestFailed:
-            return "Couldn't reach TapCheck. Check your connection and try again."
+            return "Couldn't reach Ch'rps. Check your connection and try again."
         }
     }
 }

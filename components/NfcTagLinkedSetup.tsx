@@ -40,7 +40,7 @@ export default function NfcTagLinkedSetup({ tagCode, taskName, taskIcon, onDone,
   const openAppUrl = `${typeof window !== "undefined" ? window.location.origin : ""}/tasks`;
 
   const instructions = triggerUrl
-    ? `TapCheck tap trigger for "${taskName}"\n\n1. Open Shortcuts → new Shortcut → add "Get Contents of URL" and paste this directly into its URL field:\n${triggerUrl}\n\n2. (Optional) Want the app to open after tapping instead of staying silent? Add "Open URLs" after it, pointed at: ${openAppUrl}\n\n3. Automation → + → NFC → scan this tag → Run Shortcut → pick the Shortcut you just built → turn off "Ask Before Running" and "Notify When Run".`
+    ? `Ch'rps tap trigger for "${taskName}"\n\n1. Open Shortcuts → new Shortcut → add "Get Contents of URL" and paste this directly into its URL field:\n${triggerUrl}\n\n2. (Optional) Want the app to open after tapping instead of staying silent? Add "Open URLs" after it, pointed at: ${openAppUrl}\n\n3. Automation → + → NFC → scan this tag → Run Shortcut → pick the Shortcut you just built → turn off "Ask Before Running" and "Notify When Run".`
     : null;
 
   const handleCopyUrl = async () => {

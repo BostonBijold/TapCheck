@@ -15,10 +15,10 @@ const QUOTE_TOTAL_MS = 5000; // last word finishes fading in at this mark
 const WORD_FADE_MS = 400; // each word's own fade-in duration
 const WORD_STEP_MS = (QUOTE_TOTAL_MS - WORD_FADE_MS) / (WORD_COUNT - 1);
 
-const PAUSE_MS = 500; // beat of silence after the quote before "Be one." appears
-const BEONE_DELAY_MS = QUOTE_TOTAL_MS + PAUSE_MS;
-const BEONE_DURATION_MS = 650;
-const READY_MS = BEONE_DELAY_MS + BEONE_DURATION_MS;
+const PAUSE_MS = 500; // beat of silence after the quote before the CTA button appears
+const CTA_DELAY_MS = QUOTE_TOTAL_MS + PAUSE_MS;
+const CTA_DURATION_MS = 650;
+const READY_MS = CTA_DELAY_MS + CTA_DURATION_MS;
 
 function Word({ word, index }: { word: string; index: number }) {
   return (
@@ -62,7 +62,7 @@ export default function WelcomePage() {
 
         <Image
           src="/logo.jpeg"
-          alt="TapCheck"
+          alt="Ch'rps"
           width={96}
           height={96}
           priority
@@ -74,7 +74,7 @@ export default function WelcomePage() {
           disabled={!ready}
           onClick={() => router.replace("/tasks")}
           animate
-          animationDelayMs={BEONE_DELAY_MS}
+          animationDelayMs={CTA_DELAY_MS}
         />
       </div>
     </main>

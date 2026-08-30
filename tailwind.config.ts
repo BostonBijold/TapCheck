@@ -21,7 +21,7 @@ const config: Config = {
         olive: "#2563eb",
         "olive-light": "#3b82f6",
         gold: "#3b82f6",
-        // TapCheck Green — sampled from the logo's checkmark, reserved for
+        // Ch'rps Green — sampled from the logo's checkmark, reserved for
         // "this is actually complete" indicators (done badges/borders/dots)
         // so they read as distinct from "olive" (brand blue, used for
         // actions/buttons/links/streak-in-progress) now that blue also

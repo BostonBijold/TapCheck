@@ -6,7 +6,7 @@
 	<string>development</string>
 	<key>com.apple.developer.associated-domains</key>
 	<array>
-		<string>applinks:tap-check.vercel.app</string>
+		<string>applinks:chrps.vercel.app</string>
 	</array>
 	<key>com.apple.developer.nfc.readersession.formats</key>
 	<array>
@@ -16,7 +16,7 @@
 	</array>
 	<key>keychain-access-groups</key>
 	<array>
-		<string>$(AppIdentifierPrefix)com.bostonbijold.tapcheck.shared</string>
+		<string>$(AppIdentifierPrefix)com.bostonbijold.chrps.shared</string>
 	</array>
 </dict>
 </plist>

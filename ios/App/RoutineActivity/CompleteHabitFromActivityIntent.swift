@@ -36,9 +36,9 @@ struct CompleteHabitFromActivityIntent: LiveActivityIntent {
 
     func perform() async throws -> some IntentResult {
         guard let apiKey = KeychainHelper.load() else {
-            throw BeOneAPIError.notSignedIn
+            throw ChrpsAPIError.notSignedIn
         }
-        try await BeOneAPI.completeActiveHabit(apiKey: apiKey)
+        try await ChrpsAPI.completeActiveHabit(apiKey: apiKey)
         return .result()
     }
 }

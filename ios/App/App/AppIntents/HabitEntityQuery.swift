@@ -1,13 +1,13 @@
 import AppIntents
 import Foundation
 
-// baseURL, triggerHabit, and BeOneAPIError now live in ../BeOneAPI.swift
+// baseURL, triggerHabit, and ChrpsAPIError now live in ../ChrpsAPI.swift
 // (dual App + RoutineActivity target membership, for the Live Activity's
 // "Done" button intent — see docs/features/live-activity.md). fetchHabits
 // stays here as an App-only extension since its response decodes into
 // [HabitEntity] (HabitEntity.swift), which the RoutineActivity target
 // doesn't compile.
-extension BeOneAPI {
+extension ChrpsAPI {
     struct HabitsResponse: Decodable {
         let ok: Bool
         let habits: [HabitEntity]
@@ -19,7 +19,7 @@ extension BeOneAPI {
 
         let (data, response) = try await URLSession.shared.data(from: components.url!)
         guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw BeOneAPIError.requestFailed
+            throw ChrpsAPIError.requestFailed
         }
         return try JSONDecoder().decode(HabitsResponse.self, from: data).habits
     }
@@ -40,9 +40,9 @@ actor HabitCache {
             return cached.habits
         }
         guard let apiKey = KeychainHelper.load() else {
-            throw BeOneAPIError.notSignedIn
+            throw ChrpsAPIError.notSignedIn
         }
-        let habits = try await BeOneAPI.fetchHabits(apiKey: apiKey)
+        let habits = try await ChrpsAPI.fetchHabits(apiKey: apiKey)
         cached = (Date(), habits)
         return habits
     }

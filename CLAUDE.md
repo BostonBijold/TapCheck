@@ -1,10 +1,10 @@
-# TapCheck — Project Brief for Claude Code
+# Ch'rps — Project Brief for Claude Code
 
 ## Vision
 A restaurant shift-check app built around one core insight: the job isn't
 done until the checklist is — fridge and freezer temps, restroom checks,
 cash counts, opening/closing tasks, all done consistently and left as an
-honest record. TapCheck started as a lean fork of a personal habit/routine
+honest record. Ch'rps started as a lean fork of a personal habit/routine
 tracker (itself a fork of an earlier, more philosophy-heavy app, "A Good
 Man") — that personal-habit framing has since been retired in favor of
 restaurant work checks: structured checklist tasks (`form`-type) with
@@ -14,7 +14,7 @@ streaks, and completion analytics. The old timer-based "habit" item types
 feature are gone — a checklist's value is in what got checked, not how long
 it took.
 
-TapCheck is also multi-tenant — every restaurant, gym, or hotel using it is
+Ch'rps is also multi-tenant — every restaurant, gym, or hotel using it is
 a `Company`, with its own users, task lists, tasks, and check history — and
 a manager can create, rename, schedule, and delete task lists directly from
 the app rather than being limited to the three seeded ones. See
@@ -51,16 +51,22 @@ comments at the relevant files:
    `itemType`/`groupId`/`groupName` keys) were **not** renamed, so an
    already-configured iPhone Shortcut doesn't need its fields edited, only
    its URL (the URL *paths* were renamed — see `docs/api/external-api.md`).
-2. **The iOS native Swift layer** (`ios/App/App/AppIntents/`,
-   `ios/App/App/BeOneAPI.swift`, the `RoutineActivity` Xcode target/Widget
-   Extension and its `RoutineActivityAttributes` push/Live-Activity
-   contract) still uses the pre-pivot "Habit"/"Routine"/"Be One" naming.
-   This was a deliberate scope cut, not an oversight: a native Xcode-target
-   rename needs Xcode itself to verify safely, unlike a text-only pass over
-   the Next.js codebase. The URL *paths* these Swift files call were updated
+2. **The iOS native Swift layer's `Habit`/`Routine` naming** (`HabitEntity`,
+   `HabitEntityQuery`, `TriggerHabitIntent`, the `RoutineActivity` Xcode
+   target/Widget Extension and its `RoutineActivityAttributes` push/Live-
+   Activity contract) still uses the pre-pivot vocabulary. This was a
+   deliberate scope cut, not an oversight: a native Xcode-target rename
+   needs Xcode itself to verify safely, unlike a text-only pass over the
+   Next.js codebase. The URL *paths* these Swift files call were updated
    to match the renamed API routes (required — otherwise the native app
    would 404), but no Swift type/file/target name was touched. See
-   `docs/project-structure.md`'s "iOS Native Shell" section.
+   `docs/project-structure.md`'s "iOS Native Shell" section. This is
+   separate from the app's own brand-name naming in this same layer
+   (`ios/App/App/ChrpsAPI.swift`, `ChrpsShortcuts.swift`), which *was*
+   renamed during the Ch'rps rebrand (previously `BeOneAPI.swift`/
+   `BeOneShortcuts.swift`, from the "Be One" app this was originally forked
+   from, then briefly "TapCheck") — done as a text-only pass, so it should
+   still be verified by building in Xcode rather than assumed correct.
 
 ---
 
@@ -91,7 +97,7 @@ muted:          #64748b
 dim:            #94a3b8
 olive:          #2563eb   (primary accent — actions, buttons, links, streaks)
 olive-light:    #3b82f6
-done:           #22b37c   (TapCheck Green — sampled from the logo's own
+done:           #22b37c   (Ch'rps Green — sampled from the logo's own
                            checkmark; completion badges/borders/dots ONLY —
                            e.g. a task card's "✓ Done" pill, StreakDots'
                            done dot — kept distinct from olive so "this is
@@ -135,7 +141,7 @@ specifically to separate completion indicators from the broader blue accent.
 
 ## Data Models
 
-TapCheck is multi-tenant: every restaurant, gym, or hotel using it is a
+Ch'rps is multi-tenant: every restaurant, gym, or hotel using it is a
 Company, and every other collection scopes its data either to the Company
 (shared configuration) or to the Company plus the specific user who acted
 (activity records). See "Multi-Tenancy" below for the full reasoning.
@@ -265,7 +271,7 @@ concept yet).
 
 ## Multi-Tenancy
 
-Every restaurant, gym, or hotel using TapCheck is a `Company` — the tenant
+Every restaurant, gym, or hotel using Ch'rps is a `Company` — the tenant
 anchor. Nothing in the Company model or its surrounding code is
 restaurant-specific; gyms and hotels are expected customers too.
 
