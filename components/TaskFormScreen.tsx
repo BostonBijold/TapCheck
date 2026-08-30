@@ -176,164 +176,178 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   const timeDisplay = `${pad(Math.floor(elapsed / 60))}:${pad(elapsed % 60)}`;
 
   return (
-    // task-advance-in plays on mount (every fresh task, including a remount
-    // when TaskListSessionView advances straight from one form task into
-    // another — see its key={currentTask._id}). task-advance-out takes over
-    // once the caller flips `exiting` true, right after a completion actually
-    // saved — see the `exiting` prop doc above. pointer-events-none while
-    // exiting guards against a second tap landing on a screen that's already
-    // on its way out.
+    // Outer layer is a plain, static blue backdrop — never animated, always
+    // covering whatever's behind (the Tasks list) so a swap or close never
+    // flashes it into view mid-transition. Only the inner card (bordered,
+    // inset from the backdrop on all sides so the blue shows as a frame
+    // around it) plays task-advance-in/-out: -in on mount (every fresh task,
+    // including a remount when TaskListSessionView advances straight from
+    // one form task into another — see its key={currentTask._id}), -out
+    // once the caller flips `exiting` true, right after a completion
+    // actually saved. pointer-events-none while exiting guards against a
+    // second tap landing on a card that's already on its way out.
     <div
-      className={`fixed inset-0 bg-bg z-50 flex flex-col max-w-mobile mx-auto ${
-        exiting ? "task-advance-out pointer-events-none" : "task-advance-in"
-      }`}
+      className="fixed inset-0 z-50 flex items-stretch justify-center"
+      style={{
+        background: "#2563eb",
+        paddingTop: "calc(env(safe-area-inset-top) + 14px)",
+        paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
+        paddingLeft: "14px",
+        paddingRight: "14px",
+      }}
     >
-      <div className="flex items-center justify-between px-4 pt-10 pb-2 flex-shrink-0">
-        <button onClick={onClose} className="font-mono text-dim text-sm min-h-[44px] pr-4 flex items-center">
-          ← back
-        </button>
-        {/* Unobtrusive elapsed readout — kept for consistency/debugging, not the focal element */}
-        <p className="font-mono text-dim text-xs">{timeDisplay}</p>
-      </div>
-
-      <div className="text-center px-4 mt-4 mb-6 flex-shrink-0">
-        {taskListName && (
-          <p className="font-mono text-[10px] uppercase tracking-widest text-olive mb-2">{taskListName}</p>
-        )}
-        <div className="flex justify-center mb-3">
-          <AppIcon name={item.icon} size={40} strokeWidth={1.25} className="text-text" />
+      <div
+        className={`w-full max-w-mobile rounded-[28px] border-2 border-white/25 bg-bg shadow-2xl overflow-hidden flex flex-col ${
+          exiting ? "task-advance-out pointer-events-none" : "task-advance-in"
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 pt-4 pb-2 flex-shrink-0">
+          <button onClick={onClose} className="font-mono text-dim text-sm min-h-[44px] pr-4 flex items-center">
+            ← back
+          </button>
+          {/* Unobtrusive elapsed readout — kept for consistency/debugging, not the focal element */}
+          <p className="font-mono text-dim text-xs">{timeDisplay}</p>
         </div>
-        <h2 className="font-heading text-2xl text-text">{item.name}</h2>
-        {requiresNfcScan && (
-          <p className={`font-mono text-[10px] uppercase tracking-widest mt-1 ${alreadyVerified ? "text-olive" : "text-dim"}`}>
-            {alreadyVerified ? "Tag verified — Save to complete" : "Scan the linked tag to complete"}
-          </p>
-        )}
-      </div>
 
-      <div className="flex-1 overflow-y-auto px-4 space-y-5">
-        {fields.map((f) => {
-          if (f.type === "checklist") {
-            const items = checklistItems(f);
-            const isSingle = items.length === 1;
-            const checked = (values[f.key] as Record<string, boolean> | undefined) ?? {};
-            const toggleItem = (label: string) => setField(f.key, { ...checked, [label]: !checked[label] });
-            return (
-              <div key={f.key} className="space-y-1.5">
-                {/* A single-item checklist ("Take out garbage") skips the
-                    label row above its own row — showing the action twice
-                    would be redundant. A multi-item one keeps it as the
-                    group heading above its rows. */}
-                {!isSingle && (
-                  <label className="font-mono text-[10px] text-dim uppercase tracking-widest">{f.label}</label>
-                )}
-                <div className="space-y-2">
-                  {items.map((label) => {
-                    const isChecked = checked[label] === true;
-                    return (
-                      <button
-                        key={label}
-                        type="button"
-                        onClick={() => toggleItem(label)}
-                        className={`w-full flex items-center gap-3 py-3 px-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
-                          isChecked ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
-                        }`}
-                      >
-                        <span
-                          className={`flex-shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
-                            isChecked ? "bg-olive border-olive" : "border-border-light"
+        <div className="text-center px-4 mt-4 mb-6 flex-shrink-0">
+          {taskListName && (
+            <p className="font-mono text-[10px] uppercase tracking-widest text-olive mb-2">{taskListName}</p>
+          )}
+          <div className="flex justify-center mb-3">
+            <AppIcon name={item.icon} size={40} strokeWidth={1.25} className="text-text" />
+          </div>
+          <h2 className="font-heading text-2xl text-text">{item.name}</h2>
+          {requiresNfcScan && (
+            <p className={`font-mono text-[10px] uppercase tracking-widest mt-1 ${alreadyVerified ? "text-olive" : "text-dim"}`}>
+              {alreadyVerified ? "Tag verified — Save to complete" : "Scan the linked tag to complete"}
+            </p>
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-4 space-y-5">
+          {fields.map((f) => {
+            if (f.type === "checklist") {
+              const items = checklistItems(f);
+              const isSingle = items.length === 1;
+              const checked = (values[f.key] as Record<string, boolean> | undefined) ?? {};
+              const toggleItem = (label: string) => setField(f.key, { ...checked, [label]: !checked[label] });
+              return (
+                <div key={f.key} className="space-y-1.5">
+                  {/* A single-item checklist ("Take out garbage") skips the
+                      label row above its own row — showing the action twice
+                      would be redundant. A multi-item one keeps it as the
+                      group heading above its rows. */}
+                  {!isSingle && (
+                    <label className="font-mono text-[10px] text-dim uppercase tracking-widest">{f.label}</label>
+                  )}
+                  <div className="space-y-2">
+                    {items.map((label) => {
+                      const isChecked = checked[label] === true;
+                      return (
+                        <button
+                          key={label}
+                          type="button"
+                          onClick={() => toggleItem(label)}
+                          className={`w-full flex items-center gap-3 py-3 px-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
+                            isChecked ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
                           }`}
                         >
-                          {isChecked && <Check size={13} strokeWidth={3} className="text-bg" />}
-                        </span>
-                        <span className="flex-1 text-left">{isSingle ? f.label : label}</span>
-                      </button>
-                    );
-                  })}
+                          <span
+                            className={`flex-shrink-0 w-5 h-5 rounded-md border flex items-center justify-center transition-colors ${
+                              isChecked ? "bg-olive border-olive" : "border-border-light"
+                            }`}
+                          >
+                            {isChecked && <Check size={13} strokeWidth={3} className="text-bg" />}
+                          </span>
+                          <span className="flex-1 text-left">{isSingle ? f.label : label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
+              );
+            }
+            return (
+              <div key={f.key} className="space-y-1.5">
+                <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
+                  {f.label}
+                  {f.unit ? ` (${f.unit})` : ""}
+                </label>
+                {f.type === "boolean" ? (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setField(f.key, true)}
+                      className={`flex-1 py-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
+                        values[f.key] === true ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                      }`}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setField(f.key, false)}
+                      className={`flex-1 py-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
+                        values[f.key] === false ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
+                      }`}
+                    >
+                      No
+                    </button>
+                  </div>
+                ) : f.type === "number" ? (
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={(values[f.key] as number | string) ?? ""}
+                    onChange={(e) => setField(f.key, e.target.value === "" ? "" : Number(e.target.value))}
+                    className="w-full bg-card border border-border rounded-card px-3 py-3 font-mono text-sm text-text outline-none focus:border-border-light min-h-[44px]"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={(values[f.key] as string) ?? ""}
+                    onChange={(e) => setField(f.key, e.target.value)}
+                    className="w-full bg-card border border-border rounded-card px-3 py-3 font-body text-sm text-text outline-none focus:border-border-light min-h-[44px]"
+                  />
+                )}
               </div>
             );
-          }
-          return (
-          <div key={f.key} className="space-y-1.5">
-            <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
-              {f.label}
-              {f.unit ? ` (${f.unit})` : ""}
-            </label>
-            {f.type === "boolean" ? (
-              <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => setField(f.key, true)}
-                  className={`flex-1 py-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
-                    values[f.key] === true ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
-                  }`}
-                >
-                  Yes
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setField(f.key, false)}
-                  className={`flex-1 py-3 rounded-card border font-body text-sm min-h-[44px] transition-colors ${
-                    values[f.key] === false ? "bg-olive/10 border-olive text-text" : "border-border-light text-muted"
-                  }`}
-                >
-                  No
-                </button>
-              </div>
-            ) : f.type === "number" ? (
-              <input
-                type="number"
-                inputMode="decimal"
-                value={(values[f.key] as number | string) ?? ""}
-                onChange={(e) => setField(f.key, e.target.value === "" ? "" : Number(e.target.value))}
-                className="w-full bg-card border border-border rounded-card px-3 py-3 font-mono text-sm text-text outline-none focus:border-border-light min-h-[44px]"
-              />
+          })}
+
+          {error && <p className="font-mono text-xs text-burgundy-light">{error}</p>}
+        </div>
+
+        <div className="px-4 pb-6 pt-2 w-full flex-shrink-0 flex flex-col items-center">
+          {/* Primary action — one big FAB either way (Nfc icon while a tag
+              scan is still required, Check once ready to save), pulled up
+              over the content boundary so it sits at a natural one-handed
+              thumb reach instead of hugging the screen edge. Same
+              circle/border-bg "cut-out" treatment as BottomNav.tsx's FAB, just
+              bigger since this is the primary action on this whole screen —
+              an icon to tap, not a label to read. */}
+          <button
+            onClick={handleSave}
+            disabled={scanning}
+            aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
+            className="relative z-10 -mt-16 w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-200 disabled:opacity-70 active:opacity-90"
+          >
+            {requiresNfcScan && !alreadyVerified ? (
+              <Nfc size={52} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
             ) : (
-              <input
-                type="text"
-                value={(values[f.key] as string) ?? ""}
-                onChange={(e) => setField(f.key, e.target.value)}
-                className="w-full bg-card border border-border rounded-card px-3 py-3 font-body text-sm text-text outline-none focus:border-border-light min-h-[44px]"
-              />
+              <Check size={56} strokeWidth={2.25} className="text-bg" />
             )}
-          </div>
-          );
-        })}
-
-        {error && <p className="font-mono text-xs text-burgundy-light">{error}</p>}
-      </div>
-
-      <div className="px-4 pb-10 pt-2 w-full flex-shrink-0 flex flex-col items-center">
-        {/* Primary action — one big FAB either way (Nfc icon while a tag
-            scan is still required, Check once ready to save), pulled up
-            over the content boundary so it sits at a natural one-handed
-            thumb reach instead of hugging the screen edge. Same
-            circle/border-bg "cut-out" treatment as BottomNav.tsx's FAB, just
-            bigger since this is the primary action on this whole screen —
-            an icon to tap, not a label to read. */}
-        <button
-          onClick={handleSave}
-          disabled={scanning}
-          aria-label={requiresNfcScan && !alreadyVerified ? "Scan NFC tag to save" : "Save"}
-          className="relative z-10 -mt-16 w-32 h-32 rounded-full border-4 border-bg shadow-lg flex items-center justify-center bg-olive transition-all duration-200 disabled:opacity-70 active:opacity-90"
-        >
-          {requiresNfcScan && !alreadyVerified ? (
-            <Nfc size={52} strokeWidth={1.75} className={`text-bg ${scanning ? "animate-pulse" : ""}`} />
-          ) : (
-            <Check size={56} strokeWidth={2.25} className="text-bg" />
-          )}
-        </button>
-        <p className="font-mono text-xs text-dim uppercase tracking-widest mt-3 mb-6">
-          {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
-        </p>
-        <button
-          onClick={onMissed}
-          disabled={scanning}
-          className="w-full py-3.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px] disabled:opacity-60"
-        >
-          Missed it
-        </button>
+          </button>
+          <p className="font-mono text-xs text-dim uppercase tracking-widest mt-3 mb-6">
+            {scanning ? "Hold near tag…" : requiresNfcScan && !alreadyVerified ? "Scan NFC to Save" : "Save"}
+          </p>
+          <button
+            onClick={onMissed}
+            disabled={scanning}
+            className="w-full py-3.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px] disabled:opacity-60"
+          >
+            Missed it
+          </button>
+        </div>
       </div>
     </div>
   );

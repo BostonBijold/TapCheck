@@ -825,115 +825,120 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         />
       </div>
 
-      {/* Same task-advance-in/-out swap as TaskFormScreen's own full-screen
-          takeover — `transitioning` flips this to -out for the outgoing
-          task's hold (advance()'s TASK_TRANSITION_MS window) while still
-          keyed/mounted as that task, then the key change to whichever task
-          comes next remounts it fresh into -in. */}
-      <div
-        key={currentTask._id}
-        className={`flex flex-col select-none ${transitioning ? "task-advance-out pointer-events-none" : "task-advance-in"}`}
-      >
-        <div className="text-center px-4 pt-2 pb-3 flex-shrink-0">
-          <div className="flex justify-center mb-3">
-            <AppIcon name={currentTask.icon} size={44} strokeWidth={1.25} className="text-text" />
-          </div>
-          <h2 className="font-heading text-xl text-text leading-tight">{currentTask.name}</h2>
-          {isCountdown && (
-            <p className="font-mono text-dim text-xs mt-1">{currentTask.projectedMinutes}m target</p>
-          )}
-          {isStopwatch && (
-            <p className="font-mono text-dim text-xs mt-1">stopwatch · no target</p>
-          )}
-          {isCheckbox && (
-            <p className="font-mono text-dim text-xs mt-1">mark when done</p>
-          )}
-        </div>
-
-        {/* ── Countdown ring ── */}
-        {isCountdown && (
-          <div className="flex justify-center flex-shrink-0 pb-3">
-            <div className="relative w-44 h-44">
-              <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
-                <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#dbe2ea" strokeWidth="9" />
-                <circle
-                  cx="80" cy="80" r={RING_R}
-                  fill="none"
-                  stroke={countdownColor}
-                  strokeWidth="9"
-                  strokeLinecap="round"
-                  strokeDasharray={RING_CIRC}
-                  strokeDashoffset={countdownOffset}
-                  style={{ transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
-                />
-                {/* Handle at the arc's tip — purely visual */}
-                <circle
-                  cx={80 + RING_R * Math.cos(countdownRatio * 2 * Math.PI)}
-                  cy={80 + RING_R * Math.sin(countdownRatio * 2 * Math.PI)}
-                  r={8}
-                  fill={countdownColor}
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="font-mono text-3xl font-semibold leading-none" style={{ color: isOver ? "#ef4444" : "#0f172a" }}>
-                  {countdownDisplay}
-                </span>
-                <span className="font-mono text-[10px] text-dim mt-1">{isOver ? "over" : "remaining"}</span>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Stopwatch ring ── */}
-        {isStopwatch && (
-          <div className="flex justify-center flex-shrink-0 pb-3">
-            <div className="relative w-44 h-44">
-              <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
-                <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#dbe2ea" strokeWidth="9" />
-                <circle
-                  cx="80" cy="80" r={RING_R}
-                  fill="none"
-                  stroke="#2563eb"
-                  strokeWidth="9"
-                  strokeLinecap="round"
-                  strokeDasharray={RING_CIRC}
-                  strokeDashoffset={stopwatchOffset}
-                  style={{ transition: "stroke-dashoffset 0.95s linear" }}
-                />
-                {/* Handle at the arc's tip — purely visual */}
-                <circle
-                  cx={80 + RING_R * Math.cos(stopwatchRatio * 2 * Math.PI)}
-                  cy={80 + RING_R * Math.sin(stopwatchRatio * 2 * Math.PI)}
-                  r={8}
-                  fill="#2563eb"
-                />
-              </svg>
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <span className="font-mono text-3xl font-semibold leading-none text-text">
-                  {fmtMins(elapsed)}
-                </span>
-                <span className="font-mono text-[10px] text-dim mt-1">elapsed</span>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* ── Checkbox: big done button instead of ring ── */}
-      {isCheckbox && (
+      {/* Persistent, non-animated blue backdrop around the current-task
+          card — same reasoning as TaskFormScreen's own outer layer: with
+          Reduce Motion off, the card underneath used to visibly flash the
+          page's white background mid-swap since nothing was there to cover
+          it; this panel is always present regardless of `transitioning`, so
+          the swap only ever shows blue behind the outgoing/incoming card,
+          never the page. The card itself (bordered, ring/checkbox content
+          swapped by taskType) plays task-advance-in/-out, same as
+          TaskFormScreen's. */}
+      <div className="mx-4 mt-1 mb-3 rounded-[26px] p-3" style={{ background: "#2563eb" }}>
         <div
           key={currentTask._id}
-          className={`flex-1 flex items-center justify-center px-4 ${transitioning ? "task-advance-out pointer-events-none" : "task-advance-in"}`}
+          className={`rounded-[20px] border-2 border-white/25 bg-bg shadow-lg overflow-hidden select-none ${
+            transitioning ? "task-advance-out pointer-events-none" : "task-advance-in"
+          }`}
         >
-          <button
-            onClick={handleDone}
-            className="w-44 h-44 rounded-full bg-olive/10 border-2 border-olive/40 flex flex-col items-center justify-center gap-2 active:bg-olive/20 transition-colors"
-          >
-            <span className="text-4xl text-olive">✓</span>
-            <span className="font-body text-sm text-olive font-medium">Done</span>
-          </button>
+          <div className="text-center px-4 pt-4 pb-3">
+            <div className="flex justify-center mb-3">
+              <AppIcon name={currentTask.icon} size={44} strokeWidth={1.25} className="text-text" />
+            </div>
+            <h2 className="font-heading text-xl text-text leading-tight">{currentTask.name}</h2>
+            {isCountdown && (
+              <p className="font-mono text-dim text-xs mt-1">{currentTask.projectedMinutes}m target</p>
+            )}
+            {isStopwatch && (
+              <p className="font-mono text-dim text-xs mt-1">stopwatch · no target</p>
+            )}
+            {isCheckbox && (
+              <p className="font-mono text-dim text-xs mt-1">mark when done</p>
+            )}
+          </div>
+
+          {/* ── Countdown ring ── */}
+          {isCountdown && (
+            <div className="flex justify-center pb-5">
+              <div className="relative w-44 h-44">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+                  <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#dbe2ea" strokeWidth="9" />
+                  <circle
+                    cx="80" cy="80" r={RING_R}
+                    fill="none"
+                    stroke={countdownColor}
+                    strokeWidth="9"
+                    strokeLinecap="round"
+                    strokeDasharray={RING_CIRC}
+                    strokeDashoffset={countdownOffset}
+                    style={{ transition: "stroke-dashoffset 0.95s linear, stroke 0.4s ease" }}
+                  />
+                  {/* Handle at the arc's tip — purely visual */}
+                  <circle
+                    cx={80 + RING_R * Math.cos(countdownRatio * 2 * Math.PI)}
+                    cy={80 + RING_R * Math.sin(countdownRatio * 2 * Math.PI)}
+                    r={8}
+                    fill={countdownColor}
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="font-mono text-3xl font-semibold leading-none" style={{ color: isOver ? "#ef4444" : "#0f172a" }}>
+                    {countdownDisplay}
+                  </span>
+                  <span className="font-mono text-[10px] text-dim mt-1">{isOver ? "over" : "remaining"}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Stopwatch ring ── */}
+          {isStopwatch && (
+            <div className="flex justify-center pb-5">
+              <div className="relative w-44 h-44">
+                <svg className="w-full h-full -rotate-90" viewBox="0 0 160 160">
+                  <circle cx="80" cy="80" r={RING_R} fill="none" stroke="#dbe2ea" strokeWidth="9" />
+                  <circle
+                    cx="80" cy="80" r={RING_R}
+                    fill="none"
+                    stroke="#2563eb"
+                    strokeWidth="9"
+                    strokeLinecap="round"
+                    strokeDasharray={RING_CIRC}
+                    strokeDashoffset={stopwatchOffset}
+                    style={{ transition: "stroke-dashoffset 0.95s linear" }}
+                  />
+                  {/* Handle at the arc's tip — purely visual */}
+                  <circle
+                    cx={80 + RING_R * Math.cos(stopwatchRatio * 2 * Math.PI)}
+                    cy={80 + RING_R * Math.sin(stopwatchRatio * 2 * Math.PI)}
+                    r={8}
+                    fill="#2563eb"
+                  />
+                </svg>
+                <div className="absolute inset-0 flex flex-col items-center justify-center">
+                  <span className="font-mono text-3xl font-semibold leading-none text-text">
+                    {fmtMins(elapsed)}
+                  </span>
+                  <span className="font-mono text-[10px] text-dim mt-1">elapsed</span>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ── Checkbox: big done button instead of ring ── */}
+          {isCheckbox && (
+            <div className="flex items-center justify-center px-4 py-8">
+              <button
+                onClick={handleDone}
+                className="w-44 h-44 rounded-full bg-olive/10 border-2 border-olive/40 flex flex-col items-center justify-center gap-2 active:bg-olive/20 transition-colors"
+              >
+                <span className="text-4xl text-olive">✓</span>
+                <span className="font-body text-sm text-olive font-medium">Done</span>
+              </button>
+            </div>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Action buttons */}
       <div className="px-4 pb-4 flex-shrink-0 space-y-2">
