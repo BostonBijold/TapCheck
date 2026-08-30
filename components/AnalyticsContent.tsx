@@ -81,15 +81,15 @@ function dayLabel(dateStr: string): string {
 
 function barColor(pct: number, hasLogs: boolean): string {
   if (!hasLogs) return "#dbe2ea";
-  if (pct >= 1)    return "#3b82f6"; // gold — perfect day
-  if (pct >= 0.75) return "#2563eb"; // new olive
+  if (pct >= 1)    return "#3582c1"; // gold — perfect day
+  if (pct >= 0.75) return "#1f63b6"; // new olive
   if (pct >= 0.5)  return "#d97706";
   if (pct > 0)     return "#78716c";
   return "#dc2626";
 }
 
 function completionBarColor(pct: number): string {
-  if (pct >= 0.8) return "#3b82f6"; // gold — strong performance
+  if (pct >= 0.8) return "#3582c1"; // gold — strong performance
   if (pct >= 0.5) return "#d97706";
   return "#dc2626";
 }
@@ -106,7 +106,7 @@ function completionBarColor(pct: number): string {
 // border = explicitly marked missed.
 function daySegmentStyle(day: DayBreakdown): { background: string; border?: string } {
   if (day.state === "done") {
-    return { background: day.timing === "amber" ? "#d97706" : "#2563eb" };
+    return { background: day.timing === "amber" ? "#d97706" : "#1f63b6" };
   }
   switch (day.state) {
     case "rest": return { background: "#71717a" };
@@ -119,7 +119,7 @@ function daySegmentStyle(day: DayBreakdown): { background: string; border?: stri
 }
 
 const PACING: Record<WeeklyProgress["pacing"], { color: string; label: string }> = {
-  green: { color: "#2563eb", label: "on track" },
+  green: { color: "#1f63b6", label: "on track" },
   amber: { color: "#d97706", label: "in reach" },
   red: { color: "#ef4444", label: "will miss" },
 };
@@ -429,7 +429,7 @@ export default function AnalyticsContent() {
                           {variance !== 0 && (
                             <span
                               className="font-mono text-[10px] ml-auto font-medium"
-                              style={{ color: variance > 0 ? "#78716c" : "#3b82f6" }}
+                              style={{ color: variance > 0 ? "#78716c" : "#3582c1" }}
                             >
                               {variance > 0 ? `+${fmtMins(variance)}` : `-${fmtMins(Math.abs(variance))}`}
                             </span>

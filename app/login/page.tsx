@@ -1,3 +1,4 @@
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { auth, signIn } from "@/lib/auth";
 
@@ -13,14 +14,25 @@ export default async function LoginPage({
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-mobile">
-        <div className="mb-16">
-          <h1 className="font-heading text-5xl text-text leading-tight mb-3">
+        <div className="flex justify-center mb-10">
+          <Image
+            src="/logo.jpeg"
+            alt="Ch'rps logo"
+            width={120}
+            height={120}
+            
+            priority
+          />
+        </div>
+        <div className="mb-16 text-center">
+          <h1 className="font-brand font-extrabold text-5xl text-olive leading-tight mb-3">
             Ch&apos;rps
           </h1>
-          <p className="text-muted font-body text-base">
-            Shift checks, done right, every time.
+          <p className="text-muted font-brand font-bold text-base">
+            Checklists trusted every time.
           </p>
         </div>
+
 
         <form
           action={async () => {

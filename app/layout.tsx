@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Playfair_Display, IBM_Plex_Mono, Inter } from "next/font/google";
+import { Playfair_Display, IBM_Plex_Mono, Inter, Fredoka } from "next/font/google";
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import NativeBootstrap from "@/components/NativeBootstrap";
 import UniversalLinkHandler from "@/components/UniversalLinkHandler";
@@ -21,6 +21,13 @@ const ibmMono = IBM_Plex_Mono({
 const inter = Inter({
   subsets: ["latin"],
   variable: "--font-inter",
+  display: "swap",
+});
+
+const fredoka = Fredoka({
+  subsets: ["latin"],
+  weight: ["500", "600"],
+  variable: "--font-fredoka",
   display: "swap",
 });
 
@@ -54,7 +61,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${playfair.variable} ${ibmMono.variable} ${inter.variable}`}
+      className={`${playfair.variable} ${ibmMono.variable} ${inter.variable} ${fredoka.variable}`}
     >
       <body className="h-full bg-bg text-text font-body">
         {children}

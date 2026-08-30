@@ -65,7 +65,7 @@ export default function StreakDots({ logs, dates, today, viewingDate, scheduledD
           <div
             key={day.date}
             className={`w-[5px] h-[5px] rounded-full flex-shrink-0 ${dotClass(day)}`}
-            style={isViewing ? { boxShadow: "0 0 0 1.5px #3b82f6" } : undefined}
+            style={isViewing ? { boxShadow: "0 0 0 1.5px #3582c1" } : undefined}
           />
         );
       })}

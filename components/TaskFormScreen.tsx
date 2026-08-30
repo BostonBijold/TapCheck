@@ -189,7 +189,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     <div
       className="fixed inset-0 z-50 flex items-stretch justify-center"
       style={{
-        background: "#2563eb",
+        background: "#1f63b6",
         paddingTop: "calc(env(safe-area-inset-top) + 14px)",
         paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
         paddingLeft: "14px",

@@ -95,7 +95,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
     const r = 88;
     const circumference = 2 * Math.PI * r;
     const dashOffset = circumference * (1 - Math.min(ratio, 1));
-    const ringColor = isOver ? "#dc2626" : is75 ? "#d97706" : "#2563eb";
+    const ringColor = isOver ? "#dc2626" : is75 ? "#d97706" : "#1f63b6";
     const timeColor = isOver ? "#ef4444" : "#0f172a";
     const remaining = Math.max(0, target - elapsed);
     const overAmount = Math.max(0, elapsed - target);
@@ -223,7 +223,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
               <circle
                 cx="100" cy="100" r={r}
                 fill="none"
-                stroke="#2563eb"
+                stroke="#1f63b6"
                 strokeWidth="10"
                 strokeLinecap="round"
                 strokeDasharray={circumference}
@@ -235,7 +235,7 @@ export default function TimerScreen({ item, initialElapsed = 0, taskListName = n
                 cx={100 + r * Math.cos(ratio * 2 * Math.PI)}
                 cy={100 + r * Math.sin(ratio * 2 * Math.PI)}
                 r={9}
-                fill="#2563eb"
+                fill="#1f63b6"
               />
             </svg>
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-1">

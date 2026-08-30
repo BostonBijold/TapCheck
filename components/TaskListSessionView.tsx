@@ -94,8 +94,8 @@ const STOPWATCH_SOFT_CAP = 30 * 60;
 // and only a running-over active segment shifts to amber — the one state
 // this bar is actually meant to draw the eye to.
 const TIMELINE_COLOR: Record<TimelineColorState, string> = {
-  done: "#2563eb",        // olive
-  active: "#2563eb",      // olive
+  done: "#1f63b6",        // olive
+  active: "#1f63b6",      // olive
   "active-over": "#d97706", // amber
   pending: "#c7d1dc",     // border-light
 };
@@ -604,7 +604,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       <div
         className="fixed inset-0 z-50 flex items-stretch justify-center"
         style={{
-          background: "#2563eb",
+          background: "#1f63b6",
           paddingTop: "calc(env(safe-area-inset-top) + 14px)",
           paddingBottom: "calc(env(safe-area-inset-bottom) + 14px)",
           paddingLeft: "14px",
@@ -788,7 +788,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
 
   // Countdown ring values
   const countdownRatio = isCountdown && target > 0 ? Math.min(elapsed / target, 1) : 0;
-  const countdownColor = isOver ? "#dc2626" : countdownRatio >= 0.75 ? "#d97706" : "#2563eb";
+  const countdownColor = isOver ? "#dc2626" : countdownRatio >= 0.75 ? "#d97706" : "#1f63b6";
   const countdownOffset = RING_CIRC * (1 - countdownRatio);
   const countdownDisplay = isOver ? `+${fmtMins(elapsed - target)}` : fmtMins(target - elapsed);
 
@@ -850,7 +850,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
           never the page. The card itself (bordered, ring/checkbox content
           swapped by taskType) plays task-advance-in/-out, same as
           TaskFormScreen's. */}
-      <div className="mx-4 mt-1 mb-3 rounded-[26px] p-3" style={{ background: "#2563eb" }}>
+      <div className="mx-4 mt-1 mb-3 rounded-[26px] p-3" style={{ background: "#1f63b6" }}>
         <div
           key={currentTask._id}
           className={`rounded-[20px] border-2 border-white/25 bg-bg shadow-lg overflow-hidden select-none ${
@@ -916,7 +916,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
                   <circle
                     cx="80" cy="80" r={RING_R}
                     fill="none"
-                    stroke="#2563eb"
+                    stroke="#1f63b6"
                     strokeWidth="9"
                     strokeLinecap="round"
                     strokeDasharray={RING_CIRC}
@@ -928,7 +928,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
                     cx={80 + RING_R * Math.cos(stopwatchRatio * 2 * Math.PI)}
                     cy={80 + RING_R * Math.sin(stopwatchRatio * 2 * Math.PI)}
                     r={8}
-                    fill="#2563eb"
+                    fill="#1f63b6"
                   />
                 </svg>
                 <div className="absolute inset-0 flex flex-col items-center justify-center">

@@ -18,9 +18,9 @@ const config: Config = {
         muted: "#64748b",
         dim: "#94a3b8",
         // Accents
-        olive: "#2563eb",
-        "olive-light": "#3b82f6",
-        gold: "#3b82f6",
+        olive: "#1f63b6",
+        "olive-light": "#3582c1",
+        gold: "#3582c1",
         // Ch'rps Green — sampled from the logo's checkmark, reserved for
         // "this is actually complete" indicators (done badges/borders/dots)
         // so they read as distinct from "olive" (brand blue, used for
@@ -40,6 +40,7 @@ const config: Config = {
         heading: ["var(--font-playfair)", "serif"],
         mono: ["var(--font-ibm-mono)", "monospace"],
         body: ["var(--font-inter)", "sans-serif"],
+        brand: ["var(--font-fredoka)", "sans-serif"],
       },
       borderRadius: {
         // Cards: 12px, Modals: 16px top, Buttons: 8px, Pills: 20px
