@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Task from "@/models/Task";
 import TaskDefinition from "@/models/TaskDefinition";
+import TaskList from "@/models/TaskList";
 import { sanitizeFormFields } from "@/lib/form-fields";
 import { resolveTask } from "@/lib/task-definitions";
 import { resolveSessionUser } from "@/lib/session";
@@ -30,6 +31,22 @@ export async function DELETE(
   // Soft delete — keeps log history intact
   task.isActive = false;
   await task.save();
+
+  // If that was the last active task in its list, the list itself has
+  // nothing left to show — soft-delete it too so it drops off the Tasks
+  // page instead of lingering as an empty card. Same convention as a
+  // manager-initiated list delete (app/api/task-lists/[taskListId]/route.ts).
+  const remaining = await Task.countDocuments({
+    taskListId: task.taskListId,
+    companyId,
+    isActive: true,
+  });
+  if (remaining === 0) {
+    await TaskList.updateOne(
+      { _id: task.taskListId, companyId },
+      { $set: { isActive: false } }
+    );
+  }
 
   return NextResponse.json({ ok: true });
 }
