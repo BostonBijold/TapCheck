@@ -14,13 +14,12 @@ export default async function LoginPage({
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">
       <div className="w-full max-w-mobile">
-        <div className="flex justify-center mb-10">
+        <div className="flex justify-center ">
           <Image
             src="/logo.jpeg"
             alt="Ch'rps logo"
             width={120}
             height={120}
-            
             priority
           />
         </div>
@@ -42,7 +41,7 @@ export default async function LoginPage({
         >
           <button
             type="submit"
-            className="w-full flex items-center justify-center gap-3 bg-surface-2 border border-white/10 text-text py-4 rounded-xl font-body font-medium hover:bg-surface transition-colors"
+            className="w-full flex items-center justify-center gap-3 bg-card border-2 border-olive text-text py-4 rounded-xl font-body font-medium hover:bg-card-hover transition-colors"
           >
             <GoogleIcon />
             Continue with Google
