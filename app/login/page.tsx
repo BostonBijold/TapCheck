@@ -28,7 +28,7 @@ export default async function LoginPage({
             Ch&apos;rps
           </h1>
           <p className="text-muted font-brand font-bold text-base">
-            Checklists trusted every time.
+            Checklists Trusted Every Time.
           </p>
         </div>
 
