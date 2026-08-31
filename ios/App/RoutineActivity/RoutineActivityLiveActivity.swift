@@ -3,16 +3,23 @@ import WidgetKit
 import SwiftUI
 import AppIntents
 
-// A Good Man's dark/olive/gold palette, hardcoded here since a widget
-// extension can't reach the app's Tailwind config — see CLAUDE.md's Design
-// System section for the source values.
+// Ch'rps' white/blue palette, hardcoded here since a widget extension can't
+// reach the app's Tailwind config — see CLAUDE.md's Design System section
+// for the source values. Token *names* (olive, gold) are kept from the old
+// dark theme for continuity with the rest of this file — only their hex
+// values changed, same convention CLAUDE.md documents for the web app's own
+// tokens.
 private enum Palette {
-    static let bgPrimary = Color(red: 0x18 / 255, green: 0x16 / 255, blue: 0x0f / 255)
-    static let textPrimary = Color(red: 0xe8 / 255, green: 0xe0 / 255, blue: 0xcc / 255)
-    static let textMuted = Color(red: 0x9a / 255, green: 0x92 / 255, blue: 0x80 / 255)
-    static let olive = Color(red: 0x5a / 255, green: 0x6b / 255, blue: 0x35 / 255)
-    static let gold = Color(red: 0xc4 / 255, green: 0xa8 / 255, blue: 0x4a / 255)
-    static let amber = Color(red: 0xc4 / 255, green: 0x7a / 255, blue: 0x2a / 255)
+    static let bgPrimary = Color(red: 0xff / 255, green: 0xff / 255, blue: 0xff / 255)
+    static let textPrimary = Color(red: 0x0f / 255, green: 0x17 / 255, blue: 0x2a / 255)
+    static let textMuted = Color(red: 0x64 / 255, green: 0x74 / 255, blue: 0x8b / 255)
+    static let olive = Color(red: 0x25 / 255, green: 0x63 / 255, blue: 0xeb / 255)
+    static let gold = Color(red: 0x3b / 255, green: 0x82 / 255, blue: 0xf6 / 255)
+    static let amber = Color(red: 0xd9 / 255, green: 0x77 / 255, blue: 0x06 / 255)
+    // Ch'rps Green — completed-timeline-segment only, kept distinct from the
+    // blue `olive`/`gold` accent same as the web app's own `done` token (see
+    // CLAUDE.md's Design System section).
+    static let done = Color(red: 0x22 / 255, green: 0xb3 / 255, blue: 0x7c / 255)
 }
 
 // A 24h upper bound is just a cap for Text(timerInterval:)'s range — no
@@ -96,16 +103,16 @@ private func timerText(_ state: RoutineActivityAttributes.ContentState, size: CG
     }
 }
 
-// Mirrors lib/routine-timeline.ts's TIMELINE_COLOR map (done reads olive —
-// "in hand" regardless of variance, unless the payload already re-labeled
-// it "activeOver" for running over target while done, see
-// docs/features/live-activity.md — pending is a dim neutral fill).
+// Mirrors lib/routine-timeline.ts's TIMELINE_COLOR map (done reads
+// Palette.done — "in hand" regardless of variance, unless the payload
+// already re-labeled it "activeOver" for running over target while done,
+// see docs/features/live-activity.md — pending is a dim neutral fill).
 // Deliberately does NOT handle "active"/"activeOver" — those are always
 // resolved live via timerColor(_:) instead, see the comment on
 // timelineBar below for why a static lookup isn't enough for that one.
 private func timelineSegmentColor(_ colorState: String) -> Color {
     switch colorState {
-    case "done": return Palette.olive
+    case "done": return Palette.done
     case "activeOver": return Palette.amber
     default: return Palette.textMuted.opacity(0.35) // "pending"
     }

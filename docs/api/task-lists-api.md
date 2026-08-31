@@ -11,7 +11,7 @@ Covers task lists, tasks, and task logs — the three collections behind [task-l
 Collection: `tasklists`. Schema (`models/TaskList.ts`): `companyId`, `name`, `timeOfDay: "morning" | "evening" | "custom" | "anytime"`, `startTime: string | null` (`HH:MM`), `order`, `isDefault`, `isActive` (default `true`), `scheduledDays: number[]` (0=Sun..6=Sat, default every day — a default pushed down onto every task in the list, see below).
 
 ### `GET /api/task-lists`
-Returns every active (`isActive: true`) list for the company (`sort: { order: 1 }`), each with its active tasks nested inline.
+Returns every active (`isActive: true`) list for the company (`sort: { startTime: 1, order: 1 }` — `startTime` first, `order` only as a same-`startTime` tie-breaker, per CLAUDE.md's Task List ordering), each with its active tasks nested inline.
 
 Response: array of
 ```ts
@@ -87,6 +87,9 @@ Request body: `{ tasks: Array<{ _id: string; order: number }> }` — `400` if mi
 
 ### `POST` / `DELETE /api/tasks/[id]/nfc-tag`
 Manager-only (`403` for an employee). Still addressed by `[id]` (a specific placement, matching a single row in `TaskListEditView`), but resolves to that placement's `definitionId` and writes `TaskDefinition.nfcTagUid` — binding cascades to every list the task is placed in, not just the one the manager clicked from. See [nfc.md](../features/nfc.md).
+
+### `POST` / `DELETE /api/task-definitions/[id]/nfc-tag`
+Manager-only (`403` for an employee). Definition-addressed equivalent of the route above, used by the Manage Tasks screen's company task catalog (`components/ManageTasksView.tsx`, which lists every saved `TaskDefinition` regardless of whether it's placed in any list yet) rather than a specific list row. Both routes share `lib/task-definitions.ts`'s `bindNfcTag`/`unbindNfcTag`, so the one-tag-one-task uniqueness enforcement lives in exactly one place. `POST` body: `{ uid: string }` — `400` if missing. Response: `POST` → `{ nfcTagUid }`; `DELETE` → `{ ok: true }`. `404` if the definition doesn't exist or belongs to another company.
 
 ### `GET /api/tasks/by-nfc-uid?uid=<uid>&date=<local date>&nowMinutes=<local minutes since midnight>`
 Resolves a scanned tag's UID to a `TaskDefinition`, then — since one binding can now back more than one placement — to whichever placement is "most relevant right now" via `lib/task-definitions.ts`'s `resolveMostRelevantPlacement` (documented as a judgment call, not a settled spec): skip anything already resolved today, prefer whichever list's `startTime` is closest to `nowMinutes`, fall back to list/placement order. `date`/`nowMinutes` are optional (the client's local values — see `components/BottomNav.tsx`) and degrade to a simpler fallback without them.

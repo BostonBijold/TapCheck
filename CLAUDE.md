@@ -154,6 +154,15 @@ Company, and every other collection scopes its data either to the Company
   industry,                   // stubbed, not read anywhere yet
   timezone,                   // stubbed, not read anywhere yet
   notificationPreferences,    // stubbed, not read anywhere yet
+  subscription: {              // stubbed — no Stripe integration wired up yet
+    status,                   // 'trialing' | 'active' | 'past_due' | 'canceled' | 'none' — defaults 'trialing'
+    tier,                     // 'free' | 'starter' | 'pro' — defaults 'free'
+    stripeCustomerId,         // "cus_..." — set once they exist in Stripe, even pre-payment
+    stripeSubscriptionId,     // "sub_..." — set once they actually subscribe
+    trialEndsAt,              // Date, if timed trials are used
+    seatLimit,                // for later per-seat pricing
+    currentPeriodEnd,         // Date — shows "renews on X" without hitting the Stripe API
+  },
   createdAt
 }
 ```
@@ -192,33 +201,56 @@ soft-delete these directly from the app — see "Task Lists" below.
 }
 ```
 
-### Task
-Ownership-level — same reasoning as TaskList.
+### Task / TaskDefinition
+Ownership-level — same reasoning as TaskList. `Task` is a lightweight list
+**placement**, not a self-contained document; the check's actual content
+lives one layer up on `TaskDefinition`, the company's reusable saved-task
+catalog ("Company Task Catalog" — see `docs/features/task-lists.md`). The
+same `TaskDefinition` can be placed in more than one list (e.g. the same
+fridge-temp check in both the opening and closing lists), each placement
+getting its own independent `TaskLog` history and streak strip. Every API
+response is still the same flat, resolved shape client code has always
+consumed — `lib/task-definitions.ts`'s `resolveTasks`/`resolveTask` join
+these two collections server-side on every read.
 ```js
+// Task — the placement
 {
   _id,
   taskListId,
   companyId,
-  templateId,        // ref TaskTemplate, null for custom tasks
-  name,              // 'Walk-in Fridge Temp'
-  icon,              // lucide icon key, e.g. 'refrigerator' — see components/AppIcon.tsx
-  projectedMinutes,  // time budget for this task (also feeds the list's collapse-window math)
+  definitionId,      // ref TaskDefinition, required
+  projectedMinutes,  // this placement's *override* of the definition's default; null = inherit
   order,
   isActive: bool,
+  scheduledDays,     // 0=Sun..6=Sat — which days this task is expected; also gates whether
+                     //   it actually appears on the Tasks page that day, not just analytics
+  successThreshold,  // how many of this week's scheduled days = 100%
+}
+
+// TaskDefinition — the catalog entry (name/icon/type/fields/NFC binding)
+{
+  _id,
+  companyId,
+  templateId,        // ref TaskTemplate this was cloned from, informational only, null for custom tasks
+  name,              // 'Walk-in Fridge Temp'
+  icon,              // lucide icon key, e.g. 'refrigerator' — see components/AppIcon.tsx
   taskType: 'form' | 'standard' | 'stopwatch' | 'checkbox',
   // form = the only creatable type — a structured checklist item, see formFields below
   // standard/stopwatch/checkbox = retired personal-habit timer types, kept only for schema
   //   compatibility with pre-pivot data — nothing in the UI creates them anymore
   formFields,        // FormFieldDef[] — only populated for form: { key, label,
-                     //   type: 'number'|'text'|'boolean', unit?, min?, max? }
-  scheduledDays,     // 0=Sun..6=Sat — which days this task is expected; also gates whether
-                     //   it actually appears on the Tasks page that day, not just analytics
-  successThreshold,  // how many of this week's scheduled days = 100%
+                     //   type: 'number'|'text'|'boolean'|'checklist', unit?, min?, max?, items? }
+                     //   checklist = one or more to-do sub-items (items) that must all be
+                     //   checked to save, distinct from a single yes/no boolean answer
+  projectedMinutes,  // default time budget; a placement's own projectedMinutes overrides it
   nfcTagUid,         // raw hardware UID of a bound physical NFC tag, scanned in-app; null = no
                      //   binding. Completing this task then requires a matching "Scan NFC"
                      //   instead of a plain Save — see docs/features/nfc.md's "In-app
                      //   scan-to-complete binding". Distinct from the separate NfcTag
-                     //   collection used for tap-to-trigger.
+                     //   collection used for tap-to-trigger. Binding lives here, one layer
+                     //   above any single placement, so every list a task is placed in
+                     //   shares the same tag.
+  isActive: bool,    // soft-delete — blocked while any active Task placement still references it
 }
 ```
 

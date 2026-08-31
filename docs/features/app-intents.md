@@ -11,7 +11,7 @@
 > `ChrpsShortcuts`, "Ch'rps") *was* renamed as part of the Ch'rps rebrand,
 > unlike that Habit/Routine vocabulary.
 
-Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets the app declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual checks, with no URL or API key ever touching a Shortcut. This is now the **only** supported way to trigger a check from outside the app; an earlier NFC-tag/Universal-Link-based system (per-card URLs, a claim flow, `NfcTag`/`PendingNfcLink` models) was removed once this shipped — everything it did, App Intents does better, including physical taps (see "Physical NFC tags" below).
+Apple's App Intents framework (`AppEntity`, `EntityQuery`, `AppIntent`, `AppShortcutsProvider`) lets the app declare a "Trigger Habit" action that appears automatically in the Shortcuts app gallery, Siri, and Spotlight — a live, native picker of the user's actual checks, with no URL or API key ever touching a Shortcut. This is the recommended way to trigger a check from outside the app, but it did **not** replace the earlier NFC-tag/Universal-Link-based system (per-card URLs, a claim flow, `NfcTag`/`PendingNfcLink` models) — that system is still fully live in code and data; only its "Link a Physical Tag"/"Generate Silent Trigger" UI entry points were later removed from Manage Task List. See [`features/nfc.md`](nfc.md) for the current, accurate account of both NFC paths, including the one still reachable via the raw API routes (see "Physical NFC tags" below).
 
 ## Why this needed real native code
 
@@ -19,7 +19,7 @@ App Intents has no JS/Capacitor-JS equivalent — this is OS-level Shortcuts-gal
 
 ## Physical NFC tags
 
-No app-specific NFC code or data model is needed for a physical tap-to-trigger experience. Shortcuts' own NFC Automation binds directly to a tag's hardware UID when you set it up (Automation → + → NFC → scan tag → Run Shortcut) — it works with any tag, blank or not, and needs nothing written to it, no "claiming," no per-tag record in this app's database at all. Point that Automation at a Shortcut built around the "Trigger Habit" action (with the desired habit pre-selected as its parameter) and tapping the tag fires it silently, phone locked included. This is strictly simpler than the retired NFC-tag system, which needed a `tagCode` written to each tag, an in-app claim flow, and Universal Links just to get to the point of building a Shortcut.
+No app-specific NFC code or data model is needed for a physical tap-to-trigger experience. Shortcuts' own NFC Automation binds directly to a tag's hardware UID when you set it up (Automation → + → NFC → scan tag → Run Shortcut) — it works with any tag, blank or not, and needs nothing written to it, no "claiming," no per-tag record in this app's database at all. Point that Automation at a Shortcut built around the "Trigger Habit" action (with the desired habit pre-selected as its parameter) and tapping the tag fires it silently, phone locked included. This is strictly simpler than the still-live `NfcTag` system (see [`features/nfc.md`](nfc.md)), which needs a `tagCode` written to each tag, an in-app claim flow, and Universal Links just to get to the point of building a Shortcut — but that system is not retired, only a longer setup path.
 
 ## The habit list — `GET /api/external/tasks`
 

@@ -21,7 +21,7 @@ This solves a real limitation of the earlier one-layer model: a check that legit
 
 `TaskDefinition.taskType` (see "Company Task Catalog" below — task content, including `taskType`, lives on the definition, not the list placement) is one of:
 
-- **`form`** — the only creatable type. Has a `formFields` array (number readings with an optional unit/min/max, or yes/no items); tapping it opens `components/TaskFormScreen.tsx` to fill in those fields, with elapsed time tracked the same way a timer would be.
+- **`form`** — the only creatable type. Has a `formFields` array — `number` readings with an optional unit/min/max, `boolean` yes/no answers, `text`, or `checklist` (one or more to-do sub-items, given in `items`, that must all be checked to save; a single-item checklist renders as one big checkbox using the field's own `label`, multiple items render as their own rows grouped under it — see `models/TaskDefinition.ts`'s `FormFieldDef`); tapping it opens `components/TaskFormScreen.tsx` to fill in those fields, with elapsed time tracked the same way a timer would be.
 - **`standard`** / **`stopwatch`** / **`checkbox`** — timer-based personal-habit item types from before the app's pivot to restaurant work checks. Kept in the schema for compatibility with old data; nothing in the UI creates them anymore.
 
 ## Log states (anytime tasks — `TaskCard`)
