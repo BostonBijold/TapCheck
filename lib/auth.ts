@@ -1,12 +1,41 @@
 import NextAuth from "next-auth";
+import Credentials from "next-auth/providers/credentials";
 import { MongoDBAdapter } from "@auth/mongodb-adapter";
 import clientPromise from "@/lib/mongodb-client";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
 import authConfig from "@/lib/auth.config";
+import { verifyPassword } from "@/lib/password";
 
 export const { handlers, auth, signIn, signOut } = NextAuth({
   ...authConfig,
+  // Credentials lives only here (the Node-runtime config), not in
+  // auth.config.ts — its authorize() needs Mongoose + bcrypt, neither of
+  // which can run in middleware.ts's Edge runtime. middleware only ever
+  // validates an existing session, never calls authorize(), so it doesn't
+  // need this provider registered.
+  providers: [
+    ...authConfig.providers,
+    Credentials({
+      credentials: { email: {}, password: {} },
+      async authorize(credentials) {
+        const email = String(credentials?.email ?? "").toLowerCase().trim();
+        const password = String(credentials?.password ?? "");
+        if (!email || !password) return null;
+
+        await connectDB();
+        const user = await User.findOne({ email });
+        // Same null return for "no such user" and "Google-only account, no
+        // password set yet" — never reveal which case it was.
+        if (!user?.passwordHash) return null;
+
+        const valid = await verifyPassword(password, user.passwordHash);
+        if (!valid) return null;
+
+        return { id: user._id.toString(), email: user.email, name: user.name };
+      },
+    }),
+  ],
   adapter: MongoDBAdapter(clientPromise),
   callbacks: {
     jwt({ token, user }) {

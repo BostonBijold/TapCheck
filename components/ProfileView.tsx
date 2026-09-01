@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
 import { Capacitor } from "@capacitor/core";
@@ -14,11 +14,55 @@ interface Props {
   today: string;
   skipAuth: boolean;
   isManager?: boolean;
+  hasPassword?: boolean;
 }
 
-export default function ProfileView({ name, email, today, skipAuth, isManager = false }: Props) {
+export default function ProfileView({ name, email, today, skipAuth, isManager = false, hasPassword = false }: Props) {
   const [apiKey, setApiKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [passwordSet, setPasswordSet] = useState(hasPassword);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [passwordStatus, setPasswordStatus] = useState<{ type: "error" | "success"; text: string } | null>(null);
+  const [passwordSubmitting, setPasswordSubmitting] = useState(false);
+
+  const handlePasswordSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    setPasswordStatus(null);
+
+    if (newPassword.length < 8) {
+      setPasswordStatus({ type: "error", text: "Password must be at least 8 characters." });
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordStatus({ type: "error", text: "Passwords don't match." });
+      return;
+    }
+
+    setPasswordSubmitting(true);
+    try {
+      const res = await fetch("/api/user/password", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setPasswordStatus({ type: "error", text: data.error ?? "Something went wrong." });
+        return;
+      }
+      setPasswordSet(true);
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+      setPasswordStatus({ type: "success", text: "Password updated." });
+    } catch {
+      setPasswordStatus({ type: "error", text: "Something went wrong. Please try again." });
+    } finally {
+      setPasswordSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     fetch("/api/user/api-key")
@@ -87,6 +131,57 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
               <p className="font-mono text-xs text-dim">Loading…</p>
             )}
           </div>
+
+          {/* Credentials sign-in password — see app/api/user/password/route.ts.
+              Blank "Current password" for a Google-only account (nothing to
+              check yet); required once one has been set. */}
+          {!skipAuth && (
+            <div className="bg-card rounded-card border border-border p-5">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
+                {passwordSet ? "Change Password" : "Set a Password"}
+              </p>
+              <form onSubmit={handlePasswordSubmit} className="space-y-2.5">
+                {passwordSet && (
+                  <input
+                    type="password"
+                    placeholder="Current password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(e) => setCurrentPassword(e.target.value)}
+                    className="w-full bg-bg border border-border rounded-card px-3.5 py-2.5 font-body text-sm text-text placeholder:text-dim focus:outline-none focus:border-olive"
+                  />
+                )}
+                <input
+                  type="password"
+                  placeholder="New password"
+                  autoComplete="new-password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                  className="w-full bg-bg border border-border rounded-card px-3.5 py-2.5 font-body text-sm text-text placeholder:text-dim focus:outline-none focus:border-olive"
+                />
+                <input
+                  type="password"
+                  placeholder="Confirm new password"
+                  autoComplete="new-password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  className="w-full bg-bg border border-border rounded-card px-3.5 py-2.5 font-body text-sm text-text placeholder:text-dim focus:outline-none focus:border-olive"
+                />
+                {passwordStatus && (
+                  <p className={`font-mono text-xs ${passwordStatus.type === "error" ? "text-burgundy-light" : "text-done"}`}>
+                    {passwordStatus.text}
+                  </p>
+                )}
+                <button
+                  type="submit"
+                  disabled={passwordSubmitting}
+                  className="w-full py-3 rounded-card bg-olive text-white font-body font-medium text-sm hover:bg-olive-light transition-colors disabled:opacity-50"
+                >
+                  {passwordSubmitting ? "Saving…" : passwordSet ? "Update Password" : "Set Password"}
+                </button>
+              </form>
+            </div>
+          )}
 
           {/* Manager-only: task lists, standalone tasks, and the company's
               saved-task catalog — see components/ManageTasksView.tsx and

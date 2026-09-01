@@ -1,15 +1,37 @@
 import Image from "next/image";
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { AuthError } from "next-auth";
 import { auth, signIn } from "@/lib/auth";
+
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid: "Incorrect email or password.",
+};
 
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: { callbackUrl?: string };
+  searchParams: { callbackUrl?: string; error?: string };
 }) {
   const session = await auth();
   const destination = searchParams.callbackUrl || "/welcome";
   if (session) redirect(searchParams.callbackUrl || "/tasks");
+
+  async function credentialsSignIn(formData: FormData) {
+    "use server";
+    try {
+      await signIn("credentials", {
+        email: formData.get("email"),
+        password: formData.get("password"),
+        redirectTo: destination,
+      });
+    } catch (error) {
+      if (error instanceof AuthError) {
+        redirect(`/login?error=invalid&callbackUrl=${encodeURIComponent(destination)}`);
+      }
+      throw error;
+    }
+  }
 
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">
@@ -47,6 +69,50 @@ export default async function LoginPage({
             Continue with Google
           </button>
         </form>
+
+        <div className="flex items-center gap-3 my-6">
+          <div className="h-px flex-1 bg-border" />
+          <span className="font-mono text-[10px] uppercase tracking-widest text-dim">or</span>
+          <div className="h-px flex-1 bg-border" />
+        </div>
+
+        {searchParams.error && (
+          <p className="text-burgundy-light text-xs text-center mb-4">
+            {ERROR_MESSAGES[searchParams.error] ?? "Something went wrong. Please try again."}
+          </p>
+        )}
+
+        <form action={credentialsSignIn} className="space-y-3">
+          <input
+            type="email"
+            name="email"
+            placeholder="Email"
+            required
+            autoComplete="email"
+            className="w-full bg-card border border-border rounded-xl px-4 py-3.5 font-body text-sm text-text placeholder:text-dim focus:outline-none focus:border-olive"
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="Password"
+            required
+            autoComplete="current-password"
+            className="w-full bg-card border border-border rounded-xl px-4 py-3.5 font-body text-sm text-text placeholder:text-dim focus:outline-none focus:border-olive"
+          />
+          <button
+            type="submit"
+            className="w-full bg-olive text-white py-4 rounded-xl font-body font-medium hover:bg-olive-light transition-colors"
+          >
+            Sign in
+          </button>
+        </form>
+
+        <p className="text-muted text-sm text-center mt-6">
+          Don&apos;t have an account?{" "}
+          <Link href="/signup" className="text-olive font-medium">
+            Sign up
+          </Link>
+        </p>
 
         <p className="text-muted text-xs text-center mt-10">
           Your data is private to your account.

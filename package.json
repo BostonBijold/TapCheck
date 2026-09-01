@@ -21,6 +21,7 @@
     "@dnd-kit/utilities": "^3.2.2",
     "@fontsource/ibm-plex-mono": "^5.2.7",
     "@fontsource/playfair-display": "^5.2.8",
+    "bcryptjs": "^3.0.3",
     "jose": "^6.2.10",
     "lucide-react": "^1.18.0",
     "mongodb": "^6.21.0",

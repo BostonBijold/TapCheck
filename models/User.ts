@@ -33,6 +33,16 @@ const UserSchema = new Schema(
     // host outright, so this has to travel with the token, not be a single
     // server-wide setting.
     liveActivityPushEnvironment: { type: String, enum: ["sandbox", "production"], default: null },
+    // bcrypt hash for manual email/password sign-in (see lib/password.ts,
+    // the Credentials provider in lib/auth.ts, and app/signup) — added
+    // alongside Google OAuth so Apple's App Review team has a sign-in path
+    // that doesn't depend on a real Google account. Null for a Google-only
+    // account; the Profile page lets a Google user set one later, and
+    // lets anyone with one change it, via PATCH /api/user/password. Never
+    // include this field in a value returned from an API response —
+    // existing User queries elsewhere all project specific fields rather
+    // than returning the raw doc, keep that pattern.
+    passwordHash: { type: String, default: null },
   },
   {
     strict: false, // allow adapter-owned fields to coexist without declaring them
