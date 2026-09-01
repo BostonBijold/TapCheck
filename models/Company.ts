@@ -26,6 +26,11 @@ export interface ICompany extends Document {
   industry: string | null;
   timezone: string | null;
   notificationPreferences: Record<string, unknown>;
+  // Which chirp plays on a device that just completed a task via the NFC
+  // scan-to-complete binding's "Scan NFC to Save" step (see
+  // docs/features/nfc.md) — a real, company-wide preference, not part of
+  // the still-unused notificationPreferences bag above.
+  notificationSound: "standard" | "male";
   subscription: ICompanySubscription;
 }
 
@@ -52,6 +57,7 @@ const CompanySchema = new Schema<ICompany>(
     industry: { type: String, default: null },
     timezone: { type: String, default: null },
     notificationPreferences: { type: Schema.Types.Mixed, default: {} },
+    notificationSound: { type: String, enum: ["standard", "male"], default: "standard" },
     subscription: { type: CompanySubscriptionSchema, default: () => ({}) },
   },
   { timestamps: true }

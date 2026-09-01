@@ -154,6 +154,9 @@ Company, and every other collection scopes its data either to the Company
   industry,                   // stubbed, not read anywhere yet
   timezone,                   // stubbed, not read anywhere yet
   notificationPreferences,    // stubbed, not read anywhere yet
+  notificationSound,          // 'standard' | 'male' — defaults 'standard'; which chirp plays on a
+                               // device that completes an NFC-bound task via "Scan NFC to Save"
+                               // (docs/features/nfc.md). Manager-set from Profile > Company Settings.
   subscription: {              // stubbed — no Stripe integration wired up yet
     status,                   // 'trialing' | 'active' | 'past_due' | 'canceled' | 'none' — defaults 'trialing'
     tier,                     // 'free' | 'starter' | 'pro' — defaults 'free'

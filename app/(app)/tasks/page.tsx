@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
+import Company from "@/models/Company";
 import Todo, { serializeTodo, todosForDateQuery } from "@/models/Todo";
 import { seedDefaultTaskLists, ensureAnytimeTaskList } from "@/lib/seed";
 import { resolveTasks } from "@/lib/task-definitions";
@@ -159,6 +160,11 @@ export default async function TasksPage({
     .lean();
   const initialTodos = todayTodos.map(serializeTodo);
 
+  // Which chirp to play on this device for an NFC scan-to-complete save —
+  // see lib/notification-sound.ts and models/Company.ts.
+  const company = await Company.findById(companyId, "notificationSound").lean<{ notificationSound?: string }>();
+  const notificationSound = (company?.notificationSound === "male" ? "male" : "standard") as "standard" | "male";
+
   return (
     <TasksView
       taskLists={taskListsWithTasks}
@@ -178,6 +184,7 @@ export default async function TasksPage({
       autoOpenVerifiedNfcUid={searchParams?.verifiedNfcUid ?? null}
       autoOpenSessionTaskId={searchParams?.openSessionTaskId ?? null}
       autoOpenSessionListId={searchParams?.openSessionListId ?? null}
+      notificationSound={notificationSound}
     />
   );
 }

@@ -6,6 +6,7 @@ import AppIcon from "@/components/AppIcon";
 import type { TimerItem } from "@/components/TimerScreen";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
+import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
 
 type FieldValue = FormFieldValue;
 
@@ -20,6 +21,10 @@ interface Props {
   // opening any other way (tapping the task directly) leaves this unset and
   // the normal Scan NFC step still applies. See docs/features/nfc.md.
   preVerifiedNfcUid?: string | null;
+  // Which chirp to play once an NFC-bound task's completion actually saves
+  // (either branch below — a fresh scan or the FAB's pre-verified path) —
+  // see lib/notification-sound.ts and models/Company.ts's notificationSound.
+  notificationSound: NotificationSound;
   // Rejects if the server refused the completion (e.g. an NFC-bound task
   // with no/mismatched scan — see docs/features/nfc.md) — handleSave below
   // catches that and shows it inline instead of closing this screen.
@@ -57,7 +62,7 @@ function isChecklistComplete(f: { label: string; items?: string[] }, value: Fiel
   return checklistItems(f).every((label) => checked[label] === true);
 }
 
-export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, onComplete, onMissed, onClose, exiting = false }: Props) {
+export default function TaskFormScreen({ item, initialElapsed = 0, taskListName = null, preVerifiedNfcUid = null, notificationSound, onComplete, onMissed, onClose, exiting = false }: Props) {
   const fields = item.formFields ?? [];
 
   const [elapsed, setElapsed] = useState(initialElapsed);
@@ -143,6 +148,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     if (alreadyVerified) {
       try {
         await onComplete(values, actualMinutes, preVerifiedNfcUid);
+        playNotificationSound(notificationSound);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save — please try again.");
       }
@@ -168,6 +174,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     }
     try {
       await onComplete(values, actualMinutes, result.uid);
+      playNotificationSound(notificationSound);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save — please try again.");
     }

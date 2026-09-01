@@ -104,6 +104,21 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
             </Link>
           )}
 
+          {/* Manager-only: which chirp plays on this company's devices for
+              an NFC scan-to-complete save — see components/CompanySettingsView.tsx. */}
+          {isManager && (
+            <Link
+              href="/company-settings"
+              className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+            >
+              <div>
+                <p className="font-body text-sm text-text">Company Settings</p>
+                <p className="font-mono text-[10px] text-dim mt-0.5">NFC save sound</p>
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
+          )}
+
           {/* Sign out */}
           {!skipAuth && (
             <button

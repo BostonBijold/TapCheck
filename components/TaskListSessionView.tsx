@@ -5,6 +5,7 @@ import { X, ChevronRight, CheckCircle2 } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TimelineBar from "@/components/TimelineBar";
 import TaskFormScreen from "@/components/TaskFormScreen";
+import type { NotificationSound } from "@/lib/notification-sound";
 import type { RowItem } from "@/components/TaskRow";
 import type { LogState } from "@/models/TaskLog";
 import type { FormFieldValue } from "@/models/TaskDefinition";
@@ -54,6 +55,7 @@ interface Props {
   // to any other task in this free-jump session never inherits it.
   preVerifiedTaskId?: string | null;
   preVerifiedNfcUid?: string | null;
+  notificationSound: NotificationSound; // which chirp to play on an NFC scan-to-complete save — see lib/notification-sound.ts
   onClose: () => void;
   onFinish: () => void;
 }
@@ -100,7 +102,7 @@ const TIMELINE_COLOR: Record<TimelineColorState, string> = {
   pending: "#c7d1dc",     // border-light
 };
 
-export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerifiedTaskId = null, preVerifiedNfcUid = null, onClose, onFinish }: Props) {
+export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerifiedTaskId = null, preVerifiedNfcUid = null, notificationSound, onClose, onFinish }: Props) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
@@ -566,6 +568,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         initialElapsed={elapsed}
         taskListName={taskListName}
         preVerifiedNfcUid={currentTask._id === preVerifiedTaskId ? preVerifiedNfcUid : null}
+        notificationSound={notificationSound}
         onComplete={handleTaskFormDone}
         onMissed={handleMissed}
         onClose={handleClose}

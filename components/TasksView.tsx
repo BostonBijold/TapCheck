@@ -9,6 +9,7 @@ import DateNav from "@/components/DateNav";
 import TaskListCard, { type TaskListCardTaskList } from "@/components/TaskListCard";
 import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
 import TaskFormScreen from "@/components/TaskFormScreen";
+import type { NotificationSound } from "@/lib/notification-sound";
 import TaskListSessionView from "@/components/TaskListSessionView";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TodoSection, { type TodoEntry } from "@/components/TodoSection";
@@ -67,6 +68,7 @@ interface Props {
   autoOpenVerifiedNfcUid?: string | null; // the UID that scan already read — pre-satisfies that task's own Scan NFC step, see TaskFormScreen.tsx
   autoOpenSessionTaskId?: string | null; // set when the FAB scan resolved to a shift-window task — see docs/features/nfc.md
   autoOpenSessionListId?: string | null; // that task's parent list, to join/auto-start its session
+  notificationSound: NotificationSound; // which chirp to play on an NFC scan-to-complete save — see lib/notification-sound.ts
 }
 
 interface ActiveSession {
@@ -84,6 +86,7 @@ export default function TasksView({
   autoOpenVerifiedNfcUid = null,
   autoOpenSessionTaskId = null,
   autoOpenSessionListId = null,
+  notificationSound,
 }: Props) {
   const router = useRouter();
   const [selectedDate, setSelectedDate] = useState(today);
@@ -792,6 +795,7 @@ export default function TasksView({
             initialElapsed={timerInitialElapsed}
             taskListName={findTaskListName(timerItem._id)}
             preVerifiedNfcUid={preVerified?.taskId === timerItem._id ? preVerified.uid : null}
+            notificationSound={notificationSound}
             onComplete={handleTaskFormComplete}
             onMissed={handleTimerMissed}
             onClose={() => { setTimerItem(null); setPreVerified(null); }}
@@ -820,6 +824,7 @@ export default function TasksView({
           startIndex={activeSession?.startIndex ?? 0}
           preVerifiedTaskId={preVerified?.taskId ?? null}
           preVerifiedNfcUid={preVerified?.uid ?? null}
+          notificationSound={notificationSound}
           onClose={handleSessionFinish}
           onFinish={handleSessionFinish}
         />
