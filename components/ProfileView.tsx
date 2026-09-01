@@ -214,6 +214,14 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
             </Link>
           )}
 
+          <Link
+            href="/privacy"
+            className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+          >
+            <p className="font-body text-sm text-text">Privacy Policy</p>
+            <ChevronRight size={16} className="text-dim flex-shrink-0" />
+          </Link>
+
           {/* Sign out */}
           {!skipAuth && (
             <button

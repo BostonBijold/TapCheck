@@ -4,10 +4,18 @@ import authConfig from "@/lib/auth.config";
 // Edge-safe auth instance (no MongoDB adapter) — middleware runs on the Edge runtime.
 const { auth } = NextAuth(authConfig);
 
-// apple-app-site-association must be reachable with no session — Apple's
-// CDN fetches it directly to validate Universal Links (see
-// docs/features/nfc.md's "Native setup"), never carrying a login cookie.
-const PUBLIC_PAGE_PATHS = new Set(["/login", "/signup", "/.well-known/apple-app-site-association"]);
+// Sign-in/sign-up only — a logged-in user gets bounced off these back to
+// /tasks, since there's nothing for them to do there.
+const AUTH_PAGES = ["/login", "/signup"];
+const AUTH_PAGE_PATHS = new Set(AUTH_PAGES);
+
+// Reachable with no session at all, but NOT redirected away from when
+// logged in — /privacy stays visible either way (e.g. linked from the
+// Profile page), and apple-app-site-association must be reachable with no
+// session since Apple's CDN fetches it directly to validate Universal
+// Links (see docs/features/nfc.md's "Native setup"), never carrying a
+// login cookie.
+const PUBLIC_PAGE_PATHS = new Set([...AUTH_PAGES, "/privacy", "/.well-known/apple-app-site-association"]);
 
 export default auth((req) => {
   // Local dev escape hatch — lets you work without Google OAuth creds configured.
@@ -17,11 +25,12 @@ export default auth((req) => {
   const { pathname } = req.nextUrl;
   const isLoggedIn = !!req.auth;
   const isApiRoute = pathname.startsWith("/api");
+  const isAuthPage = AUTH_PAGE_PATHS.has(pathname);
   const isPublicPage = PUBLIC_PAGE_PATHS.has(pathname);
 
   console.log(`[middleware] ${pathname} — isLoggedIn:${isLoggedIn} isPublicPage:${isPublicPage} isApiRoute:${isApiRoute} token:`, JSON.stringify(req.auth));
 
-  if (isLoggedIn && isPublicPage) {
+  if (isLoggedIn && isAuthPage) {
     return Response.redirect(new URL("/tasks", req.nextUrl.origin));
   }
 
