@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
+import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
 
 const DAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 const MONTHS = [
@@ -21,25 +23,46 @@ export default function Header({ userName, today, skipAuth }: Props) {
   const monthName = MONTHS[date.getMonth()];
   const dayNum = date.getDate();
 
+  // Header is mounted on every page, so it fetches the company's chirp
+  // preference itself rather than needing it threaded down through every
+  // page's server component — same GET any device uses to know which file
+  // to play on an NFC save (see lib/notification-sound.ts, docs/features/nfc.md).
+  const [notificationSound, setNotificationSound] = useState<NotificationSound>("standard");
+  useEffect(() => {
+    fetch("/api/company/settings")
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data: { notificationSound?: NotificationSound } | null) => {
+        if (data?.notificationSound) setNotificationSound(data.notificationSound);
+      })
+      .catch(() => {});
+  }, []);
+
   return (
     <header className="fixed top-0 left-0 right-0 z-30 bg-bg border-b border-border" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
       <div className="mx-auto max-w-mobile px-4 h-16 grid grid-cols-[44px_1fr_auto] items-center">
 
-        {/* Logo */}
+        {/* Logo — tap to hear the company's chirp */}
         <div className="flex items-center justify-start">
-          <Image
-            src="/logo.jpeg"
-            alt="Ch'rps"
-            width={38}
-            height={38}
-            priority
-            className="rounded-full object-cover"
-          />
+          <button
+            type="button"
+            onClick={() => playNotificationSound(notificationSound)}
+            aria-label="Play chirp"
+            className="rounded-full"
+          >
+            <Image
+              src="/logo.jpeg"
+              alt="Ch'rps"
+              width={38}
+              height={38}
+              priority
+              className="rounded-full object-cover"
+            />
+          </button>
         </div>
 
-        {/* Title */}
+        {/* Title — brand wordmark treatment, matching app/login/page.tsx */}
         <div className="text-center">
-          <h1 className="font-heading text-xl tracking-wide text-text leading-tight">
+          <h1 className="font-brand font-extrabold text-xl tracking-wide text-olive leading-tight">
             Ch&apos;rps
           </h1>
           <p className="font-mono text-dim text-[10px] mt-0.5 tracking-widest uppercase">
