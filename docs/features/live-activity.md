@@ -119,7 +119,7 @@ A fourth iteration tried using `Activity.activities` for a *cosmetic-only* updat
 
 ## No tap-through deep link
 
-`widgetURL`/`Link` on the card body (tapping anywhere that isn't the Done button) was deliberately left unset. Universal Links / the Associated Domains entitlement (`applinks:chrps.app`) do exist and work in this project — they back the NFC tap-to-trigger flow (see [`nfc.md`](nfc.md#native-setup)) — but they're wired specifically to `/nfc/<tagCode>`, not to any generic "open the app" URL a Live Activity card could point at. Setting `widgetURL` here would need its own route and deep-link target to be worth building, and no one has asked for tap-through from the Lock Screen card yet. The Done button remains the one interactive element.
+`widgetURL`/`Link` on the card body (tapping anywhere that isn't the Done button) was deliberately left unset. Universal Links / the Associated Domains entitlement (`applinks:chrps.vercel.app`) do exist and work in this project — they back the NFC tap-to-trigger flow (see [`nfc.md`](nfc.md#native-setup)) — but they're wired specifically to `/nfc/<tagCode>`, not to any generic "open the app" URL a Live Activity card could point at. Setting `widgetURL` here would need its own route and deep-link target to be worth building, and no one has asked for tap-through from the Lock Screen card yet. The Done button remains the one interactive element.
 
 ## Palette and typography
 
