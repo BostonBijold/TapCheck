@@ -7,6 +7,8 @@ import type { TimerItem } from "@/components/TimerScreen";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
+import TemperatureInput from "@/components/TemperatureInput";
+import type { TempUnit } from "@/lib/temperature";
 
 type FieldValue = FormFieldValue;
 
@@ -278,9 +280,17 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               <div key={f.key} className="space-y-1.5">
                 <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
                   {f.label}
-                  {f.unit ? ` (${f.unit})` : ""}
+                  {f.type !== "temperature" && f.unit ? ` (${f.unit})` : ""}
                 </label>
-                {f.type === "boolean" ? (
+                {f.type === "temperature" ? (
+                  <TemperatureInput
+                    unit={(f.unit === "C" ? "C" : "F") as TempUnit}
+                    value={values[f.key] as number | undefined}
+                    onChange={(v) => setField(f.key, v)}
+                    min={f.min}
+                    max={f.max}
+                  />
+                ) : f.type === "boolean" ? (
                   <div className="flex gap-2">
                     <button
                       type="button"

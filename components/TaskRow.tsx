@@ -180,15 +180,21 @@ export default function TaskRow({
                   display = items.length === 1 ? "✓ Done" : `${checkedCount}/${items.length} checked`;
                 } else if (typeof v === "boolean") {
                   display = v ? "Yes" : "No";
+                } else if (f.type === "temperature") {
+                  display = `${v}°${f.unit === "C" ? "C" : "F"}`;
                 } else {
                   display = String(v);
                 }
+                const outOfRange =
+                  f.type === "temperature" &&
+                  typeof v === "number" &&
+                  ((f.min !== undefined && v < f.min) || (f.max !== undefined && v > f.max));
                 return (
                   <div key={f.key} className="flex items-center justify-between gap-2">
                     <span className="font-mono text-[10px] text-dim uppercase tracking-widest">
-                      {f.label}{f.unit ? ` (${f.unit})` : ""}
+                      {f.label}{f.type === "number" && f.unit ? ` (${f.unit})` : ""}
                     </span>
-                    <span className="font-mono text-xs text-text">{display}</span>
+                    <span className={`font-mono text-xs ${outOfRange ? "text-burgundy-light" : "text-text"}`}>{display}</span>
                   </div>
                 );
               })}

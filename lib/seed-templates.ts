@@ -17,6 +17,16 @@ const num = (key: string, label: string, extra: Partial<FormFieldDef> = {}): For
   type: "number",
   ...extra,
 });
+// Unit is always "F" here (not display-text "°F") — see FormFieldDef's
+// "temperature" type in models/TaskDefinition.ts. min/max are the
+// manager's acceptable range in that same unit.
+const temp = (key: string, label: string, extra: Partial<FormFieldDef> = {}): FormFieldDef => ({
+  key,
+  label,
+  type: "temperature",
+  unit: "F",
+  ...extra,
+});
 // A to-do action to check off, not a yes/no question — e.g. "Take out
 // garbage" (one item, renders as a single checkbox) or "Store lights" /
 // "Music" / "Open sign" together (several items, all required) — see
@@ -33,12 +43,12 @@ const SYSTEM_TEMPLATES: SystemTemplate[] = [
   {
     name: "Walk-in Fridge Temp", icon: "refrigerator", defaultProjectedMinutes: 2,
     category: "food_safety", timeOfDay: "morning",
-    formFields: [num("temperature", "Fridge temperature", { unit: "°F", min: 33, max: 40 })],
+    formFields: [temp("temperature", "Fridge temperature", { min: 33, max: 40 })],
   },
   {
     name: "Walk-in Freezer Temp", icon: "snowflake", defaultProjectedMinutes: 2,
     category: "food_safety", timeOfDay: "morning",
-    formFields: [num("temperature", "Freezer temperature", { unit: "°F", max: 0 })],
+    formFields: [temp("temperature", "Freezer temperature", { max: 0 })],
   },
   {
     name: "Handwashing Stations Stocked", icon: "droplets", defaultProjectedMinutes: 3,
@@ -79,7 +89,7 @@ const SYSTEM_TEMPLATES: SystemTemplate[] = [
   {
     name: "Line Temp Check", icon: "thermometer", defaultProjectedMinutes: 3,
     category: "food_safety", timeOfDay: "any",
-    formFields: [num("temperature", "Hot-holding line temperature", { unit: "°F", min: 135 })],
+    formFields: [temp("temperature", "Hot-holding line temperature", { min: 135 })],
   },
   {
     name: "Restock Check", icon: "package", defaultProjectedMinutes: 5,
@@ -101,12 +111,12 @@ const SYSTEM_TEMPLATES: SystemTemplate[] = [
   {
     name: "Walk-in Fridge Temp (Close)", icon: "refrigerator", defaultProjectedMinutes: 2,
     category: "food_safety", timeOfDay: "evening",
-    formFields: [num("temperature", "Fridge temperature", { unit: "°F", min: 33, max: 40 })],
+    formFields: [temp("temperature", "Fridge temperature", { min: 33, max: 40 })],
   },
   {
     name: "Walk-in Freezer Temp (Close)", icon: "snowflake", defaultProjectedMinutes: 2,
     category: "food_safety", timeOfDay: "evening",
-    formFields: [num("temperature", "Freezer temperature", { unit: "°F", max: 0 })],
+    formFields: [temp("temperature", "Freezer temperature", { max: 0 })],
   },
   {
     name: "Equipment Powered Down", icon: "power-off", defaultProjectedMinutes: 5,
@@ -145,12 +155,12 @@ const SYSTEM_TEMPLATES: SystemTemplate[] = [
   {
     name: "Prep Cooler Temp Log", icon: "refrigerator", defaultProjectedMinutes: 2,
     category: "food_safety", timeOfDay: "any",
-    formFields: [num("temperature", "Prep cooler temperature", { unit: "°F", min: 33, max: 40 })],
+    formFields: [temp("temperature", "Prep cooler temperature", { min: 33, max: 40 })],
   },
   {
     name: "Delivery Temperature Check", icon: "thermometer", defaultProjectedMinutes: 3,
     category: "food_safety", timeOfDay: "any",
-    formFields: [num("temperature", "Delivery temperature", { unit: "°F" })],
+    formFields: [temp("temperature", "Delivery temperature")],
   },
   {
     name: "Pest Control Check", icon: "bug", defaultProjectedMinutes: 5,

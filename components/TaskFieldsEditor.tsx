@@ -2,6 +2,7 @@
 
 import { X } from "lucide-react";
 import type { FormFieldDef } from "@/models/TaskDefinition";
+import { convertTemp, type TempUnit } from "@/lib/temperature";
 
 interface Props {
   fields: FormFieldDef[];
@@ -75,6 +76,22 @@ export default function TaskFieldsEditor({ fields, onChange }: Props) {
                 </button>
                 <button
                   type="button"
+                  onClick={() =>
+                    updateField(i, {
+                      type: "temperature",
+                      // Free-text "number" units (if any) don't carry over —
+                      // temperature's unit is meaningful (F/C), not display text.
+                      unit: field.unit === "C" ? "C" : "F",
+                    })
+                  }
+                  className={`px-3 py-1.5 rounded-card font-mono text-xs transition-colors ${
+                    field.type === "temperature" ? "bg-olive text-text" : "text-dim"
+                  }`}
+                >
+                  Temperature
+                </button>
+                <button
+                  type="button"
                   onClick={() => updateField(i, { type: "boolean", unit: undefined, min: undefined, max: undefined })}
                   className={`px-3 py-1.5 rounded-card font-mono text-xs transition-colors ${
                     field.type === "boolean" ? "bg-olive text-text" : "text-dim"
@@ -123,6 +140,50 @@ export default function TaskFieldsEditor({ fields, onChange }: Props) {
                     onChange={(e) => updateField(i, { max: e.target.value === "" ? undefined : Number(e.target.value) })}
                     placeholder="Max"
                     className="w-16 bg-card border border-border rounded-card px-2 py-1.5 font-mono text-xs text-text placeholder:text-dim outline-none focus:border-olive"
+                  />
+                </>
+              )}
+
+              {field.type === "temperature" && (
+                <>
+                  <div className="flex bg-card border border-border rounded-card p-0.5 flex-shrink-0">
+                    {(["F", "C"] as TempUnit[]).map((u) => (
+                      <button
+                        key={u}
+                        type="button"
+                        onClick={() => {
+                          if (field.unit === u) return;
+                          const from = (field.unit === "C" ? "C" : "F") as TempUnit;
+                          // Converting the acceptable range so it keeps meaning
+                          // the same real-world temperature after the toggle,
+                          // not just the same number in a new scale.
+                          updateField(i, {
+                            unit: u,
+                            min: field.min === undefined ? undefined : convertTemp(field.min, from, u),
+                            max: field.max === undefined ? undefined : convertTemp(field.max, from, u),
+                          });
+                        }}
+                        className={`px-3 py-1.5 rounded-card font-mono text-xs transition-colors ${
+                          (field.unit === "C" ? "C" : "F") === u ? "bg-olive text-text" : "text-dim"
+                        }`}
+                      >
+                        °{u}
+                      </button>
+                    ))}
+                  </div>
+                  <input
+                    type="number"
+                    value={field.min ?? ""}
+                    onChange={(e) => updateField(i, { min: e.target.value === "" ? undefined : Number(e.target.value) })}
+                    placeholder={`Min °${field.unit === "C" ? "C" : "F"}`}
+                    className="w-20 bg-card border border-border rounded-card px-2 py-1.5 font-mono text-xs text-text placeholder:text-dim outline-none focus:border-olive"
+                  />
+                  <input
+                    type="number"
+                    value={field.max ?? ""}
+                    onChange={(e) => updateField(i, { max: e.target.value === "" ? undefined : Number(e.target.value) })}
+                    placeholder={`Max °${field.unit === "C" ? "C" : "F"}`}
+                    className="w-20 bg-card border border-border rounded-card px-2 py-1.5 font-mono text-xs text-text placeholder:text-dim outline-none focus:border-olive"
                   />
                 </>
               )}
@@ -187,7 +248,7 @@ export default function TaskFieldsEditor({ fields, onChange }: Props) {
 
       {fields.length === 0 && (
         <p className="font-mono text-[10px] text-dim mt-2">
-          Add at least one field — a number reading, a yes/no answer, or a checklist to check off.
+          Add at least one field — a number or temperature reading, a yes/no answer, or a checklist to check off.
         </p>
       )}
     </div>

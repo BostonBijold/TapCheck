@@ -13,11 +13,18 @@ export function sanitizeFormFields(input: unknown): FormFieldDef[] {
     const { key, label, type, unit, min, max, items } = entry as Record<string, unknown>;
     if (typeof key !== "string" || !key) continue;
     if (typeof label !== "string" || !label) continue;
-    if (type !== "number" && type !== "text" && type !== "boolean" && type !== "checklist") continue;
+    if (type !== "number" && type !== "text" && type !== "boolean" && type !== "checklist" && type !== "temperature") continue;
 
     const field: FormFieldDef = { key, label, type };
     if (type === "number") {
       if (typeof unit === "string" && unit) field.unit = unit;
+      if (typeof min === "number") field.min = min;
+      if (typeof max === "number") field.max = max;
+    }
+    if (type === "temperature") {
+      // Only ever "F" or "C" — this unit doubles as the scale min/max/value
+      // are compared in, unlike "number"'s free-text display-only unit.
+      field.unit = unit === "C" ? "C" : "F";
       if (typeof min === "number") field.min = min;
       if (typeof max === "number") field.max = max;
     }

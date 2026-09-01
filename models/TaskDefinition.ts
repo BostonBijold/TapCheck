@@ -24,12 +24,25 @@ export type TaskType = "standard" | "stopwatch" | "checkbox" | "form";
 // rows under the field's label as a group heading — a checklist nested
 // inside the task's own checklist of fields. All items must be checked to
 // save, same as a required boolean answer.
+//
+// "temperature" is a number field with unit-aware entry — unlike a plain
+// "number" field, `unit` here is meaningful (only ever "F" or "C", the
+// degree scale this field's `value`/`min`/`max` are stored in), and the
+// worker's entry screen (components/TemperatureInput.tsx) renders a
+// scroll-wheel picker instead of a bare text box so negative readings
+// (freezers) are as easy to enter as positive ones — iOS's decimal keypad
+// has no minus key, which a plain <input inputMode="decimal"> can't work
+// around. `min`/`max` are the manager's acceptable range in that same
+// unit (e.g. freezer max 0°F, hot-holding min 135°F); an out-of-range
+// reading still saves (an honest record — see "Skip Types" in
+// CLAUDE.md — a broken freezer is exactly the thing this should surface,
+// not hide) but is flagged visually at entry and wherever it's reviewed.
 export interface FormFieldDef {
   key: string;              // stable key, e.g. "temperature"
   label: string;            // display label, e.g. "Walk-in temperature"
-  type: "number" | "text" | "boolean" | "checklist";
-  unit?: string;             // e.g. "°F" — display only
-  min?: number;               // optional pass/fail bound, number fields only — not yet enforced
+  type: "number" | "text" | "boolean" | "checklist" | "temperature";
+  unit?: string;             // "number": e.g. "$" — display only. "temperature": "F" | "C" — the storage/comparison unit.
+  min?: number;               // optional pass/fail bound, number/temperature fields only
   max?: number;
   items?: string[];           // checklist fields only — sub-item labels, always >= 1 entry
 }
@@ -43,7 +56,7 @@ export const FormFieldDefSchema = new Schema<FormFieldDef>(
   {
     key: { type: String, required: true },
     label: { type: String, required: true },
-    type: { type: String, enum: ["number", "text", "boolean", "checklist"], required: true },
+    type: { type: String, enum: ["number", "text", "boolean", "checklist", "temperature"], required: true },
     unit: { type: String, default: undefined },
     min: { type: Number, default: undefined },
     max: { type: Number, default: undefined },

@@ -326,10 +326,15 @@ export default function TaskCard({
                 </div>
               );
             }
+            const backVal = backFormValues[f.key];
+            const backOutOfRange =
+              f.type === "temperature" &&
+              typeof backVal === "number" &&
+              ((f.min !== undefined && backVal < f.min) || (f.max !== undefined && backVal > f.max));
             return (
             <div key={f.key} className="flex items-center justify-between gap-2">
               <span className="font-mono text-[10px] text-dim uppercase tracking-widest">
-                {f.label}{f.unit ? ` (${f.unit})` : ""}
+                {f.label}{f.type === "number" && f.unit ? ` (${f.unit})` : ""}
               </span>
               {f.type === "boolean" ? (
                 <div className="flex gap-1 flex-shrink-0">
@@ -351,6 +356,21 @@ export default function TaskCard({
                   >
                     No
                   </button>
+                </div>
+              ) : f.type === "temperature" ? (
+                <div className="flex items-center gap-1.5 flex-shrink-0">
+                  <input
+                    type="number"
+                    // No inputMode override — iOS's plain number keypad
+                    // includes a minus key, unlike inputMode="decimal"
+                    // (needed for negative freezer readings).
+                    value={(backVal as number | string) ?? ""}
+                    onChange={(e) => setBackField(f.key, e.target.value === "" ? "" : Number(e.target.value))}
+                    className={`w-16 bg-bg border rounded-card px-2 py-1.5 font-mono text-xs text-text outline-none text-right ${
+                      backOutOfRange ? "border-burgundy-light" : "border-border focus:border-olive"
+                    }`}
+                  />
+                  <span className="font-mono text-[10px] text-dim">°{f.unit === "C" ? "C" : "F"}</span>
                 </div>
               ) : (
                 <input

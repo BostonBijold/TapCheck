@@ -116,3 +116,14 @@ body {
   background: #cbd5e1;
   border-radius: 2px;
 }
+
+/* Hides the scrollbar on the temperature picker wheel (TemperatureInput.tsx)
+   without disabling scroll — the center selection band is the only affordance
+   it needs. */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
