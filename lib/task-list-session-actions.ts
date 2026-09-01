@@ -153,6 +153,27 @@ export async function unlockSession(companyId: string, taskListId: string, date:
   );
 }
 
+// Called after a manager Undo (DELETE /api/task-logs) removes a TaskLog —
+// Undo only ever deletes the log itself, it never touches TaskListSession,
+// so undoing the one log that had ever anchored a list's session leaves
+// that session stuck: isTaskListFullyResolved can never become true again
+// (nothing left to have a terminal log), so it never auto-closes, and
+// nothing releases performedByUserId short of a manager's manual unlock —
+// "In progress by <name>" persists even though nothing is actually running.
+// If literally no TaskLog remains for any of this list's active tasks on
+// date, the session no longer represents anything that actually happened —
+// delete it outright (whatever its status) so the list is claimable again,
+// exactly as if it had never been started. A no-op whenever some other
+// task in the list still has a log (something's still genuinely in play).
+export async function releaseSessionIfNowEmpty(companyId: string, taskId: string, date: string) {
+  const task = await Task.findById(taskId).select("taskListId").lean();
+  if (!task) return;
+  const taskListId = task.taskListId.toString();
+  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, taskListId, date);
+  if (tasks.length === 0 || logs.length > 0) return;
+  await TaskListSession.deleteOne({ companyId, taskListId, date });
+}
+
 // Records a terminal completion against the open session for taskListId/
 // date, if one exists — a task completing outside any session (tapped
 // directly on the main task list, never anchored via sessionTaskListId) has

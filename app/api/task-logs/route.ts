@@ -13,7 +13,7 @@ import {
   startInProgressLog,
   switchActiveLog,
 } from "@/lib/task-log-actions";
-import { recordSessionCompletion } from "@/lib/task-list-session-actions";
+import { recordSessionCompletion, releaseSessionIfNowEmpty } from "@/lib/task-list-session-actions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -291,6 +291,10 @@ export async function DELETE(req: NextRequest) {
 
   await connectDB();
   await TaskLog.deleteOne({ companyId, taskId, date });
+  // See lib/task-list-session-actions.ts's releaseSessionIfNowEmpty — Undo
+  // alone can leave a shift-list session locked to whoever last touched it
+  // with nothing actually running; this releases it once nothing's left.
+  await releaseSessionIfNowEmpty(companyId, taskId, date);
   return NextResponse.json({ ok: true });
 }
 

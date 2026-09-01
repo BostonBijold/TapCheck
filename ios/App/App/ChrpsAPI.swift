@@ -17,7 +17,7 @@ import Foundation
 // would fail to compile in the RoutineActivity target. fetchHabits stays
 // as an App-only extension on this enum in HabitEntityQuery.swift instead.
 enum ChrpsAPI {
-    static let baseURL = URL(string: "https://chrps.vercel.app")!
+    static let baseURL = URL(string: "https://chrps.app")!
 
     struct TriggerResponse: Decodable {
         let ok: Bool
