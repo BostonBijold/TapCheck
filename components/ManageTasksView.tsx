@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
-import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Search } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Nfc, Search } from "lucide-react";
 import Header from "@/components/Header";
 import AppIcon from "@/components/AppIcon";
 import AddTaskListSheet from "@/components/AddTaskListSheet";
@@ -86,16 +86,19 @@ function fieldsAndPlacementsMeta(definition: Definition) {
 // unaffected by this screen). ──
 function CatalogRow({
   definition,
+  open,
+  onOpenChange,
   onDelete,
   deleting,
   blockedMessage,
 }: {
   definition: Definition;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onDelete: (id: string) => void;
   deleting: boolean;
   blockedMessage: string | null;
 }) {
-  const [open, setOpen] = useState(false);
   const [nfcTagUid, setNfcTagUid] = useState<string | null>(definition.nfcTagUid);
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState<string | null>(null);
@@ -154,7 +157,7 @@ function CatalogRow({
     <>
       <button
         type="button"
-        onClick={() => setOpen(true)}
+        onClick={() => onOpenChange(true)}
         className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-3 text-left hover:bg-card-hover transition-colors min-h-[44px]"
       >
         <div className="w-8 flex items-center justify-center flex-shrink-0">
@@ -189,7 +192,7 @@ function CatalogRow({
           deleteLabel="Delete"
           deleting={deleting}
           blockedMessage={blockedMessage}
-          onClose={() => setOpen(false)}
+          onClose={() => onOpenChange(false)}
         />
       )}
     </>
@@ -207,6 +210,18 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [removingStandaloneId, setRemovingStandaloneId] = useState<string | null>(null);
   const [openStandaloneId, setOpenStandaloneId] = useState<string | null>(null);
+  const [openCatalogId, setOpenCatalogId] = useState<string | null>(null);
+
+  // "Scan to Find" — a manager rarely knows a physical tag's raw UID by
+  // sight, so instead of making them type it into search, this scans the
+  // tag and matches it against the already-loaded catalog's own
+  // nfcTagUid (no separate lookup endpoint needed — same data CatalogRow
+  // already renders). Mirrors BottomNav.tsx's FAB blind-scan, but scoped to
+  // this screen's TaskDefinition catalog only and just opens the matching
+  // row's detail sheet rather than resolving a placement to complete.
+  const [scanBusy, setScanBusy] = useState(false);
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [scanMatches, setScanMatches] = useState<Definition[] | null>(null);
 
   // Search filters Task Lists, Standalone Tasks, and the Company Task
   // Catalog at once (by name, and — for the catalog — by bound tag UID too,
@@ -258,9 +273,38 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
 
   const filteredTaskLists = taskLists.filter((tl) => matches(tl.name));
   const filteredStandalone = standaloneTasks.filter((t) => matches(t.name));
-  const filteredDefinitions =
-    definitions?.filter((d) => matches(d.name) || (d.nfcTagUid ? d.nfcTagUid.toLowerCase().includes(q) : false)) ?? null;
+  const filteredDefinitions = definitions?.filter((d) => matches(d.name)) ?? null;
   const openStandaloneTask = openStandaloneId ? standaloneTasks.find((t) => t._id === openStandaloneId) ?? null : null;
+
+  const handleScanToFind = async () => {
+    setScanError(null);
+    setScanMatches(null);
+    if (!Capacitor.isNativePlatform()) {
+      setScanError("Open the app on your phone to scan a tag.");
+      return;
+    }
+    setScanBusy(true);
+    const result = await scanNfcTag();
+    setScanBusy(false);
+    if (result.status !== "ok") {
+      setScanError(result.status === "unsupported" ? "NFC isn't available on this device." : result.message);
+      return;
+    }
+    const uid = result.uid.toLowerCase();
+    const matches = (definitions ?? []).filter((d) => d.nfcTagUid?.toLowerCase() === uid);
+    if (matches.length === 0) {
+      setScanError("No saved task in your catalog is bound to this tag.");
+      return;
+    }
+    setCatalogExpanded(true);
+    if (matches.length === 1) {
+      setOpenCatalogId(matches[0]._id);
+      return;
+    }
+    // Same tag bound to more than one saved task (see docs/features/nfc.md's
+    // "Multi-target binding") — let the manager pick which one they meant.
+    setScanMatches(matches);
+  };
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
@@ -343,17 +387,62 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
         </div>
 
         {/* ── Search — filters Task Lists, Standalone Tasks, and the Company
-            Task Catalog at once by name (and, for the catalog, tag UID). ── */}
-        <div className="mb-5 flex items-center gap-2 bg-card border border-border rounded-card px-3 py-2 sticky top-0 z-10">
-          <Search size={14} className="text-dim flex-shrink-0" />
-          <input
-            type="text"
-            placeholder="Search task lists, tasks, or tag ID..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="flex-1 bg-transparent font-body text-sm text-text placeholder:text-dim outline-none"
-          />
+            Task Catalog at once by name. "Scan to Find" is the companion for
+            a physical NFC tag — a manager standing in front of one rarely
+            knows its raw UID to type into search, so this scans it and jumps
+            straight to the bound task's detail sheet instead. ────────────── */}
+        <div className="mb-1.5 flex items-center gap-2 sticky top-0 z-10">
+          <div className="flex-1 min-w-0 flex items-center gap-2 bg-card border border-border rounded-card px-3 py-2">
+            <Search size={14} className="text-dim flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Search task lists or tasks..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="flex-1 bg-transparent font-body text-sm text-text placeholder:text-dim outline-none"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={handleScanToFind}
+            disabled={scanBusy}
+            aria-label="Scan a tag to find its task"
+            title="Scan to Find"
+            className="flex-shrink-0 w-11 h-11 flex items-center justify-center bg-card border border-border rounded-card text-dim hover:text-olive hover:border-olive/40 transition-colors disabled:opacity-50"
+          >
+            <Nfc size={16} strokeWidth={1.75} />
+          </button>
         </div>
+        {scanBusy && (
+          <p className="font-mono text-[11px] text-olive mb-3.5">Hold near tag…</p>
+        )}
+        {scanError && (
+          <p className="font-mono text-[11px] text-burgundy-light mb-3.5">{scanError}</p>
+        )}
+        {scanMatches && (
+          <div className="mb-3.5 bg-card border border-border rounded-card overflow-hidden">
+            <p className="font-mono text-[10px] uppercase tracking-widest text-dim px-3 pt-2.5">
+              This tag is bound to more than one task — which one?
+            </p>
+            <div className="divide-y divide-border mt-1.5">
+              {scanMatches.map((d) => (
+                <button
+                  key={d._id}
+                  type="button"
+                  onClick={() => {
+                    setOpenCatalogId(d._id);
+                    setScanMatches(null);
+                  }}
+                  className="w-full flex items-center gap-3 px-3 py-2.5 text-left hover:bg-card-hover transition-colors min-h-[44px]"
+                >
+                  <AppIcon name={d.icon} size={16} className="text-muted flex-shrink-0" />
+                  <span className="font-body text-sm text-text flex-1 truncate">{d.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {!scanBusy && !scanError && !scanMatches && <div className="mb-3.5" />}
 
         {/* ── Task Lists — always expanded; a small, bounded set (shift-based
             lists), unlike Standalone Tasks/Company Task Catalog below. ──── */}
@@ -495,6 +584,8 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
                 <CatalogRow
                   key={d._id}
                   definition={d}
+                  open={openCatalogId === d._id}
+                  onOpenChange={(v) => setOpenCatalogId(v ? d._id : null)}
                   onDelete={handleDelete}
                   deleting={deletingId === d._id}
                   blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
