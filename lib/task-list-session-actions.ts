@@ -25,10 +25,11 @@ import { resolveTask } from "@/lib/task-definitions";
 // models/TaskListSession.ts for the reasoning).
 
 // Raw "this list's active tasks + that date's logs for them" fetch — shared
-// by isTaskListFullyResolved below and by findNextTaskInList (used by the
-// external trigger-task endpoint's Case 2 auto-advance, see
-// external-api.md), so there's exactly one query shape for "what does this
-// list look like today," not a third reimplementation of it.
+// by isTaskListFullyResolved below and by findNextTaskInList (used by
+// lib/task-trigger.ts's triggerTask() Case 2 auto-advance, called from the
+// NFC Universal Link tap — see docs/features/nfc.md), so there's exactly
+// one query shape for "what does this list look like today," not a third
+// reimplementation of it.
 async function fetchTaskListTasksAndLogs(companyId: string, taskListId: string, date: string) {
   const tasks = await Task.find({ taskListId, companyId, isActive: true })
     .sort({ order: 1 })

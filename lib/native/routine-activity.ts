@@ -30,12 +30,15 @@ export function endRoutineActivity() {
 }
 
 // Relays every push token LiveActivityPlugin.swift reports to the server,
-// which is what lets triggerTask/completeActiveTask (NFC/Shortcuts, the
-// Lock Screen "Done" button) push a corrected card even while the app isn't
-// open — see docs/features/live-activity.md's "Push-driven updates"
-// section. Called once from components/NativeBootstrap.tsx, same as
-// ApiKeyBridge's setup — a listener registered once here fires for every
-// token the whole native session receives, not just the first.
+// which is what lets triggerTask (NFC/Shortcuts) push a corrected card even
+// while the app isn't open — see docs/features/live-activity.md's
+// "Push-driven updates" section. The Lock Screen button no longer triggers
+// any of this — it just opens the app now (see live-activity.md's "Open
+// App button" section) — though completeActiveTask still pushes too, if
+// something calls POST /api/external/complete-active-task directly. Called
+// once from components/NativeBootstrap.tsx, same as ApiKeyBridge's setup —
+// a listener registered once here fires for every token the whole native
+// session receives, not just the first.
 export function registerPushTokenForwarding() {
   if (!Capacitor.isNativePlatform()) return;
   LiveActivity.addListener("pushTokenReceived", (data) => {

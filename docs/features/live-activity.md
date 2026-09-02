@@ -2,31 +2,33 @@
 
 # Live Activity — Lock Screen / Dynamic Island Timer
 
-While a routine timer is running, a branded card shows on the Lock Screen and Dynamic Island: the routine label, current habit, a live elapsed timer, an estimated-completion clock time, and a "Done" button that completes the habit without opening the app. This is the second piece of custom native code this project needed beyond Capacitor's stock plugins (the first was [`app-intents.md`](app-intents.md)'s Shortcuts/Siri integration) — Live Activities have no JS/Capacitor-JS equivalent, only reachable from ActivityKit/WidgetKit in a real Widget Extension target.
+While a routine timer is running, a branded card shows on the Lock Screen and Dynamic Island: the routine label, current habit, a live elapsed timer, an estimated-completion clock time, and an "Open App" button (see [Open App button](#open-app-button) below — it deep-links into the app rather than completing anything itself). This was the second piece of custom native code this project needed beyond Capacitor's stock plugins — the first was the native App Intents/Shortcuts "Trigger Habit" action, since removed entirely (see `docs/project-structure.md`'s "iOS Native Shell" section) — Live Activities have no JS/Capacitor-JS equivalent, only reachable from ActivityKit/WidgetKit in a real Widget Extension target.
 
 ## Why a second Xcode target was required
 
 App Intents (the first piece of native code here) compiled directly into the `App` target — no extension needed, since Shortcuts/Siri/Spotlight integration doesn't render any UI of its own. A Live Activity's Lock Screen/Dynamic Island UI, by contrast, is rendered by the OS from a **Widget Extension** process, not the app's own process — ActivityKit requires that UI to live in a `.appex` target. `RoutineActivityExtension` (product name `RoutineActivity`, bundle id `com.bostonbijold.chrps.RoutineActivity`) was added via Xcode's own "Widget Extension" wizard (File → New → Target → Widget Extension, "Include Live Activity" checked) rather than hand-crafted in `project.pbxproj` — safer than scripting a whole new target from scratch, since Apple's template is what correctly wires the `NSExtension` Info.plist keys and the "Embed Foundation Extensions" build phase. Deployment target was lowered from Xcode's default (26.5) to 17.0 to match `App` (interactive Live Activity buttons need iOS 17+ anyway).
 
-**The `RoutineActivity` folder is a filesystem-synchronized group** (`PBXFileSystemSynchronizedRootGroup`, Xcode 16+'s newer target-creation default) — any file physically present in `ios/App/RoutineActivity/` is automatically part of the `RoutineActivityExtension` target's Sources, with no `PBXBuildFile`/`PBXFileReference` bookkeeping needed. This is why `RoutineActivityAttributes.swift` and `CompleteHabitFromActivityIntent.swift` (below) needed no explicit project-file surgery to join that target — only files that needed to cross *into* the traditionally-managed `App` group (or vice versa) needed the `xcodeproj` Ruby gem.
+**The `RoutineActivity` folder is a filesystem-synchronized group** (`PBXFileSystemSynchronizedRootGroup`, Xcode 16+'s newer target-creation default) — any file physically present in `ios/App/RoutineActivity/` is automatically part of the `RoutineActivityExtension` target's Sources, with no `PBXBuildFile`/`PBXFileReference` bookkeeping needed. This is why `RoutineActivityAttributes.swift` (below) needed no explicit project-file surgery to join that target — only files that needed to cross *into* the traditionally-managed `App` group (or vice versa) needed the `xcodeproj` Ruby gem. (`CompleteHabitFromActivityIntent.swift` used to be the other example of a file that got this for free — deleted, see [Open App button](#open-app-button).)
 
 ## Swift file layout
 
 ```
 ios/App/App/
-  ChrpsAPI.swift                      — baseURL, triggerHabit, completeActiveHabit, ChrpsAPIError.
-                                         Dual target membership (App + RoutineActivityExtension) —
-                                         triggerHabit/ChrpsAPIError moved out of
+  ChrpsAPI.swift                      — baseURL, triggerHabit, ChrpsAPIError. Dual target
+                                         membership (App + RoutineActivityExtension) is now
+                                         vestigial — triggerHabit/ChrpsAPIError were moved out of
                                          AppIntents/HabitEntityQuery.swift (where they used to live
-                                         inline) specifically so the Live Activity's "Done" button
-                                         could reuse this networking code; completeActiveHabit was
-                                         added directly here for the same reason. fetchHabits/
-                                         HabitsResponse stayed behind as an App-only extension on
-                                         this same enum
-                                         (HabitEntityQuery.swift) — its response decodes into
-                                         [HabitEntity], which is App-target-only, so pulling it
-                                         into this dual-membership file would fail to compile in
-                                         the extension target.
+                                         inline) specifically so the Live Activity's old "Done"
+                                         button could reuse this networking code, and
+                                         completeActiveHabit was added directly here for the same
+                                         reason — but that button and completeActiveHabit are both
+                                         gone (see "Open App button" below), and nothing in the
+                                         RoutineActivityExtension target calls into this file
+                                         anymore. fetchHabits/HabitsResponse stayed behind as an
+                                         App-only extension on this same enum (HabitEntityQuery.swift)
+                                         — its response decodes into [HabitEntity], which is
+                                         App-target-only, so pulling it into this dual-membership
+                                         file would fail to compile in the extension target.
   KeychainHelper.swift                — now dual target membership too (was App-only). Also
                                          changed to use an explicit kSecAttrAccessGroup instead
                                          of each target's implicit default group — see "Keychain
@@ -49,13 +51,16 @@ ios/App/RoutineActivity/              — filesystem-synchronized; see above
                                          wizard's template also generates a plain home-screen
                                          widget and a Control Widget, both deleted — this project
                                          only wants the Live Activity).
-  CompleteHabitFromActivityIntent.swift — the "Done" button's AppIntent (LiveActivityIntent).
-  RoutineActivity.entitlements        — Keychain Sharing, matching App/App.entitlements.
+  RoutineActivity.entitlements        — Keychain Sharing, matching App/App.entitlements. Now
+                                         vestigial (see "Open App button" below) but left in place —
+                                         no functional cost to an unused Sources/entitlements entry.
 ```
 
 ## Keychain Sharing
 
-The "Done" button's intent runs in the `RoutineActivityExtension` process, not the WebView or even the main `App` process — same "can't reach `localStorage`/React state" problem [`app-intents.md`](app-intents.md#the-keychain-bridge) already solved for App Intents, except now *two different bundle IDs* need to read the same Keychain item (`com.bostonbijold.chrps` and `com.bostonbijold.chrps.RoutineActivity`), and each gets a different *implicit* default access group. Fix: both targets now declare the same explicit **Keychain Sharing** group —
+**Vestigial as of the Done → Open App change** (see [Open App button](#open-app-button) below) — nothing in the `RoutineActivityExtension` process reads Keychain anymore, since `openAppButton()` is a plain `Link`, not an intent that calls the API. Kept here for reference, and because the entitlement/target-membership plumbing is still physically in place (removing it buys nothing at runtime, and would need the same `xcodeproj`-gem project-file surgery that added it):
+
+The old "Done" button's intent ran in the `RoutineActivityExtension` process, not the WebView or even the main `App` process — same "can't reach `localStorage`/React state" problem the (now-deleted) App Intents layer already solved with its own Keychain bridge, except now *two different bundle IDs* needed to read the same Keychain item (`com.bostonbijold.chrps` and `com.bostonbijold.chrps.RoutineActivity`), and each gets a different *implicit* default access group. Fix: both targets declare the same explicit **Keychain Sharing** group —
 
 ```xml
 <key>keychain-access-groups</key>
@@ -64,7 +69,7 @@ The "Done" button's intent runs in the `RoutineActivityExtension` process, not t
 
 — in `App/App.entitlements` and the new `RoutineActivity/RoutineActivity.entitlements` (wired to the extension target via `CODE_SIGN_ENTITLEMENTS`), and `KeychainHelper.swift`'s `save`/`load` now pass `kSecAttrAccessGroup` explicitly rather than relying on the per-target default. The value is hardcoded as `"X3DPK5Y29G.com.bostonbijold.chrps.shared"` (team ID + group name) rather than resolved from `$(AppIdentifierPrefix)` at runtime — Swift code needs the literal resolved string, not the build-setting macro; same manual-sync tradeoff as `ChrpsAPI.baseURL`, equally unlikely to change for a single-developer personal app.
 
-**Migration note**: since the access group changed, an API key saved under the *old* implicit group before this change won't be found by the new explicit-group `load()` on first launch after updating — self-heals automatically, since `NativeBootstrap.tsx` re-pushes the key via `save()` (now targeting the new group) on every native cold start, same as the existing "Profile never opened yet" gap already documented in app-intents.md.
+**Migration note (historical)**: since the access group changed, an API key saved under the *old* implicit group before this change wouldn't be found by the new explicit-group `load()` on first launch after updating — self-healed automatically, since `NativeBootstrap.tsx` used to re-push the key via `save()` (targeting the new group) on every native cold start. Moot now that Keychain/API keys are gone entirely from this app — see [Open App button](#open-app-button) below.
 
 ## `RoutineActivityAttributes` — everything lives in `ContentState`
 
@@ -103,23 +108,38 @@ Thin wrappers (`startRoutineActivity`, `updateRoutineActivity`, `endRoutineActiv
 
 **Checkbox and form tasks** (see [`timer.md`](timer.md)) have no ring timer of their own; `TaskListSessionView.tsx`'s per-item effect calls `end` rather than `update` when landing on either (`isCheckboxTask || isFormTask`), so the Lock Screen doesn't show a frozen, meaningless timer while the user is filling in a check's fields. Landing on the *next* timed item afterward goes through `update()`'s start-fallback, same as a session's very first item.
 
-## The "Done" button — matches the NFC/Shortcuts tap exactly server-side; the card itself doesn't update live
+## Open App button
 
-`CompleteHabitFromActivityIntent` (`LiveActivityIntent`, runs in the `RoutineActivityExtension` process without opening the app or showing any UI — same `openAppWhenRun`-false spirit as `TriggerHabitIntent`) is meant to feel identical to tapping an NFC tag or running the "Trigger Habit" Shortcut: complete the current habit, start the next one in the group if there is one, or finish the routine if it was the last. Getting the *data* side of that right took three iterations, kept here because the failure modes are non-obvious and specific to running inside a Live Activity's extension process rather than an ordinary Shortcuts-invoked intent:
+The Lock Screen/Dynamic Island button is a plain SwiftUI `Link(destination:)` (`openAppButton()` in `RoutineActivityLiveActivity.swift`), not an `AppIntent` — tapping it opens `https://chrps.vercel.app/tasks` via the same `applinks:chrps.vercel.app` Universal Links entitlement the NFC tap-to-trigger flow already relies on ([`nfc.md`](nfc.md#native-setup)), which routes it into the app itself rather than Safari. No network call, no Keychain read, no `LiveActivityIntent` — the button does nothing but launch the app to `/tasks`, where the FAB's existing active-timer resume pill (`components/BottomNav.tsx`'s `fetchActiveTimer`) already picks up whatever's `in_progress` with no query param needed, letting the user actually finish the task the normal in-app way (answer a form task's fields, do an NFC-bound task's in-app scan, etc.).
+
+### Why it isn't a "Done" button anymore
+
+The card used to have a one-tap **Done** button (`CompleteHabitFromActivityIntent`, a `LiveActivityIntent` calling the external API's `complete-active-task` endpoint — see [History](#history-the-done-button-20252026) below) that tried to complete the current task directly from the Lock Screen, with no app UI involved at all. That worked fine for the old timer-only habit model this feature was originally built for, but broke once virtually every task became `form`-type (the only creatable type post-pivot — see CLAUDE.md's Vocabulary section):
+
+- **Most tasks need "questions" answered** — a form task's numeric readings or yes/no fields (`formFields`). A widget extension button has no UI to collect those, so a blind Done tap called `completeInProgressLog`/`startImmediateLog` with `formData: null` — the task got marked done with **no reading ever captured**, silently, no error shown.
+- **Some tasks require an in-app NFC scan** — a task bound to a physical tag (`TaskDefinition.nfcTagUid`, see [`nfc.md`](nfc.md#in-app-scan-to-complete-binding)) can only be completed with a verified scan. `assertNfcVerified` (`lib/task-log-actions.ts`) unconditionally throws `NfcTagRequiredError` for every caller that can't supply one — which is every external trigger path, Done button included — so tapping Done on one of these just failed, with no way for a `LiveActivityIntent` to surface that error message anywhere the user would see it.
+
+Both are unfixable from inside the widget extension process — there's no UI surface there to ask a question or scan a tag — so the button now opens the app instead of attempting either.
+
+### What was removed
+
+`CompleteHabitFromActivityIntent.swift` (the intent itself) and `ChrpsAPI.completeActiveHabit(apiKey:)` (the networking call backing it, in `ios/App/App/ChrpsAPI.swift`) were deleted outright when this button was replaced — nothing else called either. At the time, the backend (`lib/task-trigger.ts`'s `completeActiveTask()` and `POST /api/external/complete-active-task`) was deliberately left in place as orphaned-but-still-documented external API surface. **That's since changed too**: the entire external API (that route included) was deleted outright in a later pass, once Shortcuts/App Intents — its other major consumer — was also removed; `completeActiveTask()` itself is gone now, not just its route. See `docs/project-structure.md`'s "iOS Native Shell" section for that full removal.
+
+### History: the "Done" button (2025–2026)
+
+Kept for institutional memory — none of this describes current behavior. Getting the old Done button's *data* side right (which habit is "current," from inside a Live Activity extension process) took three iterations, because the failure modes were non-obvious and specific to that process, not an ordinary Shortcuts-invoked intent:
 
 1. **`ChrpsAPI.triggerHabit(routineItemId:, routineGroupId:)` with those two values passed as the button's bound `@Parameter`s**, captured at `Button(intent:)` construction time from `context.state`. Confirmed on-device: tapping Done a *second* time while the screen had stayed asleep since the first tap re-fired against the *first* habit's id — the value baked into the button at the last time SwiftUI actually rendered it, not the current one, even though the Activity's real content state had already moved on.
 2. **Same endpoint, but `perform()` read `routineItemId`/`routineGroupId` fresh from `Activity<RoutineActivityAttributes>.activities.first?.content.state`** instead of trusting the bound parameters — reasoning that it's a live, system-synced data source independent of view rendering. Confirmed on-device: this made the Done button do **nothing at all** — no completion, no advance — because `Activity.activities` was empty when queried from inside this intent's `perform()`, so the guard at the top of the function returned immediately.
-3. **`POST /api/external/complete-active-task`** ([`api/external-api.md`](../api/external-api.md#post-apiexternalcomplete-active-task)) — takes no `routineItemId` at all, resolving "which task" server-side from the single in_progress `TaskLog` (server-authoritative, via the single-active-timer invariant). This is the one that actually works, and is what `perform()` calls today: correctness no longer depends on any value the widget extension itself has to track or look up, only on the API key in Keychain.
+3. **`POST /api/external/complete-active-task`** — takes no `routineItemId` at all, resolving "which task" server-side from the single in_progress `TaskLog` (server-authoritative, via the single-active-timer invariant). This is the one that actually worked, correctness no longer depending on any value the widget extension itself had to track or look up, only on the API key in Keychain.
 
-A fourth iteration tried using `Activity.activities` for a *cosmetic-only* update — swap the card to show the newly-started next habit in place, falling back to `.end()` if that data wasn't available — reasoning that even if unreliable for identifying "which habit" (iteration 2's problem), it might still be good enough for a best-effort display refresh. **Confirmed via a Simulator log capture that this isn't viable either**, and dropped: `xcrun simctl spawn <udid> log stream` filtered to the `RoutineActivityExtension` process shows ActivityKit's own internal `[com.apple.activitykit:outputClient] Fetched descriptors for content states: []` logged nine times, ~200ms apart, staying empty for the full ~2 seconds `perform()` polled — the extension process's `ActivityClient` connection doesn't finish syncing with the system's activity store fast enough for this to be a viable path, and 2 seconds is already too long to make an interactive widget button wait. `perform()` today does nothing beyond the `completeActiveHabit` call — no `Activity.activities` lookup, no `GET /api/external/tasks` follow-up, no polling.
+A fourth iteration tried using `Activity.activities` for a *cosmetic-only* update — swap the card to show the newly-started next habit in place, falling back to `.end()` if that data wasn't available. **Confirmed via a Simulator log capture that this wasn't viable either**: `xcrun simctl spawn <udid> log stream` filtered to the `RoutineActivityExtension` process showed ActivityKit's own internal `[com.apple.activitykit:outputClient] Fetched descriptors for content states: []` logged nine times, ~200ms apart, staying empty for the full ~2 seconds `perform()` polled — the extension process's `ActivityClient` connection didn't finish syncing with the system's activity store fast enough, and 2 seconds was already too long to make an interactive widget button wait.
 
-**Net effect, and not a bug**: tapping Done reliably completes the current habit and advances to the next one (or finishes the routine) *server-side*, confirmed by reopening the app afterward — but the Lock Screen card itself keeps showing the habit that was just completed until the app is next opened. At that point `TaskListSessionView.tsx`'s foreground-revalidation effect ([`timer.md`](timer.md)) notices the item is already current, advances `currentIndex`, and its per-item effect starts a fresh, fully-correct Live Activity (real icon/`projectedMinutes` included) for whatever's actually current. This is the same self-healing mechanism that was always the fallback for the "last item in the group" case; it's now doing double duty as the *primary* way the card ever visually catches up, not just an edge-case backstop.
+**Net effect while it existed, and not itself a bug**: tapping Done reliably completed the current habit and advanced to the next one (or finished the routine) *server-side* for genuine timer-based tasks — but the Lock Screen card itself kept showing the habit that was just completed until the app was next opened, at which point `TaskListSessionView.tsx`'s foreground-revalidation effect ([`timer.md`](timer.md)) caught it up. This card-staleness behavior is moot now — the Open App button never completes anything, so there's nothing for the card to have gotten stale about.
 
-`source: "live_activity"` on the old `trigger-task` codepath was a distinct value from Shortcuts' `"app_intent"`, used only for `AppIntentLink` bookkeeping ([`app-intents.md`](app-intents.md#connection-status-in-manage-habit)) — `complete-active-task` doesn't take a `source` param at all, so Live-Activity-only usage no longer lights up the "Connected" badge in Manage Habit either way.
+## No tap-through on the card body
 
-## No tap-through deep link
-
-`widgetURL`/`Link` on the card body (tapping anywhere that isn't the Done button) was deliberately left unset. Universal Links / the Associated Domains entitlement (`applinks:chrps.vercel.app`) do exist and work in this project — they back the NFC tap-to-trigger flow (see [`nfc.md`](nfc.md#native-setup)) — but they're wired specifically to `/nfc/<tagCode>`, not to any generic "open the app" URL a Live Activity card could point at. Setting `widgetURL` here would need its own route and deep-link target to be worth building, and no one has asked for tap-through from the Lock Screen card yet. The Done button remains the one interactive element.
+`widgetURL`/`Link` on the card body itself (tapping anywhere that isn't the Open App button) remains deliberately unset — only the button is a `Link` (see [Open App button](#open-app-button) above), not the whole card. Universal Links / the Associated Domains entitlement (`applinks:chrps.vercel.app`) back both: the NFC tap-to-trigger flow ([`nfc.md`](nfc.md#native-setup)) and now the Open App button, both routing into the app rather than Safari. Making the entire card body tappable too would be a small additional change (another `Link` wrapping the outer `VStack`, or a `widgetURL` on the whole `ActivityConfiguration` view) — not done here since the button already covers the one interaction anyone's asked for, and a fully-tappable card risks accidental taps while just glancing at the Lock Screen.
 
 ## Palette and typography
 
@@ -127,7 +147,7 @@ A fourth iteration tried using `Activity.activities` for a *cosmetic-only* updat
 
 ## Push-driven updates
 
-Everything above (local `start`/`update`/`end` from `LiveActivityPlugin.swift`, and the Done button's failed attempts at touching `Activity.activities`) shares one limitation: it only works while some process on-device — the app or the widget extension — is alive and synced. An **NFC tap, a Shortcut, or the Lock Screen Done button, with the app not open**, changes the active habit on the server with nothing able to tell the Lock Screen card about it. Apple's actual answer to this is **ActivityKit push updates** — the server sends an Apple Push Notification carrying the new content state, and iOS renders it directly, with no app or extension process needing to be running or synced at all.
+Local `start`/`update`/`end` from `LiveActivityPlugin.swift` shares one limitation: it only works while the app's own process is alive and in the foreground to issue the call. An **NFC tap or a Shortcut, with the app not open**, changes the active task on the server with nothing able to tell the Lock Screen card about it (the Open App button no longer falls into this category at all — it never touches the server, so there's no card-staleness gap for it to close; see [History](#history-the-done-button-20252026) above for why that used to be different when the button was itself a server-calling intent). Apple's actual answer to this general problem is **ActivityKit push updates** — the server sends an Apple Push Notification carrying the new content state, and iOS renders it directly, with no app or extension process needing to be running or synced at all.
 
 ### Token flow
 
@@ -140,7 +160,7 @@ Everything above (local `start`/`update`/`end` from `LiveActivityPlugin.swift`, 
 
 `lib/apns.ts`'s `sendLiveActivityPush()` — signs a fresh ES256 provider JWT per call (via `jose`, already present transitively through `@auth/core` and pinned as a direct dependency) using `APNS_KEY_ID`/`APNS_TEAM_ID`/`APNS_PRIVATE_KEY`, then POSTs to `https://api.push.apple.com` or `.sandbox.` over HTTP/2 (Node's built-in `http2` client — APNs requires HTTP/2, HTTP/1.1 isn't supported) with `apns-topic: com.bostonbijold.chrps.push-type.liveactivity` and `apns-push-type: liveactivity`. One connection per call — correct at this app's volume (a personal, single-user app sending at most a handful of pushes a day), not tuned for the connection-reuse a high-throughput provider would want.
 
-`lib/task-trigger.ts`'s `notifyLiveActivity()` builds the actual payload and is called from both `triggerTask()` (NFC/Shortcuts) and `completeActiveTask()` (the Lock Screen Done button) after they resolve — **not** from the in-app `/api/task-logs` routes, since those are already covered by the app's own local `update()`/`end()` calls firing from foreground JS. It looks up the target task (whichever just started, or whichever just completed if nothing new started) via `Task`/`TaskList` directly — full DB access, unlike the native side's old `GET /api/external/tasks` workaround, so the pushed content state is always fully correct (`projectedMinutes` included, no `0`-placeholder needed) on the first try. Sends an `"update"` event if something's now active, an `"end"` event (with a `dismissal-date` of now) if nothing is. Wrapped in a try/catch that never throws — a push failure shouldn't fail the task-completion request that triggered it, same as the `AppIntentLink` bookkeeping elsewhere on this surface.
+`lib/task-trigger.ts`'s `notifyLiveActivity()` builds the actual payload and is called from `triggerTask()` after it resolves — the NFC Universal Link tap (`app/nfc/[tagCode]/page.tsx`), the only entry point left; `completeActiveTask()`, which used to call this too, was deleted along with the rest of the external API (see `docs/project-structure.md`'s "iOS Native Shell" section). Not called from the in-app `/api/task-logs` routes, since those are already covered by the app's own local `update()`/`end()` calls firing from foreground JS. It looks up the target task (whichever just started, or whichever just completed if nothing new started) via `Task`/`TaskList` directly — full DB access, so the pushed content state is always fully correct (`projectedMinutes` included, no `0`-placeholder needed) on the first try. Sends an `"update"` event if something's now active, an `"end"` event (with a `dismissal-date` of now) if nothing is. Wrapped in a try/catch that never throws — a push failure shouldn't fail the task-completion request that triggered it.
 
 **`content-state`'s `startedAt` is a JSON number, not an ISO string — and specifically seconds since the Cocoa reference date (2001-01-01T00:00:00Z), not Unix epoch seconds.** Swift's default `Codable` synthesis for `Date` (`.deferredToDate`, which `RoutineActivityAttributes.ContentState` doesn't override, and which is what APNs-delivered content actually gets decoded through on-device) encodes/decodes `Date` as `timeIntervalSinceReferenceDate`, not `timeIntervalSince1970` — a 31-year, `978307200`-second difference that's a genuinely common Foundation gotcha, not specific to this feature. Confirmed on-device: sending raw Unix seconds decoded to a `startedAt` ~31 years in the future, so the Lock Screen's `Text(timerInterval:)` — whose displayed range never included "now" — just showed a frozen value instead of counting up, even though the habit name/label updated correctly (those are plain strings, unaffected). `lib/apns.ts`'s `toAppleReferenceSeconds()` does the conversion; `lib/task-trigger.ts`'s `notifyLiveActivity()` is the only caller.
 
@@ -152,7 +172,7 @@ This is the one place in this feature where the wire format for the *same* struc
 
 ### What still doesn't get pushed live
 
-The Done button's `perform()` still doesn't touch `Activity.activities` for a same-tap cosmetic update — the push it triggers arrives asynchronously (typically under a second, but not synchronous with the button tap completing), so tapping Done still won't flip the card *instantly* the way the local-update path does when the app is open. It'll update shortly after, without needing the app opened at all, which is the actual gap this was built to close.
+An NFC tap or a Shortcut run with the app not open still updates the card only as fast as the resulting push arrives (typically under a second, but not instant) — there's no synchronous, same-tap cosmetic update path for either. This used to also describe the old Done button specifically (its `perform()` never touched `Activity.activities` for a same-tap update, so tapping Done wouldn't flip the card instantly either); that's moot now since the Open App button doesn't touch the server or the card at all.
 
 ## Countdown timer, and colors
 
@@ -187,13 +207,12 @@ Like the countdown/color above, this is refreshed only on an item switch (or a p
 
 ## Setting it up
 
-Same native-rebuild requirement as [`app-intents.md`](app-intents.md#setting-it-up): this only ships via an actual `xcodebuild`/install cycle, not a web-only Vercel deploy. After installing:
+This only ships via an actual `xcodebuild`/install cycle, not a web-only Vercel deploy. After installing:
 
-1. Open the app once (cold launch or Profile) so the API key reaches Keychain under the new shared access group.
-2. Start any routine timer — the Lock Screen card should appear within a second or two (no permission prompt beyond the OS's standard Live Activities toggle, on by default).
-3. Confirm Settings → Face ID & Passcode (or per-app) hasn't disabled Live Activities for Ch'rps — `LiveActivityPlugin.isSupported()` surfaces `ActivityAuthorizationInfo().areActivitiesEnabled` if this needs checking programmatically later.
-4. For push updates specifically: `APNS_KEY_ID`/`APNS_TEAM_ID`/`APNS_PRIVATE_KEY` need to be set both locally (`.env.local`) and on Vercel (production env) — see CLAUDE.md's Environment Variables section. A **physical device is required to test this end to end**; the Simulator cannot receive genuine APNs pushes (only `xcrun simctl push` for locally-simulated payloads, which doesn't exercise the real server round trip).
+1. Start any routine timer — the Lock Screen card should appear within a second or two (no permission prompt beyond the OS's standard Live Activities toggle, on by default).
+2. Confirm Settings → Face ID & Passcode (or per-app) hasn't disabled Live Activities for Ch'rps — `LiveActivityPlugin.isSupported()` surfaces `ActivityAuthorizationInfo().areActivitiesEnabled` if this needs checking programmatically later.
+3. For push updates specifically: `APNS_KEY_ID`/`APNS_TEAM_ID`/`APNS_PRIVATE_KEY` need to be set both locally (`.env.local`) and on Vercel (production env) — see CLAUDE.md's Environment Variables section. A **physical device is required to test this end to end**; the Simulator cannot receive genuine APNs pushes (only `xcrun simctl push` for locally-simulated payloads, which doesn't exercise the real server round trip).
 
 ## Depends on
 
-[`timer.md`](timer.md) (elapsed-time computation, the single-active-timer invariant, the Task List Session's per-task switch effect and foreground-revalidation effect) and [`api/external-api.md`](../api/external-api.md) (`complete-active-task`, which the Done button calls, and `trigger-task`'s Case 2 dispatch, which `complete-active-task` mirrors server-side). Shares `ChrpsAPI`/`KeychainHelper` with [`app-intents.md`](app-intents.md).
+[`timer.md`](timer.md) (elapsed-time computation, the single-active-timer invariant, the Task List Session's per-task switch effect and foreground-revalidation effect) and [`nfc.md`](nfc.md#native-setup) (the Universal Links entitlement the Open App button reuses). Used to also depend on the external API and the native App Intents layer's Keychain bridge — both deleted entirely, see `docs/project-structure.md`'s "iOS Native Shell" section.

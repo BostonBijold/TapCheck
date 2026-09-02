@@ -7,8 +7,11 @@ import TaskList from "@/models/TaskList";
 import { ensureOpenSession, incrementSessionPauseOrJump, recordSessionCompletion } from "@/lib/task-list-session-actions";
 
 // Shared by app/api/task-logs (internal, session-authenticated) and
-// app/api/external/start-timer (API-key-authenticated) so both paths behave
-// identically — starting a timer always goes through here.
+// lib/task-trigger.ts's triggerTask() (called by the NFC Universal Link
+// tap, app/nfc/[tagCode]/page.tsx) so both paths behave identically —
+// starting a timer always goes through here. A now-deleted API-key-
+// authenticated external endpoint used to be a third caller, see
+// docs/project-structure.md's "iOS Native Shell" section.
 
 // Thrown by assertNfcVerified below — every route that can reach a `done`
 // write must catch this and turn it into a clean 4xx rather than letting it

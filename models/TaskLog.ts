@@ -24,10 +24,13 @@ export interface ITaskLog extends Document {
   note?: string;
   isBackEntry: boolean;
   // Set only while state === "in_progress" and this timer was started with
-  // a taskListId (currently only possible via the external API — see
-  // app/api/external/start-timer). Tells the client to reopen this task
-  // inside a Task List Session for that list on resume, instead of the
-  // standalone timer. Cleared whenever the log leaves in_progress.
+  // a taskListId — set by TaskListSessionView.tsx's own per-item effect
+  // when a session's task starts (the primary path; a now-deleted external
+  // API used to be able to set it too, for anchoring a session on an
+  // anytime list specifically, see docs/features/anytime-tasks.md). Tells
+  // the client to reopen this task inside a Task List Session for that list
+  // on resume, instead of the standalone timer. Cleared whenever the log
+  // leaves in_progress.
   sessionTaskListId?: mongoose.Types.ObjectId | null;
   // Set only on the terminal log for a "form" task (see
   // components/TaskFormScreen.tsx) — every other log leaves this null.
@@ -65,5 +68,10 @@ TaskLogSchema.index({ companyId: 1, date: 1 });
 // employee on shift might complete a given task (performedByUserId is
 // stored as an attribute on that single log, not part of this key).
 TaskLogSchema.index({ companyId: 1, taskId: 1, date: 1 }, { unique: true });
+// Supports the Reports Logs tab's per-employee date-range history query
+// (GET /api/task-logs/history) and lib/streak.ts's backward day-by-day
+// walk — neither existing index above covers performedByUserId, so either
+// would collection-scan without this one.
+TaskLogSchema.index({ companyId: 1, performedByUserId: 1, date: 1 });
 
 export default models.TaskLog || model<ITaskLog>("TaskLog", TaskLogSchema);

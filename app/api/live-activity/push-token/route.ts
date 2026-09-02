@@ -25,8 +25,7 @@ export async function POST(req: NextRequest) {
   const environment = body.environment === "production" ? "production" : "sandbox";
   if (!token) return NextResponse.json({ error: "Missing token" }, { status: 400 });
 
-  // SKIP_AUTH's dev user isn't a real Mongo User document (see
-  // lib/api-key.ts's getOrCreateApiKey for the same guard) — nothing to
+  // SKIP_AUTH's dev user isn't a real Mongo User document — nothing to
   // persist to, so just no-op rather than throw a CastError.
   if (!mongoose.isValidObjectId(userId)) {
     return NextResponse.json({ ok: true });

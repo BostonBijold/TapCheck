@@ -25,7 +25,6 @@ import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
-import NfcTagLinkedSetup from "@/components/NfcTagLinkedSetup";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { Capacitor } from "@capacitor/core";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
@@ -40,7 +39,6 @@ export interface EditTask {
   formFields: FormFieldDef[];
   scheduledDays: number[];  // 0=Sun..6=Sat — which days this task is expected
   successThreshold: number; // how many of this week's scheduled days = 100%
-  appIntentLastTriggeredAt: string | null; // last time a Siri/Shortcuts App Intent triggered this task, if ever
   nfcTagCode: string | null; // tagCode of the NFC tag linked to this task, if any — see docs/features/nfc.md
   nfcTagUid: string | null; // raw UID of the physical tag bound for scan-to-complete, if any — see docs/features/nfc.md
 }
@@ -104,7 +102,6 @@ function SortableRow({
   const [nfcTagCode, setNfcTagCode] = useState<string | null>(task.nfcTagCode);
   const [nfcBusy, setNfcBusy] = useState(false);
   const [nfcError, setNfcError] = useState<string | null>(null);
-  const [showNfcSetup, setShowNfcSetup] = useState(false);
 
   async function handleUnlinkTag() {
     if (!nfcTagCode) return;
@@ -114,7 +111,6 @@ function SortableRow({
       const res = await fetch(`/api/nfc-tags/${nfcTagCode}`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unlink");
       setNfcTagCode(null);
-      setShowNfcSetup(false);
     } catch (err) {
       setNfcError(err instanceof Error ? err.message : "Failed to unlink");
     } finally {
@@ -318,22 +314,6 @@ function SortableRow({
             {saving ? "Saving…" : "Save changes"}
           </button>
 
-          {/* Siri & Shortcuts connection — there's no way to detect a
-              Shortcut was *built* for this task (Apple gives no hook for
-              that), only that one has *run* — so this reflects usage, not
-              configuration, and doesn't preclude multiple Shortcuts also
-              pointing at this task. */}
-          {task.appIntentLastTriggeredAt && (
-            <div className="pt-2 border-t border-border">
-              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
-                Siri &amp; Shortcuts
-              </p>
-              <p className="font-mono text-[11px] text-olive">
-                Connected · last used {new Date(task.appIntentLastTriggeredAt).toLocaleDateString()}
-              </p>
-            </div>
-          )}
-
           {/* Tap-to-trigger NFC tag — manager-only, same gate as the
               /api/nfc-tags routes. See docs/features/nfc.md. Only rendered
               for a task already linked this way before "Link a Physical
@@ -346,36 +326,19 @@ function SortableRow({
               <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
                 NFC Tag
               </p>
-              {showNfcSetup ? (
-                <NfcTagLinkedSetup
-                  tagCode={nfcTagCode}
-                  taskName={task.name}
-                  taskIcon={task.icon}
-                  onDone={() => setShowNfcSetup(false)}
-                  doneLabel="Close"
-                />
-              ) : (
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[11px] text-olive flex-1">
-                    Linked · {nfcTagCode}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => setShowNfcSetup(true)}
-                    className="font-mono text-[11px] text-dim hover:text-muted px-2 py-1"
-                  >
-                    Setup Info
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleUnlinkTag}
-                    disabled={nfcBusy}
-                    className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-                  >
-                    Unlink
-                  </button>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-[11px] text-olive flex-1">
+                  Linked · {nfcTagCode}
+                </span>
+                <button
+                  type="button"
+                  onClick={handleUnlinkTag}
+                  disabled={nfcBusy}
+                  className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
+                >
+                  Unlink
+                </button>
+              </div>
               {nfcError && (
                 <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{nfcError}</p>
               )}
@@ -424,14 +387,6 @@ function SortableRow({
               )}
             </div>
           )}
-
-          {/* For the external API (see Profile > External API Key) */}
-          <div className="pt-2 border-t border-border">
-            <p className="font-mono text-[9px] uppercase tracking-widest text-dim mb-1">
-              Task ID
-            </p>
-            <p className="font-mono text-[10px] text-dim break-all select-all">{task._id}</p>
-          </div>
         </div>
       )}
     </div>
@@ -580,7 +535,6 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         order: prev.length,
         scheduledDays: newTask.scheduledDays ?? taskScheduledDays,
         successThreshold: newTask.successThreshold ?? successThreshold,
-        appIntentLastTriggeredAt: null,
         nfcTagCode: null,
         nfcTagUid: null,
       },
@@ -613,7 +567,6 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         order: prev.length,
         scheduledDays: newTask.scheduledDays ?? ALL_DAYS,
         successThreshold: newTask.successThreshold ?? 7,
-        appIntentLastTriggeredAt: null,
         nfcTagCode: null,
         nfcTagUid: newTask.nfcTagUid ?? null,
       },
@@ -727,14 +680,6 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
               {deleting ? "Deleting…" : "Delete task list"}
             </button>
           </div>
-        </div>
-
-        {/* For the external API (see Profile > External API Key) */}
-        <div className="px-4 py-3 border-b border-border">
-          <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1">
-            Task List ID
-          </p>
-          <p className="font-mono text-[11px] text-muted break-all select-all">{taskList._id}</p>
         </div>
 
         {/* Sortable list */}

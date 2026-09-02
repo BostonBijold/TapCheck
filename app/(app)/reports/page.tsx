@@ -1,20 +1,23 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import AnalyticsView from "@/components/AnalyticsView";
+import { resolveSessionUser } from "@/lib/session";
+import ReportsView from "@/components/ReportsView";
 
 export const dynamic = "force-dynamic";
 
-export default async function AnalyticsPage() {
+export default async function ReportsPage() {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
   if (!skipAuth && !session?.user?.id) redirect("/login");
 
+  const sessionUser = await resolveSessionUser();
   const today = new Date().toISOString().split("T")[0];
 
   return (
-    <AnalyticsView
+    <ReportsView
       userName={session?.user?.name ?? "Developer"}
       today={today}
+      role={sessionUser?.role ?? "manager"}
       skipAuth={skipAuth}
     />
   );

@@ -2,7 +2,7 @@
 
 # Todos
 
-A standalone quick-capture list — `models/Todo.ts`. No separate API doc — the surface is small enough (two route files, four handlers) to document inline here, the same way [`analytics.md`](analytics.md) folds `/api/analytics` into itself rather than a separate file.
+A standalone quick-capture list — `models/Todo.ts`. No separate API doc — the surface is small enough (two route files, four handlers) to document inline here, the same way [`reports.md`](reports.md) folds `/api/reports` into itself rather than a separate file.
 
 There used to be a Goals feature (goal-linked tasks, a `GoalsView.tsx` "future backlog" list sharing this same creation UI) — it's been removed from the app entirely. `Todo`s never had a data relationship to it (no `goalId` field, never did), so removing Goals didn't touch the `Todo` model or its core read/write routes, but it did leave a few now-single-purpose pieces behind — flagged inline below rather than silently pretending they were always this simple.
 

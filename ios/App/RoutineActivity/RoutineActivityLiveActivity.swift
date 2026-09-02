@@ -1,7 +1,6 @@
 import ActivityKit
 import WidgetKit
 import SwiftUI
-import AppIntents
 
 // Ch'rps' white/blue palette, hardcoded here since a widget extension can't
 // reach the app's Tailwind config — see CLAUDE.md's Design System section
@@ -213,13 +212,23 @@ private func finishLine(_ state: RoutineActivityAttributes.ContentState) -> some
     }
 }
 
-// Deliberately takes no per-item identity from `state` — see
-// CompleteHabitFromActivityIntent, which looks up the current habit fresh
-// from Activity.activities at tap-time instead of trusting whatever was
-// baked into this view the last time it actually redrew.
-private func doneButton() -> some View {
-    Button(intent: CompleteHabitFromActivityIntent()) {
-        Text("Done")
+// Opens the app instead of trying to complete the current task itself —
+// see docs/features/live-activity.md's "Open App button" section for why
+// the old one-tap "Done" (CompleteHabitFromActivityIntent, now removed)
+// didn't work: most tasks are `form`-type, needing readings/yes-no answers
+// this widget has no UI to collect, and some are bound to a physical NFC
+// tag requiring an in-app scan — a blind completion either silently
+// recorded a check with no data captured, or failed outright with no way
+// to show why. A plain Link (not an intent) needs no KeychainHelper/API
+// call at all — it just needs Universal Links to route it into the app,
+// the same applinks:chrps.vercel.app entitlement the NFC tap-to-trigger
+// flow already relies on (see nfc.md's "Native setup") — landing on
+// /tasks, where the FAB's existing active-timer resume pill already picks
+// up whatever's in_progress with no query param needed (see
+// components/BottomNav.tsx's fetchActiveTimer).
+private func openAppButton() -> some View {
+    Link(destination: URL(string: "https://chrps.vercel.app/tasks")!) {
+        Text("Open App")
             .font(.system(size: 13, weight: .semibold))
             .frame(maxWidth: .infinity)
     }
@@ -250,7 +259,7 @@ struct RoutineActivityLiveActivity: Widget {
 
                 routineTimelineBlock(state)
 
-                doneButton()
+                openAppButton()
             }
             .padding(16)
             .activityBackgroundTint(Palette.bgPrimary)
@@ -277,7 +286,7 @@ struct RoutineActivityLiveActivity: Widget {
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(spacing: 8) {
                         routineTimelineBlock(state)
-                        doneButton()
+                        openAppButton()
                     }
                 }
             } compactLeading: {

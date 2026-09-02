@@ -12,9 +12,5 @@
 	<array>
 		<string>TAG</string>
 	</array>
-	<key>keychain-access-groups</key>
-	<array>
-		<string>$(AppIdentifierPrefix)com.bostonbijold.chrps.shared</string>
-	</array>
 </dict>
 </plist>

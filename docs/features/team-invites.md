@@ -71,7 +71,7 @@ Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSession
 
 ## Team tab UI
 
-`components/BottomNav.tsx`'s bottom nav grew from Tasks | FAB | Analytics to **four tabs, two per side**: Tasks, Team | FAB | Analytics, and a 4th slot after Analytics that's an inert placeholder (`MoreHorizontal` icon, non-interactive, not a `Link`) reserved for a future tab — added purely to keep both sides visually balanced rather than leaving Team lopsided alone on the left. Profile stays exactly where it already was: the avatar icon in the top nav (`Header.tsx`), not a bottom-nav tab — this was a deliberate choice when the tab was added, not an oversight.
+`components/BottomNav.tsx`'s bottom nav grew from Tasks | FAB | Analytics (renamed to Reports, see [reports.md](reports.md)) to **four tabs, two per side**: Tasks, Team | FAB | Reports, and a 4th slot after Reports that's an inert placeholder (`MoreHorizontal` icon, non-interactive, not a `Link`) reserved for a future tab — added purely to keep both sides visually balanced rather than leaving Team lopsided alone on the left. Profile stays exactly where it already was: the avatar icon in the top nav (`Header.tsx`), not a bottom-nav tab — this was a deliberate choice when the tab was added, not an oversight.
 
 `app/(app)/team/page.tsx` + `components/TeamView.tsx`:
 
@@ -84,7 +84,7 @@ Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSession
 
 - Whether an invite can be scoped to a specific email address (locking redemption to that Google account) rather than "whoever has the link" — not in this first pass; every invite here is link-possession-based, same trust model as the NFC tag links.
 - Whether employees should see *who* invited whom, or only the current roster — current implementation keeps the roster minimal (name/role/joined) and puts inviter attribution only in the manager-only Pending Invites list.
-- Whether removing a user from a company should also revoke their `apiKey` (external API access) — **not implemented**; `DELETE /api/team/[userId]` only clears `companyId`/`role`/`companyJoinedAt`, the `apiKey` field is untouched. Worth a follow-up look at `lib/api-key.ts`'s `findSessionByApiKey` before this ships more broadly, since it currently resolves purely off the key without rechecking `companyId` freshness the same way session routes do — see [`api/external-api.md`](../api/external-api.md).
+- ~~Whether removing a user from a company should also revoke their `apiKey`~~ — moot now: `User.apiKey` and the entire external API surface it authenticated were removed outright (see `docs/project-structure.md`'s note on the removal), so there's no longer a lingering key to worry about revoking on team removal.
 
 ## Depends on
 

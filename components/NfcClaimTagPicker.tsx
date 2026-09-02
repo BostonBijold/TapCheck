@@ -36,7 +36,7 @@ export default function NfcClaimTagPicker({
   }
 
   if (linked) {
-    return <NfcTagLinkedSetup tagCode={tagCode} taskName={linked.name} taskIcon={linked.icon} />;
+    return <NfcTagLinkedSetup taskName={linked.name} taskIcon={linked.icon} />;
   }
 
   return (

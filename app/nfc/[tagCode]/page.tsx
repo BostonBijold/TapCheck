@@ -110,7 +110,7 @@ export default async function NfcTagPage({
 
         return (
           <Shell>
-            <NfcTagLinkedSetup tagCode={tagCode} taskName={task.name} taskIcon={task.icon} />
+            <NfcTagLinkedSetup taskName={task.name} taskIcon={task.icon} />
           </Shell>
         );
       }

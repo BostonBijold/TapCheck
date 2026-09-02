@@ -1,6 +1,6 @@
 // Pure date helper — safe to import from client or server code.
-// This is a Sunday–Saturday calendar week — StreakDots and the Analytics
-// 7-day view use this one.
+// This is a Sunday–Saturday calendar week — StreakDots and the Reports
+// Overview 7-day view use this one.
 
 // Returns all 7 dates (YYYY-MM-DD) of the Sunday-through-Saturday week
 // containing anchorDate, oldest (Sunday) to newest (Saturday). Pinned to the

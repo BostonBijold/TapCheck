@@ -7,13 +7,10 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		1592F30D62789D1F610E3CB6 /* ChrpsShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 70BD5617E197AEE38F5575E9 /* ChrpsShortcuts.swift */; };
 		18452759304095690025BE61 /* WidgetKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 18452758304095690025BE61 /* WidgetKit.framework */; };
 		1845275B304095690025BE61 /* SwiftUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 1845275A304095690025BE61 /* SwiftUI.framework */; };
 		1845276C3040956A0025BE61 /* RoutineActivityExtension.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 18452756304095690025BE61 /* RoutineActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
-		303E5691EEB919AA7EEACAB6 /* TriggerHabitIntent.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */; };
-		30CF41078AC6C63AF04338E4 /* ApiKeyBridgePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
 		50379B232058CBB4000EE86E /* capacitor.config.json in Resources */ = {isa = PBXBuildFile; fileRef = 50379B222058CBB4000EE86E /* capacitor.config.json */; };
 		504EC3081FED79650016851F /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 504EC3071FED79650016851F /* AppDelegate.swift */; };
@@ -22,15 +19,9 @@
 		504EC3121FED79650016851F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 504EC3101FED79650016851F /* LaunchScreen.storyboard */; };
 		50B271D11FEDC1A000F3C39B /* public in Resources */ = {isa = PBXBuildFile; fileRef = 50B271D01FEDC1A000F3C39B /* public */; };
 		7538C3E4D4E825678198C8F7 /* RoutineActivityAttributes.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F4DAFFA55EBB5146C26AD59 /* RoutineActivityAttributes.swift */; };
-		7C642174DD6A3808A8C5D490 /* ChrpsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */; };
-		931BD366EC752B25D702E40E /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759F4251D226A83E45523A97 /* KeychainHelper.swift */; };
 		95188469829199D735AA7DA8 /* NfcScanPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */; };
 		9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9582B6822FE993A50072D4E8 /* SceneDelegate.swift */; };
 		AC49076C0AECEAE985237245 /* LiveActivityPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */; };
-		AD534EE11123EBD8AA473F25 /* ChrpsAPI.swift in Sources */ = {isa = PBXBuildFile; fileRef = D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */; };
-		C615BE245A32A985ACB0910F /* HabitEntity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */; };
-		D4E7B32E715C132C2F3066A1 /* HabitEntityQuery.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */; };
-		D9FFB5487F97B6B99F0256FD /* KeychainHelper.swift in Sources */ = {isa = PBXBuildFile; fileRef = 759F4251D226A83E45523A97 /* KeychainHelper.swift */; };
 		F1C4D8F2F6194CB115EF6EF1 /* MainViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 589FC9ECDCB68AA23B353864 /* MainViewController.swift */; };
 /* End PBXBuildFile section */
 
@@ -63,10 +54,7 @@
 		18452756304095690025BE61 /* RoutineActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RoutineActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		18452758304095690025BE61 /* WidgetKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WidgetKit.framework; path = System/Library/Frameworks/WidgetKit.framework; sourceTree = SDKROOT; };
 		1845275A304095690025BE61 /* SwiftUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = SwiftUI.framework; path = System/Library/Frameworks/SwiftUI.framework; sourceTree = SDKROOT; };
-		2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitEntity.swift; sourceTree = "<group>"; };
 		2FAD9762203C412B000D30F8 /* config.xml */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = config.xml; sourceTree = "<group>"; };
-		327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApiKeyBridgePlugin.swift; sourceTree = "<group>"; };
-		3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HabitEntityQuery.swift; sourceTree = "<group>"; };
 		50379B222058CBB4000EE86E /* capacitor.config.json */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = text.json; path = capacitor.config.json; sourceTree = "<group>"; };
 		504EC3041FED79650016851F /* App.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = App.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		504EC3071FED79650016851F /* AppDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppDelegate.swift; sourceTree = "<group>"; };
@@ -76,19 +64,15 @@
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		589FC9ECDCB68AA23B353864 /* MainViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = MainViewController.swift; sourceTree = "<group>"; };
-		70BD5617E197AEE38F5575E9 /* ChrpsShortcuts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ChrpsShortcuts.swift; sourceTree = "<group>"; };
-		759F4251D226A83E45523A97 /* KeychainHelper.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainHelper.swift; sourceTree = "<group>"; };
 		7F56C32234441094199A01A3 /* App.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = App.entitlements; sourceTree = "<group>"; };
-		8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TriggerHabitIntent.swift; sourceTree = "<group>"; };
 		9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = LiveActivityPlugin.swift; sourceTree = "<group>"; };
 		9582B6822FE993A50072D4E8 /* SceneDelegate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SceneDelegate.swift; sourceTree = "<group>"; };
 		958DCC722DB07C7200EA8C5F /* debug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = debug.xcconfig; path = ../debug.xcconfig; sourceTree = SOURCE_ROOT; };
 		BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = NfcScanPlugin.swift; sourceTree = "<group>"; };
-		D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ChrpsAPI.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		184527703040956A0025BE61 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+		184527703040956A0025BE61 /* Exceptions for "RoutineActivity" folder in "RoutineActivityExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				Info.plist,
@@ -98,7 +82,18 @@
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		1845275C304095690025BE61 /* RoutineActivity */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (184527703040956A0025BE61 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = RoutineActivity; sourceTree = "<group>"; };
+		1845275C304095690025BE61 /* RoutineActivity */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				184527703040956A0025BE61 /* Exceptions for "RoutineActivity" folder in "RoutineActivityExtension" target */,
+			);
+			explicitFileTypes = {
+			};
+			explicitFolders = (
+			);
+			path = RoutineActivity;
+			sourceTree = "<group>";
+		};
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -129,17 +124,6 @@
 				1845275A304095690025BE61 /* SwiftUI.framework */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		22DECD5BCD5F89314C4C77F4 /* AppIntents */ = {
-			isa = PBXGroup;
-			children = (
-				2EBA4779C97D3F9E68E7E425 /* HabitEntity.swift */,
-				3980EECC9DEB8ECDFFE06110 /* HabitEntityQuery.swift */,
-				8C08F91987392B69E13790D6 /* TriggerHabitIntent.swift */,
-				70BD5617E197AEE38F5575E9 /* ChrpsShortcuts.swift */,
-			);
-			path = AppIntents;
 			sourceTree = "<group>";
 		};
 		504EC2FB1FED79650016851F = {
@@ -176,10 +160,6 @@
 				50B271D01FEDC1A000F3C39B /* public */,
 				589FC9ECDCB68AA23B353864 /* MainViewController.swift */,
 				7F56C32234441094199A01A3 /* App.entitlements */,
-				759F4251D226A83E45523A97 /* KeychainHelper.swift */,
-				327391D407748E839FBB6EB8 /* ApiKeyBridgePlugin.swift */,
-				22DECD5BCD5F89314C4C77F4 /* AppIntents */,
-				D31DBB55409C5C3B136E3F86 /* ChrpsAPI.swift */,
 				9180AC6D74EE8D27D82C2A65 /* LiveActivityPlugin.swift */,
 				BDE554091724E91093BE43C9 /* NfcScanPlugin.swift */,
 				0F4DAFFA55EBB5146C26AD59 /* RoutineActivityAttributes.swift */,
@@ -301,8 +281,6 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				931BD366EC752B25D702E40E /* KeychainHelper.swift in Sources */,
-				7C642174DD6A3808A8C5D490 /* ChrpsAPI.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -313,13 +291,6 @@
 				504EC3081FED79650016851F /* AppDelegate.swift in Sources */,
 				9582B6832FE993A70072D4E8 /* SceneDelegate.swift in Sources */,
 				F1C4D8F2F6194CB115EF6EF1 /* MainViewController.swift in Sources */,
-				D9FFB5487F97B6B99F0256FD /* KeychainHelper.swift in Sources */,
-				30CF41078AC6C63AF04338E4 /* ApiKeyBridgePlugin.swift in Sources */,
-				C615BE245A32A985ACB0910F /* HabitEntity.swift in Sources */,
-				D4E7B32E715C132C2F3066A1 /* HabitEntityQuery.swift in Sources */,
-				303E5691EEB919AA7EEACAB6 /* TriggerHabitIntent.swift in Sources */,
-				1592F30D62789D1F610E3CB6 /* ChrpsShortcuts.swift in Sources */,
-				AD534EE11123EBD8AA473F25 /* ChrpsAPI.swift in Sources */,
 				AC49076C0AECEAE985237245 /* LiveActivityPlugin.swift in Sources */,
 				95188469829199D735AA7DA8 /* NfcScanPlugin.swift in Sources */,
 				7538C3E4D4E825678198C8F7 /* RoutineActivityAttributes.swift in Sources */,
