@@ -93,6 +93,8 @@ export function serializeLog(l: {
   sessionTaskListId?: { toString(): string } | null;
   formData?: Record<string, FormFieldValue> | null;
   tagId?: string | null;
+  performedByUserId?: string | null;
+  updatedAt?: Date | null;
 }) {
   return {
     _id: l._id.toString(),
@@ -106,6 +108,11 @@ export function serializeLog(l: {
     sessionTaskListId: l.sessionTaskListId ? l.sessionTaskListId.toString() : null,
     formData: l.formData ?? null,
     tagId: l.tagId ?? null,
+    // Offline-cache fields (see docs/features/offline.md) — informational
+    // only, not read by any online consumer. updatedAt drives the offline
+    // cache's last-write-wins conflict resolution.
+    performedByUserId: l.performedByUserId ?? null,
+    updatedAt: l.updatedAt ? new Date(l.updatedAt).toISOString() : null,
   };
 }
 

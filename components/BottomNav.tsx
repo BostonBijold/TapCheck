@@ -7,6 +7,8 @@ import { ListChecks, BarChart3, Nfc } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import { TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
+import { useNetworkStatus } from "@/components/NetworkStatusProvider";
+import { resolveOfflineNfcUid } from "@/lib/offline-nfc-resolver";
 
 const LEFT_TABS = [
   { href: "/tasks",  label: "Tasks",  Icon: ListChecks },
@@ -38,6 +40,7 @@ function fmtClock(totalSeconds: number) {
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { isOnline } = useNetworkStatus();
   const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -152,6 +155,28 @@ export default function BottomNav() {
       // lib/task-definitions.ts's resolveMostRelevantPlacement.
       const localDate = new Date().toLocaleDateString("en-CA");
       const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
+      if (!isOnline) {
+        // Offline equivalent of the GET below — see
+        // docs/features/offline.md's "Offline NFC resolution". Only covers
+        // an already-linked tag whose definition was present in the last
+        // successful pull sync, and only opens the resolved task directly
+        // (no attempt to replicate the online already-logged/session/locked
+        // response split below).
+        const resolved = await resolveOfflineNfcUid(result.uid, localDate, nowMinutes);
+        if (!resolved) {
+          flashScanMessage("Can't verify this tag while offline.");
+          return;
+        }
+        const url = `/tasks?openTaskId=${resolved.taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
+        if (pathname === "/tasks") {
+          router.replace(url);
+        } else {
+          router.push(url);
+        }
+        return;
+      }
+
       const res = await fetch(
         `/api/tasks/by-nfc-uid?uid=${encodeURIComponent(result.uid)}&date=${localDate}&nowMinutes=${nowMinutes}`
       );

@@ -14,6 +14,8 @@ import { updateRoutineActivity, endRoutineActivity } from "@/lib/native/routine-
 import { projectedFinishTime, staticBaselineFinish, type TaskProjection } from "@/lib/projected-finish";
 import { computeTimeline, type TimelineColorState } from "@/lib/task-timeline";
 import { TASK_TRANSITION_MS } from "@/lib/task-transition";
+import { useNetworkStatus } from "@/components/NetworkStatusProvider";
+import { queueTaskLogMutation } from "@/lib/offline-sync";
 
 interface SessionLog {
   taskId: string;
@@ -56,6 +58,8 @@ interface Props {
   preVerifiedTaskId?: string | null;
   preVerifiedNfcUid?: string | null;
   notificationSound: NotificationSound; // which chirp to play on an NFC scan-to-complete save — see lib/notification-sound.ts
+  companyId: string; // scopes the offline SQLite cache/queue — see docs/features/offline.md
+  userId: string;
   onClose: () => void;
   onFinish: () => void;
 }
@@ -102,7 +106,8 @@ const TIMELINE_COLOR: Record<TimelineColorState, string> = {
   pending: "#c7d1dc",     // border-light
 };
 
-export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerifiedTaskId = null, preVerifiedNfcUid = null, notificationSound, onClose, onFinish }: Props) {
+export default function TaskListSessionView({ taskListId, taskListName, taskListStartTime = null, tasks, logs: externalLogs, today, startIndex = 0, preVerifiedTaskId = null, preVerifiedNfcUid = null, notificationSound, companyId, userId, onClose, onFinish }: Props) {
+  const { isOnline, refreshPendingCount } = useNetworkStatus();
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const [elapsed, setElapsed] = useState(0);
   const [isRunning, setIsRunning] = useState(true);
@@ -293,17 +298,36 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // into this session on reopen, instead of falling back to the
       // standalone timer. Mirrors the external API's routineGroupId param;
       // openInProgressTimer already branches on sessionTaskListId either way.
-      await fetch("/api/task-logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
+      const switchBody = {
+        taskId: task._id,
+        date: today,
+        state: "in_progress" as const,
+        sessionTaskListId: taskListId,
+        sessionNav: true,
+      };
+      if (!isOnline) {
+        // See docs/features/offline.md — queued instead of sent, and
+        // fetchDayLogs (below) already degrades to [] on a network failure,
+        // which is exactly the right fallback here: nothing else this
+        // session doesn't already know about could have finished elsewhere.
+        await queueTaskLogMutation({
+          method: "POST",
+          companyId,
           taskId: task._id,
+          performedByUserId: userId,
           date: today,
           state: "in_progress",
-          sessionTaskListId: taskListId,
-          sessionNav: true,
-        }),
-      });
+          startedAt: new Date().toISOString(),
+          body: switchBody,
+        });
+        refreshPendingCount();
+      } else {
+        await fetch("/api/task-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(switchBody),
+        });
+      }
       emitTaskLogChanged();
       if (cancelled) return;
 
@@ -417,26 +441,46 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // through PATCH (completeInProgressLog) the same way TasksView's
       // standalone handleTaskFormComplete does, so formData actually gets
       // persisted instead of just a bare actualMinutes.
-      const res = formData
-        ? await fetch("/api/task-logs", {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ taskId, date: today, state, actualMinutes, formData, verifiedNfcUid }),
-          })
-        : await fetch("/api/task-logs", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ taskId, date: today, state, actualMinutes }),
-          });
+      const method = formData ? "PATCH" : "POST";
+      const body = formData
+        ? { taskId, date: today, state, actualMinutes, formData, verifiedNfcUid }
+        : { taskId, date: today, state, actualMinutes };
+
+      if (!isOnline) {
+        // See docs/features/offline.md — same trust-then-reconcile approach
+        // as TasksView's handleTaskFormComplete: a bound task's
+        // verifiedNfcUid is accepted optimistically and only actually
+        // re-checked (assertNfcVerified) when this mutation syncs.
+        await queueTaskLogMutation({
+          method,
+          companyId,
+          taskId,
+          performedByUserId: userId,
+          date: today,
+          state,
+          completedAt: new Date().toISOString(),
+          formValues: formData ?? null,
+          body,
+        });
+        refreshPendingCount();
+        emitTaskLogChanged();
+        return;
+      }
+
+      const res = await fetch("/api/task-logs", {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
       if (!res.ok) {
         // e.g. a task bound to an NFC tag (see docs/features/nfc.md) with no
         // matching verifiedNfcUid — the caller must not treat this as saved.
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to save — please try again.");
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || "Failed to save — please try again.");
       }
       emitTaskLogChanged();
     },
-    [today]
+    [today, isOnline, companyId, userId, refreshPendingCount]
   );
 
   const advance = useCallback(
