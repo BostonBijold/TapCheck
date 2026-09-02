@@ -15,7 +15,21 @@ const UserSchema = new Schema(
     // signup (stamped explicitly in lib/auth.ts's createUser event, since
     // the MongoDB adapter inserts the user doc directly and never applies
     // Mongoose schema defaults).
-    role: { type: String, enum: ["manager", "employee"], default: "manager" },
+    // null is also valid here (alongside companyId: null) — the state
+    // DELETE /api/team/[userId] leaves a removed teammate in, "not yet
+    // attached to any company," same as a brand-new sign-up. Every
+    // company-scoped route already gates on companyId being non-null first,
+    // so a null role never grants access on its own — see lib/session.ts's
+    // resolveSessionUser(), which only reads role once companyId is known.
+    role: { type: String, enum: ["manager", "employee", null], default: "manager" },
+    // Set alongside companyId/role at invite redemption (see
+    // app/invite/[token]/page.tsx and docs/features/team-invites.md) —
+    // distinct from the adapter-owned account-creation timestamp, so
+    // re-joining a *different* company later reflects current tenure there,
+    // not when the underlying account was first created. Null for anyone
+    // hand-attached to a company directly in MongoDB rather than through an
+    // invite (all pre-existing users, and any future manual assignment).
+    companyJoinedAt: { type: Date, default: null },
     // Long-lived token for external triggers (e.g. an iPhone Shortcut fired by
     // an NFC tag) — see app/api/external/start-timer. Generated once, lazily,
     // the first time it's requested; never rotated automatically.

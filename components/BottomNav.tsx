@@ -3,16 +3,24 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ListChecks, BarChart3, Nfc } from "lucide-react";
+import { ListChecks, BarChart3, Users, MoreHorizontal, Nfc } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import { TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
+import { useNetworkStatus } from "@/components/NetworkStatusProvider";
+import { resolveOfflineNfcUid } from "@/lib/offline-nfc-resolver";
 
+// Two tabs per side around the center FAB — see docs/features/team-invites.md
+// on why this grew from the previous Tasks | FAB | Analytics shape. The 4th
+// slot (right, after Analytics) is an inert placeholder reserved for a
+// future tab, not yet wired to a route — kept purely so the two sides stay
+// visually balanced instead of leaving Team lopsided on the left alone.
 const LEFT_TABS = [
-  { href: "/tasks",  label: "Tasks",  Icon: ListChecks },
+  { href: "/tasks", label: "Tasks", Icon: ListChecks },
+  { href: "/team",  label: "Team",  Icon: Users },
 ];
 const RIGHT_TABS = [
-  { href: "/analytics", label: "Analytics", Icon: BarChart3  },
+  { href: "/analytics", label: "Analytics", Icon: BarChart3 },
 ];
 
 interface ActiveTimer {
@@ -38,6 +46,7 @@ function fmtClock(totalSeconds: number) {
 export default function BottomNav() {
   const pathname = usePathname();
   const router = useRouter();
+  const { isOnline } = useNetworkStatus();
   const [activeTimer, setActiveTimer] = useState<ActiveTimer | null>(null);
   const [nowTick, setNowTick] = useState(() => Date.now());
 
@@ -152,6 +161,28 @@ export default function BottomNav() {
       // lib/task-definitions.ts's resolveMostRelevantPlacement.
       const localDate = new Date().toLocaleDateString("en-CA");
       const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+
+      if (!isOnline) {
+        // Offline equivalent of the GET below — see
+        // docs/features/offline.md's "Offline NFC resolution". Only covers
+        // an already-linked tag whose definition was present in the last
+        // successful pull sync, and only opens the resolved task directly
+        // (no attempt to replicate the online already-logged/session/locked
+        // response split below).
+        const resolved = await resolveOfflineNfcUid(result.uid, localDate, nowMinutes);
+        if (!resolved) {
+          flashScanMessage("Can't verify this tag while offline.");
+          return;
+        }
+        const url = `/tasks?openTaskId=${resolved.taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
+        if (pathname === "/tasks") {
+          router.replace(url);
+        } else {
+          router.push(url);
+        }
+        return;
+      }
+
       const res = await fetch(
         `/api/tasks/by-nfc-uid?uid=${encodeURIComponent(result.uid)}&date=${localDate}&nowMinutes=${nowMinutes}`
       );
@@ -310,6 +341,18 @@ export default function BottomNav() {
                   </Link>
                 );
               })}
+
+              {/* Placeholder — reserved 4th slot, inert until a future tab
+                  is wired up here. Not a Link: nothing to navigate to yet. */}
+              <div
+                aria-hidden="true"
+                className="flex-1 flex flex-col items-center justify-center gap-1 min-h-[44px] text-dim/40"
+              >
+                <MoreHorizontal size={20} strokeWidth={1.5} />
+                <span className="font-mono text-[9px] uppercase tracking-widest leading-none">
+                  More
+                </span>
+              </div>
             </div>
           </div>
         </div>

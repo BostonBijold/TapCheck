@@ -40,6 +40,8 @@ interface StandaloneTask {
   name: string;
   icon: string;
   projectedMinutes: number;
+  taskListId: string;
+  taskListName: string;
 }
 
 interface Props {
@@ -209,11 +211,23 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   const [showAddTaskListSheet, setShowAddTaskListSheet] = useState(false);
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [removingStandaloneId, setRemovingStandaloneId] = useState<string | null>(null);
 
   const handleDuplicateTaskList = async (id: string) => {
     setDuplicatingId(id);
     await fetch(`/api/task-lists/${id}/duplicate`, { method: "POST" });
     setDuplicatingId(null);
+    router.refresh();
+  };
+
+  // Removes a single standalone (anytime-list) task placement — same
+  // DELETE /api/tasks/[id] a scheduled list's SortableRow "Remove" button
+  // uses (see TaskListEditView.tsx), just reachable from this screen too
+  // now instead of only from the task's own anytime list's edit page.
+  const handleRemoveStandaloneTask = async (id: string) => {
+    setRemovingStandaloneId(id);
+    await fetch(`/api/tasks/${id}`, { method: "DELETE" });
+    setRemovingStandaloneId(null);
     router.refresh();
   };
 
@@ -334,10 +348,14 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
           + Add Task List
         </button>
 
-        {/* ── Standalone Tasks — the anytime lists' tasks, flattened; a
-            read-only overview, since editing them still happens via each
-            task's own list (Anytime Tasks) and NFC binding happens in the
-            catalog below regardless of which list a task sits in. ──────── */}
+        {/* ── Standalone Tasks — the anytime lists' tasks, flattened. Each
+            row still edits/deletes the same Task placement a scheduled
+            list's SortableRow does (app/api/tasks/[id]/route.ts has no
+            anytime-specific gating) — "Edit" opens the task's own anytime
+            list, and "Remove" deletes the placement directly from here so
+            an accidental add doesn't require a detour through the Company
+            Task Catalog below. NFC binding still happens in that catalog
+            regardless of which list a task sits in. ──────────────────── */}
         <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3 mt-8">
           Standalone Tasks
         </p>
@@ -346,12 +364,30 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
         ) : (
           <div className="space-y-2">
             {standaloneTasks.map((t) => (
-              <div key={t._id} className="flex items-center gap-3 bg-card rounded-card border border-border p-4">
-                <div className="w-8 flex items-center justify-center flex-shrink-0">
-                  <AppIcon name={t.icon} size={18} className="text-muted" />
+              <div key={t._id} className="bg-card rounded-card border border-border p-4">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 flex items-center justify-center flex-shrink-0">
+                    <AppIcon name={t.icon} size={18} className="text-muted" />
+                  </div>
+                  <p className="font-body text-sm text-text truncate flex-1">{t.name}</p>
+                  <span className="font-mono text-[10px] text-dim flex-shrink-0">{t.projectedMinutes}m</span>
                 </div>
-                <p className="font-body text-sm text-text truncate flex-1">{t.name}</p>
-                <span className="font-mono text-[10px] text-dim flex-shrink-0">{t.projectedMinutes}m</span>
+                <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2">
+                  <Link
+                    href={`/tasks/${t.taskListId}/edit`}
+                    className="font-mono text-[10px] text-olive uppercase tracking-widest"
+                  >
+                    Edit in {t.taskListName}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleRemoveStandaloneTask(t._id)}
+                    disabled={removingStandaloneId === t._id}
+                    className="font-mono text-[10px] text-burgundy-light uppercase tracking-widest disabled:opacity-50"
+                  >
+                    {removingStandaloneId === t._id ? "Removing…" : "Remove"}
+                  </button>
+                </div>
               </div>
             ))}
           </div>

@@ -1,5 +1,5 @@
 {
-  "originHash" : "cab035986813117553a4f2195cbe33640dedb08654f438952e40994037675f4c",
+  "originHash" : "b0ca46625542ebedc5cb6f90d68feaf8c4ae16b27375e3bb30ce43022abc2eb6",
   "pins" : [
     {
       "identity" : "capacitor-swift-pm",
@@ -8,6 +8,24 @@
       "state" : {
         "revision" : "4f71d0b979f2f957326f04353eca7604ee937e1e",
         "version" : "8.5.0"
+      }
+    },
+    {
+      "identity" : "sqlcipher.swift",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/sqlcipher/SQLCipher.swift.git",
+      "state" : {
+        "revision" : "f879fffaaa3ad3541a77830daad4a28726dfa927",
+        "version" : "4.18.0"
+      }
+    },
+    {
+      "identity" : "zipfoundation",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/weichsel/ZIPFoundation.git",
+      "state" : {
+        "revision" : "22787ffb59de99e5dc1fbfe80b19c97a904ad48d",
+        "version" : "0.9.20"
       }
     }
   ],

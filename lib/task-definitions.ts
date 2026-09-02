@@ -4,6 +4,8 @@ import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
+import { pickMostRelevantPlacement } from "./placement-resolution";
+export { pickMostRelevantPlacement } from "./placement-resolution";
 
 // Joins a Task placement onto its TaskDefinition — see models/Task.ts and
 // models/TaskDefinition.ts for the split. Every reader in the app that used
@@ -109,19 +111,9 @@ export async function unbindNfcTag(companyId: string, definitionId: string) {
 // placements is "most relevant right now" — needed because, unlike before
 // the catalog split, one physical tag (bound at the definition level) can
 // now back more than one list placement (e.g. the fridge-temp check placed
-// in both the opening and closing lists). This is a documented judgment
-// call, not a settled product spec (see the "Company Task Catalog" design's
-// open question on this) — reasonable defaults, most-specific first:
-//
-//   1. Skip any placement already resolved today (done/missed/rest) — it
-//      doesn't need attention right now.
-//   2. Among what's left, prefer whichever list's startTime is closest to
-//      localDate's current time-of-day — the shift window we're nearest to.
-//   3. Ties, or no placement has a startTime (anytime lists), fall back to
-//      list order then placement order.
-//   4. Nothing unresolved today (everything already logged) — same
-//      fallback, so scanning a fully-done tag still opens something
-//      sensible to review rather than erroring.
+// in both the opening and closing lists). Thin Mongo-reading wrapper around
+// pickMostRelevantPlacement above — see that function for the actual
+// selection logic and rationale.
 export async function resolveMostRelevantPlacement(
   companyId: string,
   definitionId: string,
@@ -130,46 +122,24 @@ export async function resolveMostRelevantPlacement(
 ): Promise<mongoose.Types.ObjectId | null> {
   const placements = await Task.find({ companyId, definitionId, isActive: true }).lean();
   if (placements.length === 0) return null;
-  if (placements.length === 1) return placements[0]._id;
 
   const taskLists = await TaskList.find({
     _id: { $in: placements.map((p) => p.taskListId) },
     companyId,
   }).lean();
-  const listById = new Map(taskLists.map((tl) => [tl._id.toString(), tl]));
 
   const logs = await TaskLog.find({
     companyId,
     date: localDate,
     taskId: { $in: placements.map((p) => p._id) },
   }).lean();
-  const logByTaskId = new Map(logs.map((l) => [l.taskId.toString(), l]));
 
-  const sorted = [...placements].sort((a, b) => {
-    const listA = listById.get(a.taskListId.toString());
-    const listB = listById.get(b.taskListId.toString());
-    return (listA?.order ?? 0) - (listB?.order ?? 0) || a.order - b.order;
-  });
-
-  const unresolved = sorted.filter((p) => {
-    const log = logByTaskId.get(p._id.toString());
-    return !log || (log.state !== "done" && log.state !== "missed" && log.state !== "rest");
-  });
-  const candidates = unresolved.length > 0 ? unresolved : sorted;
-
-  if (nowMinutesLocal == null) return candidates[0]._id;
-
-  let best = candidates[0];
-  let bestDistance = Infinity;
-  for (const p of candidates) {
-    const startTime = listById.get(p.taskListId.toString())?.startTime;
-    if (!startTime) continue;
-    const [h, m] = startTime.split(":").map(Number);
-    const distance = Math.abs(h * 60 + m - nowMinutesLocal);
-    if (distance < bestDistance) {
-      best = p;
-      bestDistance = distance;
-    }
-  }
-  return best._id;
+  const placementById = new Map(placements.map((p) => [p._id.toString(), p]));
+  const bestId = pickMostRelevantPlacement(
+    placements.map((p) => ({ id: p._id.toString(), taskListId: p.taskListId.toString(), order: p.order })),
+    taskLists.map((tl) => ({ id: tl._id.toString(), order: tl.order, startTime: tl.startTime ?? null })),
+    logs.map((l) => ({ taskId: l.taskId.toString(), state: l.state })),
+    nowMinutesLocal
+  );
+  return bestId ? placementById.get(bestId)!._id : null;
 }

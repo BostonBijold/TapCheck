@@ -22,6 +22,9 @@ import { useTodoActions } from "@/lib/useTodoActions";
 import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { startRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
 import { TASK_TRANSITION_MS } from "@/lib/task-transition";
+import { Capacitor } from "@capacitor/core";
+import { useNetworkStatus } from "@/components/NetworkStatusProvider";
+import { queueTaskLogMutation, pullSync, flushQueue } from "@/lib/offline-sync";
 
 const LOG_POLL_MS = 2000;
 
@@ -60,6 +63,7 @@ interface Props {
   userName: string;
   userId: string;
   userRole: "manager" | "employee";
+  companyId: string; // scopes the offline SQLite cache/queue — see docs/features/offline.md
   skipAuth?: boolean;
   autoStartNext?: boolean;
   autoAddTask?: boolean;
@@ -78,7 +82,7 @@ interface ActiveSession {
 
 export default function TasksView({
   taskLists, initialLogs, initialTodos, weekLogs, weekDates,
-  today, userName, userId, userRole, skipAuth,
+  today, userName, userId, userRole, companyId, skipAuth,
   autoStartNext = false,
   autoAddTask = false,
   autoResumeTimer = false,
@@ -444,6 +448,46 @@ export default function TasksView({
     weekLogsByTask[wl.taskId].push({ date: wl.date, state: wl.state, actualMinutes: wl.actualMinutes });
   }
 
+  // Offline support — see docs/features/offline.md. Resolved here (not in
+  // components/NetworkStatusProvider.tsx) because this is the one place
+  // that both knows companyId and cares about sync timing; the provider
+  // itself is mounted at the root layout, before any company is resolved.
+  const { isOnline, refreshPendingCount } = useNetworkStatus();
+  const wasOfflineRef = useRef(!isOnline);
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const wasOffline = wasOfflineRef.current;
+    wasOfflineRef.current = !isOnline;
+    if (!isOnline) return;
+    (async () => {
+      // A reconnect (not just the initial online mount) flushes the outbox
+      // before pulling — otherwise a pending local mutation could be
+      // clobbered by the very sync meant to refresh around it (pull sync
+      // already guards against overwriting a 'pending' row regardless, but
+      // flushing first gets it acknowledged and out of 'pending' sooner).
+      if (wasOffline) await flushQueue();
+      await pullSync(companyId, today);
+      refreshPendingCount();
+    })();
+  }, [isOnline, companyId, today, refreshPendingCount]);
+
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    let removeListener: (() => void) | undefined;
+    import("@capacitor/app").then(({ App }) => {
+      const handle = App.addListener("resume", () => {
+        flushQueue()
+          .then(() => pullSync(companyId, today))
+          .then(refreshPendingCount);
+      });
+      handle.then((h) => {
+        removeListener = () => h.remove();
+      });
+    });
+    return () => removeListener?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [companyId, today]);
+
   const handleStateChange = useCallback(
     async (
       taskId: string,
@@ -500,17 +544,35 @@ export default function TasksView({
           completedAt: opts.completedAt,
         };
         setLogs((l) => ({ ...l, [taskId]: optimistic }));
-        const res = await fetch("/api/task-logs", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
+        const patchBody = {
+          taskId,
+          date: selectedDate,
+          state: newState,
+          startedAt: opts.startedAt,
+          completedAt: opts.completedAt,
+          formData: opts.formData,
+        };
+        if (!isOnline) {
+          await queueTaskLogMutation({
+            method: "PATCH",
+            companyId,
             taskId,
+            performedByUserId: userId,
             date: selectedDate,
             state: newState,
             startedAt: opts.startedAt,
             completedAt: opts.completedAt,
-            formData: opts.formData,
-          }),
+            formValues: opts.formData ?? null,
+            body: patchBody,
+          });
+          refreshPendingCount();
+          emitTaskLogChanged();
+          return;
+        }
+        const res = await fetch("/api/task-logs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
         });
         if (res.ok) {
           const saved = await res.json();
@@ -527,16 +589,32 @@ export default function TasksView({
         };
         setLogs((l) => ({ ...l, [taskId]: optimistic }));
 
+        const postBody = {
+          taskId,
+          date: selectedDate,
+          state: newState,
+          actualMinutes: opts?.actualMinutes,
+          isBackEntry: opts?.isBackEntry ?? isPastDate,
+        };
+        if (!isOnline) {
+          await queueTaskLogMutation({
+            method: "POST",
+            companyId,
+            taskId,
+            performedByUserId: userId,
+            date: selectedDate,
+            state: newState,
+            completedAt: new Date().toISOString(),
+            body: postBody,
+          });
+          refreshPendingCount();
+          emitTaskLogChanged();
+          return;
+        }
         const res = await fetch("/api/task-logs", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            taskId,
-            date: selectedDate,
-            state: newState,
-            actualMinutes: opts?.actualMinutes,
-            isBackEntry: opts?.isBackEntry ?? isPastDate,
-          }),
+          body: JSON.stringify(postBody),
         });
         if (res.ok) {
           const saved = await res.json();
@@ -544,7 +622,7 @@ export default function TasksView({
         }
       }
     },
-    [logs, selectedDate, isPastDate]
+    [logs, selectedDate, isPastDate, isOnline, companyId, userId, refreshPendingCount]
   );
 
   // Opens the timer for a task. Creates an in_progress log on first tap;
@@ -597,23 +675,41 @@ export default function TasksView({
       };
       setLogs((l) => ({ ...l, [task._id]: optimistic }));
 
-      await fetch("/api/task-logs", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: task._id, date: selectedDate, state: "in_progress" }),
-      });
+      if (!isOnline) {
+        // Offline — the single-active-timer invariant is a server-side
+        // check (completeStrayInProgressLogs), so it doesn't run here; the
+        // optimistic local state is the best available truth until this
+        // syncs. See docs/features/offline.md.
+        await queueTaskLogMutation({
+          method: "POST",
+          companyId,
+          taskId: task._id,
+          performedByUserId: userId,
+          date: selectedDate,
+          state: "in_progress",
+          startedAt: optimistic.startedAt,
+          body: { taskId: task._id, date: selectedDate, state: "in_progress" },
+        });
+        refreshPendingCount();
+      } else {
+        await fetch("/api/task-logs", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ taskId: task._id, date: selectedDate, state: "in_progress" }),
+        });
 
-      // The server also auto-completes any other dangling in_progress log for
-      // this user (single-active-timer invariant, enforced in the route
-      // handler) — re-fetch the whole day so that gets reflected locally too,
-      // not just the task we just started.
-      try {
-        const res = await fetch(`/api/task-logs?date=${selectedDate}`);
-        if (res.ok) {
-          const fresh: TaskLogEntry[] = await res.json();
-          setLogs(Object.fromEntries(fresh.map((l) => [l.taskId, l])));
-        }
-      } catch { /* optimistic state already applied; will resync on next refresh */ }
+        // The server also auto-completes any other dangling in_progress log for
+        // this user (single-active-timer invariant, enforced in the route
+        // handler) — re-fetch the whole day so that gets reflected locally too,
+        // not just the task we just started.
+        try {
+          const res = await fetch(`/api/task-logs?date=${selectedDate}`);
+          if (res.ok) {
+            const fresh: TaskLogEntry[] = await res.json();
+            setLogs(Object.fromEntries(fresh.map((l) => [l.taskId, l])));
+          }
+        } catch { /* optimistic state already applied; will resync on next refresh */ }
+      }
 
       emitTaskLogChanged();
       setTimerInitialElapsed(0);
@@ -626,7 +722,7 @@ export default function TasksView({
         projectedMinutes: task.taskType === "stopwatch" ? 0 : task.projectedMinutes,
       });
     },
-    [logs, selectedDate, taskLists, findTaskListName]
+    [logs, selectedDate, taskLists, findTaskListName, isOnline, companyId, userId, refreshPendingCount]
   );
 
   // PATCH the in_progress log to done. Server derives actualMinutes from startedAt.
@@ -638,20 +734,35 @@ export default function TasksView({
         ...l,
         [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "done", actualMinutes },
       }));
-      const res = await fetch("/api/task-logs", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId: timerItem._id, date: selectedDate, state: "done", actualMinutes }),
-      });
-      if (res.ok) {
-        const saved: TaskLogEntry = await res.json();
-        setLogs((l) => ({ ...l, [timerItem._id]: saved }));
+      const patchBody = { taskId: timerItem._id, date: selectedDate, state: "done" as const, actualMinutes };
+      if (!isOnline) {
+        await queueTaskLogMutation({
+          method: "PATCH",
+          companyId,
+          taskId: timerItem._id,
+          performedByUserId: userId,
+          date: selectedDate,
+          state: "done",
+          completedAt: new Date().toISOString(),
+          body: patchBody,
+        });
+        refreshPendingCount();
+      } else {
+        const res = await fetch("/api/task-logs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
+        });
+        if (res.ok) {
+          const saved: TaskLogEntry = await res.json();
+          setLogs((l) => ({ ...l, [timerItem._id]: saved }));
+        }
       }
       emitTaskLogChanged();
       setTimerItem(null);
       endRoutineActivity();
     },
-    [timerItem, selectedDate]
+    [timerItem, selectedDate, isOnline, companyId, userId, refreshPendingCount]
   );
 
   // Same PATCH path as handleTimerComplete, plus formData — see
@@ -662,20 +773,45 @@ export default function TasksView({
     async (formData: Record<string, FormFieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) => {
       if (!timerItem) return;
       const taskId = timerItem._id;
-      const res = await fetch("/api/task-logs", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ taskId, date: selectedDate, state: "done", actualMinutes, formData, verifiedNfcUid }),
-      });
-      if (!res.ok) {
-        // e.g. an NFC-bound task with no/mismatched scan (see
-        // docs/features/nfc.md) — don't touch logs or close the form; let
-        // TaskFormScreen show this inline and let the user retry.
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || "Failed to complete task — please try again.");
+      const patchBody = { taskId, date: selectedDate, state: "done" as const, actualMinutes, formData, verifiedNfcUid };
+      if (!isOnline) {
+        // NFC verification (assertNfcVerified) is a server-side check —
+        // offline, verifiedNfcUid (if this task is tag-bound) is trusted
+        // optimistically and re-validated when the queued PATCH actually
+        // syncs; a mismatch then surfaces as a 'conflict' row instead of
+        // blocking the completion now. See docs/features/offline.md.
+        await queueTaskLogMutation({
+          method: "PATCH",
+          companyId,
+          taskId,
+          performedByUserId: userId,
+          date: selectedDate,
+          state: "done",
+          completedAt: new Date().toISOString(),
+          formValues: formData,
+          body: patchBody,
+        });
+        refreshPendingCount();
+        setLogs((l) => ({
+          ...l,
+          [taskId]: { ...(l[taskId] ?? { _id: "", taskId, date: selectedDate }), state: "done", actualMinutes, formData },
+        }));
+      } else {
+        const res = await fetch("/api/task-logs", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patchBody),
+        });
+        if (!res.ok) {
+          // e.g. an NFC-bound task with no/mismatched scan (see
+          // docs/features/nfc.md) — don't touch logs or close the form; let
+          // TaskFormScreen show this inline and let the user retry.
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error || "Failed to complete task — please try again.");
+        }
+        const saved: TaskLogEntry = await res.json();
+        setLogs((l) => ({ ...l, [taskId]: saved }));
       }
-      const saved: TaskLogEntry = await res.json();
-      setLogs((l) => ({ ...l, [taskId]: saved }));
       emitTaskLogChanged();
       // Saved — hold this screen up playing its exit animation
       // (task-advance-out, via TaskFormScreen's `exiting` prop) before
@@ -688,7 +824,7 @@ export default function TasksView({
       setClosingTimerItem(false);
       endRoutineActivity();
     },
-    [timerItem, selectedDate]
+    [timerItem, selectedDate, isOnline, companyId, userId, refreshPendingCount]
   );
 
   const handleTimerMissed = useCallback(async () => {
@@ -697,16 +833,31 @@ export default function TasksView({
       ...l,
       [timerItem._id]: { ...(l[timerItem._id] ?? { _id: "", taskId: timerItem._id, date: selectedDate }), state: "missed" },
     }));
-    await fetch("/api/task-logs", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ taskId: timerItem._id, date: selectedDate, state: "missed" }),
-    });
+    const patchBody = { taskId: timerItem._id, date: selectedDate, state: "missed" as const };
+    if (!isOnline) {
+      await queueTaskLogMutation({
+        method: "PATCH",
+        companyId,
+        taskId: timerItem._id,
+        performedByUserId: userId,
+        date: selectedDate,
+        state: "missed",
+        completedAt: new Date().toISOString(),
+        body: patchBody,
+      });
+      refreshPendingCount();
+    } else {
+      await fetch("/api/task-logs", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patchBody),
+      });
+    }
     emitTaskLogChanged();
     setTimerItem(null);
     setPreVerified(null);
     endRoutineActivity();
-  }, [timerItem, selectedDate]);
+  }, [timerItem, selectedDate, isOnline, companyId, userId, refreshPendingCount]);
 
   const handleSessionFinish = useCallback(async () => {
     setActiveSession(null);
@@ -821,6 +972,8 @@ export default function TasksView({
           tasks={sessionTasks}
           logs={logs}
           today={selectedDate}
+          companyId={companyId}
+          userId={userId}
           startIndex={activeSession?.startIndex ?? 0}
           preVerifiedTaskId={preVerified?.taskId ?? null}
           preVerifiedNfcUid={preVerified?.uid ?? null}

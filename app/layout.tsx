@@ -3,6 +3,7 @@ import { Playfair_Display, IBM_Plex_Mono, Inter, Fredoka } from "next/font/googl
 import ServiceWorkerRegister from "@/components/ServiceWorkerRegister";
 import NativeBootstrap from "@/components/NativeBootstrap";
 import UniversalLinkHandler from "@/components/UniversalLinkHandler";
+import NetworkStatusProvider from "@/components/NetworkStatusProvider";
 import "./globals.css";
 
 const playfair = Playfair_Display({
@@ -64,7 +65,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       className={`${playfair.variable} ${ibmMono.variable} ${inter.variable} ${fredoka.variable}`}
     >
       <body className="h-full bg-bg text-text font-body">
-        {children}
+        <NetworkStatusProvider>
+          {children}
+        </NetworkStatusProvider>
         <ServiceWorkerRegister />
         <NativeBootstrap />
         <UniversalLinkHandler />

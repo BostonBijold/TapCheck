@@ -2,11 +2,19 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
-import { resolveTasks } from "@/lib/task-definitions";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
+// GET /api/task-lists — also the pull-sync source for the offline SQLite
+// cache's `task_lists`/`tasks` tables (see docs/features/offline.md). Each
+// task is returned as its RAW placement (definitionId, scheduledDays,
+// successThreshold, projectedMinutes override — null means "inherit the
+// definition's default", updatedAt) rather than a resolveTasks-flattened
+// shape — the offline cache mirrors Task/TaskDefinition as two separate
+// tables, same split as Mongo, so a definition edit only needs to update
+// one row instead of every placement that shares it. name/icon/taskType/
+// formFields live in GET /api/task-definitions instead.
 export async function GET() {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -28,19 +36,23 @@ export async function GET() {
       })
         .sort({ order: 1 })
         .lean();
-      const tasks = await resolveTasks(rawTasks);
 
       return {
         _id: taskList._id.toString(),
         name: taskList.name,
         timeOfDay: taskList.timeOfDay,
+        startTime: taskList.startTime ?? null,
         order: taskList.order,
-        tasks: tasks.map((task) => ({
+        updatedAt: taskList.updatedAt ? new Date(taskList.updatedAt).toISOString() : null,
+        tasks: rawTasks.map((task) => ({
           _id: task._id.toString(),
-          name: task.name,
-          icon: task.icon,
-          projectedMinutes: task.projectedMinutes,
+          taskListId: task.taskListId.toString(),
+          definitionId: task.definitionId.toString(),
+          scheduledDays: task.scheduledDays,
+          successThreshold: task.successThreshold,
+          projectedMinutes: task.projectedMinutes ?? null,
           order: task.order,
+          updatedAt: task.updatedAt ? new Date(task.updatedAt).toISOString() : null,
         })),
       };
     })

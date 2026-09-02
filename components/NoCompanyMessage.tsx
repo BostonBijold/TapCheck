@@ -1,7 +1,9 @@
-// Shown when a signed-in user has no Company attached yet. v1 has no
-// self-serve company creation or invitation flow — a developer manually
-// attaches a pre-created Company doc to this user's record in MongoDB — so
-// this is a holding message, not a flow to build out further right now.
+// Shown when a signed-in user has no Company attached yet — either they
+// signed up cold with no invite link (see docs/features/team-invites.md;
+// existing team members should send one instead) or they're the very first
+// person at a brand-new company, which still has no self-serve creation
+// flow — a developer manually creates the Company doc and attaches it to
+// this user's record in MongoDB.
 export default function NoCompanyMessage({ userName }: { userName: string }) {
   return (
     <main className="min-h-dvh bg-bg flex flex-col items-center justify-center p-6">

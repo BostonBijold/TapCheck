@@ -176,6 +176,7 @@ export default async function TasksPage({
       userName={userName}
       userId={userId}
       userRole={role}
+      companyId={companyId}
       skipAuth={skipAuth}
       autoStartNext={!!searchParams?.startNext}
       autoAddTask={!!searchParams?.addTask}
