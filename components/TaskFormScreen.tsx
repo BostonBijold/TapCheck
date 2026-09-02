@@ -12,6 +12,24 @@ import type { TempUnit } from "@/lib/temperature";
 
 type FieldValue = FormFieldValue;
 
+// A count captured for one of this task's linked InventoryItemTypes (see
+// docs/features/inventory.md's "Task ↔ Inventory Linking") — only ever
+// included when the employee actually typed a value; a blank optional
+// field is omitted, never sent as 0.
+export interface InventoryCountEntry {
+  itemTypeId: string;
+  count: number;
+  verifiedNfcUid: string | null;
+}
+
+interface InventoryLink {
+  itemTypeId: string;
+  name: string;
+  unit: string | null;
+  nfcTagUid: string | null;
+  required: boolean;
+}
+
 interface Props {
   item: TimerItem;
   initialElapsed?: number; // seconds already elapsed (from server startedAt on resume)
@@ -30,7 +48,12 @@ interface Props {
   // Rejects if the server refused the completion (e.g. an NFC-bound task
   // with no/mismatched scan — see docs/features/nfc.md) — handleSave below
   // catches that and shows it inline instead of closing this screen.
-  onComplete: (formData: Record<string, FieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) => Promise<void>;
+  onComplete: (
+    formData: Record<string, FieldValue>,
+    actualMinutes: number,
+    verifiedNfcUid?: string | null,
+    inventoryCounts?: InventoryCountEntry[]
+  ) => Promise<void>;
   onMissed: () => void;
   onClose: () => void;
   // Set by the caller once a completion has actually been saved and it's
@@ -105,6 +128,22 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   const [values, setValues] = useState<Record<string, FieldValue>>({});
   const [error, setError] = useState("");
 
+  // Linked InventoryItemTypes (see docs/features/inventory.md's "Task ↔
+  // Inventory Linking") — self-fetched, same pattern as Header.tsx's own
+  // notificationSound fetch, rather than threading through every caller
+  // that can open this screen (TasksView.tsx's standalone path,
+  // TaskListSessionView.tsx's embedded one). null while loading; treated as
+  // "no links yet" everywhere below rather than blocking Save on the fetch.
+  const [inventoryLinks, setInventoryLinks] = useState<InventoryLink[] | null>(null);
+  const [inventoryValues, setInventoryValues] = useState<Record<string, string>>({});
+  useEffect(() => {
+    setInventoryLinks(null);
+    fetch(`/api/tasks/${item._id}/inventory-links`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setInventoryLinks)
+      .catch(() => setInventoryLinks([]));
+  }, [item._id]);
+
   // A task bound to a physical tag (Manage Task List → "Scan to Link" — see
   // docs/features/nfc.md's "In-app scan-to-complete binding") can't be
   // completed by tapping Save alone: the same fill-in flow runs first, but
@@ -118,6 +157,27 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     setValues((v) => ({ ...v, [key]: value }));
     if (error) setError("");
   };
+
+  const setInventoryValue = (itemTypeId: string, value: string) => {
+    setInventoryValues((v) => ({ ...v, [itemTypeId]: value }));
+    if (error) setError("");
+  };
+
+  // Builds the InventoryLog entries this Save should write, given whichever
+  // uid (if any) just verified the TASK's own completion — see
+  // docs/features/inventory.md's "NFC binding": the same scan that verifies
+  // the task also verifies a linked item ONLY when that item is bound to
+  // the identical tag. A blank field (optional, left empty) is omitted
+  // entirely rather than sent as 0.
+  const buildInventoryCounts = (verifyingUid: string | null): InventoryCountEntry[] =>
+    (inventoryLinks ?? []).flatMap((link) => {
+      const raw = inventoryValues[link.itemTypeId];
+      if (raw === undefined || raw.trim() === "") return [];
+      const count = Number(raw);
+      if (!Number.isFinite(count)) return [];
+      const verifiedNfcUid = !!verifyingUid && !!link.nfcTagUid && verifyingUid === link.nfcTagUid ? verifyingUid : null;
+      return [{ itemTypeId: link.itemTypeId, count, verifiedNfcUid }];
+    });
 
   const handleSave = async () => {
     // All fields required for the MVP — no optional-field logic yet.
@@ -136,11 +196,19 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
         return;
       }
     }
+    for (const link of inventoryLinks ?? []) {
+      if (!link.required) continue;
+      const raw = inventoryValues[link.itemTypeId];
+      if (raw === undefined || raw.trim() === "") {
+        setError(`${link.name} count is required`);
+        return;
+      }
+    }
     const actualMinutes = Math.max(1, Math.round(elapsed / 60));
 
     if (!requiresNfcScan) {
       try {
-        await onComplete(values, actualMinutes);
+        await onComplete(values, actualMinutes, undefined, buildInventoryCounts(null));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save — please try again.");
       }
@@ -149,7 +217,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
 
     if (alreadyVerified) {
       try {
-        await onComplete(values, actualMinutes, preVerifiedNfcUid);
+        await onComplete(values, actualMinutes, preVerifiedNfcUid, buildInventoryCounts(preVerifiedNfcUid));
         playNotificationSound(notificationSound);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Failed to save — please try again.");
@@ -175,7 +243,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
       return;
     }
     try {
-      await onComplete(values, actualMinutes, result.uid);
+      await onComplete(values, actualMinutes, result.uid, buildInventoryCounts(result.uid));
       playNotificationSound(notificationSound);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save — please try again.");
@@ -330,6 +398,40 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               </div>
             );
           })}
+
+          {/* Linked Inventory — count inputs for this task's linked
+              InventoryItemTypes (see docs/features/inventory.md's "Task ↔
+              Inventory Linking"), positioned after the task's own fields.
+              Required links are marked with *; a blank optional field is
+              simply skipped on save, never written as 0. */}
+          {inventoryLinks && inventoryLinks.length > 0 && (
+            <div className="space-y-5 pt-4 border-t border-border">
+              <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Linked Inventory</p>
+              {inventoryLinks.map((link) => {
+                const isPreVerified = alreadyVerified && !!link.nfcTagUid && link.nfcTagUid === preVerifiedNfcUid;
+                return (
+                  <div key={link.itemTypeId} className="space-y-1.5">
+                    <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
+                      {link.name}
+                      {link.unit ? ` (${link.unit})` : ""}
+                      {link.required ? " *" : ""}
+                    </label>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      value={inventoryValues[link.itemTypeId] ?? ""}
+                      onChange={(e) => setInventoryValue(link.itemTypeId, e.target.value)}
+                      placeholder={link.required ? "Required" : "Optional"}
+                      className="w-full bg-card border border-border rounded-card px-3 py-3 font-mono text-sm text-text placeholder:text-dim outline-none focus:border-border-light min-h-[44px]"
+                    />
+                    {isPreVerified && (
+                      <p className="font-mono text-[11px] text-olive">Tag verified</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
 
           {error && <p className="font-mono text-xs text-burgundy-light">{error}</p>}
         </div>

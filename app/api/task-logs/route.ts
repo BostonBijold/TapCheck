@@ -14,6 +14,7 @@ import {
   switchActiveLog,
 } from "@/lib/task-log-actions";
 import { recordSessionCompletion, releaseSessionIfNowEmpty } from "@/lib/task-list-session-actions";
+import { writeInventoryLogsForTaskCompletion } from "@/lib/inventory";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -160,6 +161,7 @@ export async function PATCH(req: NextRequest) {
     completedAt: endOverride,
     formData,
     verifiedNfcUid,
+    inventoryCounts,
   } = (await req.json()) as {
     taskId: string;
     date: string;
@@ -177,6 +179,16 @@ export async function PATCH(req: NextRequest) {
     // task with no tag bound; completeInProgressLog rejects a "done" write
     // for a bound task unless this matches.
     verifiedNfcUid?: string | null;
+    // Counts captured for this task's linked InventoryItemTypes (see
+    // docs/features/inventory.md's "Task ↔ Inventory Linking") —
+    // TaskFormScreen.tsx only includes an entry when the employee actually
+    // typed a value (a blank optional link is simply omitted, never sent as
+    // 0). Only meaningful with state: "done"; ignored for "missed", same as
+    // formData. Written via writeInventoryLogsForTaskCompletion below,
+    // AFTER the TaskLog write below succeeds — never validated against
+    // whether a required link actually got a count (that gate is
+    // client-side only, same as this route's existing formData trust).
+    inventoryCounts?: Array<{ itemTypeId: string; count: number; verifiedNfcUid?: string | null }>;
   };
 
   await connectDB();
@@ -209,6 +221,9 @@ export async function PATCH(req: NextRequest) {
       const log = await completeInProgressLog(
         companyId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null, verifiedNfcUid ?? null
       );
+      if (inventoryCounts && inventoryCounts.length > 0) {
+        await writeInventoryLogsForTaskCompletion(companyId, performedByUserId, taskId, inventoryCounts);
+      }
       return NextResponse.json(serializeLog(log));
     } catch (err) {
       if (err instanceof NfcTagRequiredError) {

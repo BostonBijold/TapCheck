@@ -8,7 +8,7 @@ import Header from "@/components/Header";
 import DateNav from "@/components/DateNav";
 import TaskListCard, { type TaskListCardTaskList } from "@/components/TaskListCard";
 import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
-import TaskFormScreen from "@/components/TaskFormScreen";
+import TaskFormScreen, { type InventoryCountEntry } from "@/components/TaskFormScreen";
 import type { NotificationSound } from "@/lib/notification-sound";
 import TaskListSessionView from "@/components/TaskListSessionView";
 import AddTaskSheet from "@/components/AddTaskSheet";
@@ -780,10 +780,15 @@ export default function TasksView({
   // from startedAt (see completeInProgressLog); the client-computed value
   // here is only the fallback, same as the standalone timer's Done button.
   const handleTaskFormComplete = useCallback(
-    async (formData: Record<string, FormFieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) => {
+    async (
+      formData: Record<string, FormFieldValue>,
+      actualMinutes: number,
+      verifiedNfcUid?: string | null,
+      inventoryCounts?: InventoryCountEntry[]
+    ) => {
       if (!timerItem) return;
       const taskId = timerItem._id;
-      const patchBody = { taskId, date: selectedDate, state: "done" as const, actualMinutes, formData, verifiedNfcUid };
+      const patchBody = { taskId, date: selectedDate, state: "done" as const, actualMinutes, formData, verifiedNfcUid, inventoryCounts };
       if (!isOnline) {
         // NFC verification (assertNfcVerified) is a server-side check —
         // offline, verifiedNfcUid (if this task is tag-bound) is trusted

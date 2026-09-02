@@ -2,6 +2,8 @@ import mongoose from "mongoose";
 import InventoryItemType from "@/models/InventoryItemType";
 import InventoryLog from "@/models/InventoryLog";
 import TaskDefinition from "@/models/TaskDefinition";
+import TaskInventoryLink from "@/models/TaskInventoryLink";
+import Task from "@/models/Task";
 
 // Binds a physical tag's raw UID to an item type's storage location — see
 // docs/features/nfc.md's "Multi-target binding". Mirrors
@@ -63,4 +65,134 @@ export async function getLatestInventoryLogs(
     }
   }
   return latestByItemTypeId;
+}
+
+// ── Task ↔ Inventory Linking — see docs/features/inventory.md's
+// "Task ↔ Inventory Linking" section. TaskInventoryLink lives at the
+// TaskDefinition level (not per Task placement) — same reasoning as
+// TaskDefinition.nfcTagUid, a link set from one list's edit screen is
+// shared by every list this saved task is placed in. Callers resolve a
+// specific placement's Task._id to its definitionId first (see
+// app/api/tasks/[id]/inventory-links/route.ts), same split as
+// bindNfcTag/unbindNfcTag above. ──
+
+export interface InventoryLinkView {
+  itemTypeId: string;
+  name: string;
+  unit: string | null;
+  nfcTagUid: string | null;
+  required: boolean;
+}
+
+// Joined with each linked InventoryItemType's own name/unit/nfcTagUid so
+// both TaskFormScreen.tsx (renders the count inputs) and
+// TaskListEditView.tsx (renders the "Linked Inventory" management panel)
+// get one flat shape with no second round trip. A link whose item type has
+// since been archived is silently dropped — same "don't show what's gone"
+// convention as resolveTasks' FALLBACK, except here it's simpler to just
+// omit rather than show a placeholder, since a stale link is meaningless to
+// both screens once its item no longer exists.
+export async function getInventoryLinksForTaskDefinition(
+  companyId: string,
+  taskDefinitionId: string
+): Promise<InventoryLinkView[]> {
+  const links = await TaskInventoryLink.find({ companyId, taskDefinitionId }).lean();
+  if (links.length === 0) return [];
+
+  const itemTypes = await InventoryItemType.find({
+    _id: { $in: links.map((l) => l.itemTypeId) },
+    companyId,
+    isActive: true,
+  }).lean();
+  const itemTypeById = new Map(itemTypes.map((it) => [it._id.toString(), it]));
+
+  return links
+    .map((l) => {
+      const itemType = itemTypeById.get(l.itemTypeId.toString());
+      if (!itemType) return null;
+      return {
+        itemTypeId: itemType._id.toString(),
+        name: itemType.name,
+        unit: itemType.unit ?? null,
+        nfcTagUid: itemType.nfcTagUid ?? null,
+        required: l.required,
+      };
+    })
+    .filter((l): l is InventoryLinkView => l !== null);
+}
+
+// Manager-only create/update — re-linking an already-linked item just
+// updates `required` on the existing row (the schema's unique index on
+// (taskDefinitionId, itemTypeId) is what makes this an upsert rather than
+// risking a duplicate-key error).
+export async function addOrUpdateInventoryLink(
+  companyId: string,
+  taskDefinitionId: string,
+  itemTypeId: string,
+  required: boolean
+) {
+  return TaskInventoryLink.findOneAndUpdate(
+    { companyId, taskDefinitionId, itemTypeId },
+    { $set: { required } },
+    { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+  );
+}
+
+export async function removeInventoryLink(companyId: string, taskDefinitionId: string, itemTypeId: string) {
+  return TaskInventoryLink.deleteOne({ companyId, taskDefinitionId, itemTypeId });
+}
+
+// Writes one InventoryLog row per entry that's actually linked to this
+// task — called from app/api/task-logs's PATCH handler right after a
+// task-form completion ("done") write succeeds, see
+// docs/features/inventory.md's "Task ↔ Inventory Linking". Entries for an
+// itemTypeId NOT actually linked to this task's definition are silently
+// dropped (defensive — the client only ever sends what TaskFormScreen
+// fetched as this task's own links, but never trust a client-asserted
+// itemTypeId outright). verifiedNfcUid is re-checked against each item
+// type's OWN bound tag here, same as POST /api/inventory-logs — a value
+// that doesn't actually match is dropped, never stored as verified, even
+// though it already verified the TASK's completion; the two are separate
+// claims that happen to reuse the same scanned UID when they line up.
+export async function writeInventoryLogsForTaskCompletion(
+  companyId: string,
+  loggedByUserId: string,
+  taskId: string,
+  entries: Array<{ itemTypeId: string; count: number; verifiedNfcUid?: string | null }>
+) {
+  if (entries.length === 0) return;
+
+  const task = await Task.findById(taskId).select("definitionId").lean();
+  if (!task) return;
+
+  const links = await TaskInventoryLink.find({ companyId, taskDefinitionId: task.definitionId }, { itemTypeId: 1 }).lean();
+  const linkedItemTypeIds = new Set(links.map((l) => l.itemTypeId.toString()));
+  const validEntries = entries.filter((e) => linkedItemTypeIds.has(e.itemTypeId));
+  if (validEntries.length === 0) return;
+
+  const itemTypes = await InventoryItemType.find({
+    _id: { $in: validEntries.map((e) => e.itemTypeId) },
+    companyId,
+    isActive: true,
+  }).lean();
+  const itemTypeById = new Map(itemTypes.map((it) => [it._id.toString(), it]));
+
+  const loggedAt = new Date();
+  const docs = validEntries
+    .filter((e) => itemTypeById.has(e.itemTypeId))
+    .map((e) => {
+      const itemType = itemTypeById.get(e.itemTypeId)!;
+      const claimedUid = e.verifiedNfcUid ? e.verifiedNfcUid.toLowerCase() : null;
+      const verifiedNfcUid = claimedUid && itemType.nfcTagUid && claimedUid === itemType.nfcTagUid ? claimedUid : null;
+      return {
+        companyId,
+        itemTypeId: e.itemTypeId,
+        count: e.count,
+        loggedByUserId,
+        loggedAt,
+        verifiedNfcUid,
+      };
+    });
+
+  if (docs.length > 0) await InventoryLog.insertMany(docs);
 }

@@ -350,6 +350,20 @@ an append-only activity-level log — see `docs/features/inventory.md`.
 }
 ```
 
+### TaskInventoryLink
+Optional join connecting a `TaskDefinition` to an `InventoryItemType`, so
+completing that task also captures an inventory count in the same flow —
+see "Task ↔ Inventory Linking" in `docs/features/inventory.md`.
+```js
+{
+  _id,
+  companyId,
+  taskDefinitionId,  // ref TaskDefinition — lives at the definition level, shared by every list placement
+  itemTypeId,        // ref InventoryItemType
+  required: bool,    // a property of the PAIRING — the same item type can be required on one task, optional on another
+}
+```
+
 ---
 
 ## Multi-Tenancy
@@ -489,9 +503,17 @@ type never gates logging a count the way a bound `TaskDefinition` gates
 task completion — it's a shortcut/verification layer only; manual entry
 always works, tag or no tag.
 
-Full detail — data model, roles, UI structure, and open questions (par-level
-alerting, Reports integration, an optional task-to-inventory logic-gate) —
-is in `docs/features/inventory.md`.
+A manager can also **link** one or more `InventoryItemType`s directly to a
+task (`TaskInventoryLink` — see the Data Models section above), so checking
+that area captures a count in the same flow — e.g. "Clean Bathroom" linked
+to Toilet Paper, Soap, and Paper Towels, each independently marked required
+or optional. When a task and a linked item share the same physical tag, one
+NFC scan verifies both — no second scan. See "Task ↔ Inventory Linking" in
+`docs/features/inventory.md`.
+
+Full detail — data model, roles, UI structure, task linking, and open
+questions (par-level alerting, Reports integration) — is in
+`docs/features/inventory.md`.
 
 ---
 
@@ -518,6 +540,7 @@ is in `docs/features/inventory.md`.
 - [x] Team tab + invite-token-only company joining, manager role-switching/removal — see "Team & Invites" above and docs/features/team-invites.md
 - [x] Multi-target NFC binding (a tag can back more than one task/item type, with FAB-scan disambiguation) — see docs/features/nfc.md's "Multi-target binding"
 - [x] Inventory tab (top-up count tracker, not a decrement ledger) — see "Inventory" above and docs/features/inventory.md
+- [x] Task ↔ Inventory Linking (a task can capture one or more Inventory counts as part of its own form, with shared NFC verification when a tag backs both) — see "Inventory" above and docs/features/inventory.md's "Task ↔ Inventory Linking"
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -636,6 +659,7 @@ table is a quick reference, not authoritative.
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task or Inventory item it's bound to, disambiguating first if it's bound to more than one (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 - Inventory: BUILT — Inventory tab (top-up count tracker), manager-managed item-type catalog with optional NFC location binding, see "Inventory" above and `docs/features/inventory.md`
+- Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

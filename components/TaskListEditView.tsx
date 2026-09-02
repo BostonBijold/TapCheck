@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -25,9 +25,18 @@ import { GripVertical, X, ChevronDown, ChevronUp, Check } from "lucide-react";
 import AppIcon, { IconPicker } from "@/components/AppIcon";
 import AddTaskSheet from "@/components/AddTaskSheet";
 import TaskFieldsEditor from "@/components/TaskFieldsEditor";
+import LinkInventoryItemSheet from "@/components/LinkInventoryItemSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { Capacitor } from "@capacitor/core";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
+
+interface InventoryLink {
+  itemTypeId: string;
+  name: string;
+  unit: string | null;
+  nfcTagUid: string | null;
+  required: boolean;
+}
 
 export interface EditTask {
   _id: string;
@@ -174,6 +183,73 @@ function SortableRow({
       setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
     } finally {
       setBindBusy(false);
+    }
+  }
+
+  // Linked Inventory — see docs/features/inventory.md's "Task ↔ Inventory
+  // Linking". Fetched lazily only once this row's edit panel is open
+  // (isEditing), same as the rest of this panel's local state.
+  const [inventoryLinks, setInventoryLinks] = useState<InventoryLink[] | null>(null);
+  const [showLinkPicker, setShowLinkPicker] = useState(false);
+  const [linkBusyId, setLinkBusyId] = useState<string | null>(null);
+  const [linkError, setLinkError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isEditing) return;
+    fetch(`/api/tasks/${task._id}/inventory-links`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setInventoryLinks)
+      .catch(() => setInventoryLinks([]));
+  }, [isEditing, task._id]);
+
+  async function handleAddInventoryLink(itemTypeId: string) {
+    setLinkBusyId(itemTypeId);
+    setLinkError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task._id}/inventory-links`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ itemTypeId, required: false }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to link item");
+      setInventoryLinks(await res.json());
+      setShowLinkPicker(false);
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Failed to link item");
+    } finally {
+      setLinkBusyId(null);
+    }
+  }
+
+  async function handleToggleInventoryLinkRequired(itemTypeId: string, required: boolean) {
+    setLinkBusyId(itemTypeId);
+    setLinkError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task._id}/inventory-links/${itemTypeId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ required }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to update link");
+      setInventoryLinks(await res.json());
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Failed to update link");
+    } finally {
+      setLinkBusyId(null);
+    }
+  }
+
+  async function handleRemoveInventoryLink(itemTypeId: string) {
+    setLinkBusyId(itemTypeId);
+    setLinkError(null);
+    try {
+      const res = await fetch(`/api/tasks/${task._id}/inventory-links/${itemTypeId}`, { method: "DELETE" });
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unlink item");
+      setInventoryLinks((prev) => (prev ? prev.filter((l) => l.itemTypeId !== itemTypeId) : prev));
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : "Failed to unlink item");
+    } finally {
+      setLinkBusyId(null);
     }
   }
 
@@ -400,7 +476,72 @@ function SortableRow({
               )}
             </div>
           )}
+
+          {/* Linked Inventory — see docs/features/inventory.md's "Task ↔
+              Inventory Linking". A separate concept from the NFC panels
+              above: an InventoryItemType attached here gets a count input on
+              this task's own form, independent of whether either has a
+              bound tag. */}
+          {isManager && (
+            <div className="pt-2 border-t border-border">
+              <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5">
+                Linked Inventory
+              </p>
+              {inventoryLinks === null ? (
+                <p className="font-mono text-[11px] text-dim">Loading…</p>
+              ) : inventoryLinks.length === 0 ? (
+                <p className="font-mono text-[11px] text-dim">Nothing linked yet.</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {inventoryLinks.map((link) => (
+                    <div key={link.itemTypeId} className="flex items-center gap-2">
+                      <span className="font-mono text-[11px] text-text flex-1 truncate">
+                        {link.name}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => handleToggleInventoryLinkRequired(link.itemTypeId, !link.required)}
+                        disabled={linkBusyId === link.itemTypeId}
+                        className={`font-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-pill disabled:opacity-40 ${
+                          link.required ? "bg-olive/15 text-olive" : "bg-card-hover text-muted"
+                        }`}
+                      >
+                        {link.required ? "Required" : "Optional"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => handleRemoveInventoryLink(link.itemTypeId)}
+                        disabled={linkBusyId === link.itemTypeId}
+                        className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
+                      >
+                        Unlink
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button
+                type="button"
+                onClick={() => setShowLinkPicker(true)}
+                className="mt-2 font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill"
+              >
+                + Add Item
+              </button>
+              {linkError && (
+                <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{linkError}</p>
+              )}
+            </div>
+          )}
         </div>
+      )}
+
+      {showLinkPicker && (
+        <LinkInventoryItemSheet
+          excludeItemTypeIds={(inventoryLinks ?? []).map((l) => l.itemTypeId)}
+          busy={linkBusyId !== null}
+          onPick={handleAddInventoryLink}
+          onClose={() => setShowLinkPicker(false)}
+        />
       )}
     </div>
   );

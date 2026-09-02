@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { X, ChevronRight, CheckCircle2 } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import TimelineBar from "@/components/TimelineBar";
-import TaskFormScreen from "@/components/TaskFormScreen";
+import TaskFormScreen, { type InventoryCountEntry } from "@/components/TaskFormScreen";
 import type { NotificationSound } from "@/lib/notification-sound";
 import type { RowItem } from "@/components/TaskRow";
 import type { LogState } from "@/models/TaskLog";
@@ -435,7 +435,8 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       state: LogState,
       actualMinutes: number,
       formData?: Record<string, FormFieldValue>,
-      verifiedNfcUid?: string | null
+      verifiedNfcUid?: string | null,
+      inventoryCounts?: InventoryCountEntry[]
     ) => {
       // A form-task completion carries captured field values — route
       // through PATCH (completeInProgressLog) the same way TasksView's
@@ -443,7 +444,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // persisted instead of just a bare actualMinutes.
       const method = formData ? "PATCH" : "POST";
       const body = formData
-        ? { taskId, date: today, state, actualMinutes, formData, verifiedNfcUid }
+        ? { taskId, date: today, state, actualMinutes, formData, verifiedNfcUid, inventoryCounts }
         : { taskId, date: today, state, actualMinutes };
 
       if (!isOnline) {
@@ -484,12 +485,18 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   );
 
   const advance = useCallback(
-    async (state: LogState, actualMinutes: number, formData?: Record<string, FormFieldValue>, verifiedNfcUid?: string | null) => {
+    async (
+      state: LogState,
+      actualMinutes: number,
+      formData?: Record<string, FormFieldValue>,
+      verifiedNfcUid?: string | null,
+      inventoryCounts?: InventoryCountEntry[]
+    ) => {
       if (!currentTask) return;
       const log: SessionLog = { taskId: currentTask._id, state, actualMinutes };
       setSessionLogs((prev) => [...prev, log]);
       try {
-        await saveLog(currentTask._id, state, actualMinutes, formData, verifiedNfcUid);
+        await saveLog(currentTask._id, state, actualMinutes, formData, verifiedNfcUid, inventoryCounts);
       } catch (err) {
         // Roll back the optimistic append and stay on the current task
         // instead of silently advancing past a completion the server
@@ -587,8 +594,12 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   };
   const handleMissed = () => advance("missed", 0);
   const handleRest = () => advance("rest", 0);
-  const handleTaskFormDone = (formData: Record<string, FormFieldValue>, actualMinutes: number, verifiedNfcUid?: string | null) =>
-    advance("done", actualMinutes, formData, verifiedNfcUid);
+  const handleTaskFormDone = (
+    formData: Record<string, FormFieldValue>,
+    actualMinutes: number,
+    verifiedNfcUid?: string | null,
+    inventoryCounts?: InventoryCountEntry[]
+  ) => advance("done", actualMinutes, formData, verifiedNfcUid, inventoryCounts);
 
   // ── Form task: full-screen takeover, same component/shape TasksView uses
   // for the standalone timer path — a form task has no ring of its own, so

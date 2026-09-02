@@ -45,11 +45,14 @@ that references Inventory at all.
   place that "most recent per item type" batch join lives (the Inventory
   tab's list view); a single item's detail screen just asks for that item's
   logs sorted newest-first and takes `logs[0]`.
+- **`models/TaskInventoryLink.ts`** — `{ companyId, taskDefinitionId,
+  itemTypeId, required: boolean }`. See "Task ↔ Inventory Linking" below.
 
-No `TaskDefinition` changes and no field on `Task`/`TaskLog` — deliberately
-kept as its own parallel system rather than folding into task completion
-semantics. The one exception on the table (not yet built) is the optional
-task-integration logic-gate described under "Deferred" below.
+No changes to `TaskDefinition`/`Task`/`TaskLog` themselves. Task ↔
+Inventory linking is a separate join collection, not a field added to
+either side — Inventory stays fully usable with zero tasks referencing it,
+and a task's own completion semantics (`TaskLog`) are unaffected by whether
+it happens to have linked items.
 
 ## Roles
 
@@ -64,7 +67,8 @@ task-integration logic-gate described under "Deferred" below.
   block the way `TaskDefinition` has, since an item type has no placement
   concept to check and its `InventoryLog` history stays valid/readable once
   archived), and bind/unbind an NFC tag (`POST`/`DELETE
-  /api/inventory-item-types/[id]/nfc-tag`).
+  /api/inventory-item-types/[id]/nfc-tag`). Managers also manage which item
+  types are linked to a given task — see "Task ↔ Inventory Linking" below.
 
 ## NFC binding — uses Part 1's multi-target model directly
 
@@ -135,6 +139,101 @@ Inventory-specific:
   bound to" pattern as `TaskListEditView.tsx`'s Scan-to-Complete panel), and
   "Archive Item Type."
 
+## Task ↔ Inventory Linking
+
+A manager can attach one or more `InventoryItemType`s to a task, so checking
+that area also captures an inventory count in the same flow — e.g. "Clean
+Bathroom" links to Toilet Paper, Soap, and Paper Towels. Supersedes an
+earlier yes/no-gate idea sketched (never built) in this doc's first pass —
+dropped in favor of the simpler per-link required/optional model below.
+
+**Data model**: `models/TaskInventoryLink.ts` — one join row per
+`(taskDefinitionId, itemTypeId)` pair (unique index), not a bare array field
+on either side, since `required` is a property of the *pairing*: the same
+item type can be required on one task and optional on another. Lives at the
+`TaskDefinition` level, not per `Task` placement — same reasoning as
+`TaskDefinition.nfcTagUid` (see [nfc.md](nfc.md)'s "In-app scan-to-complete
+binding") — a link set from one list's edit screen is shared by every list
+this saved task is placed in. `lib/inventory.ts`'s
+`getInventoryLinksForTaskDefinition`/`addOrUpdateInventoryLink`/
+`removeInventoryLink` are the only writers/readers; both API routes below
+resolve a specific `Task` placement to its `definitionId` first, same
+placement-to-definition split as `app/api/tasks/[id]/nfc-tag`.
+
+**Manager side**: a "Linked Inventory" panel on a task's inline edit row in
+`TaskListEditView.tsx`'s `SortableRow`, alongside the existing
+"Scan-to-Complete Tag" panel — lists current links (name + a
+Required/Optional toggle pill + Unlink), plus "+ Add Item" opens
+`components/LinkInventoryItemSheet.tsx`, a picker over the company's active
+`InventoryItemType`s (already-linked ones excluded) fetched from the same
+`GET /api/inventory-item-types` the Inventory tab itself uses. Removing a
+link (`DELETE /api/tasks/[id]/inventory-links/[itemTypeId]`) only deletes
+that one `TaskInventoryLink` row — the item type and its `InventoryLog`
+history are completely untouched, no confirmation prompt (a low-stakes,
+easily-re-added action).
+
+**Employee side — the task form**: when a task has one or more links,
+`TaskFormScreen.tsx` self-fetches them (`GET
+/api/tasks/[id]/inventory-links`, same self-fetch pattern as `Header.tsx`'s
+own `notificationSound` fetch — no caller needs to thread this through) and
+renders one numeric count input per linked item, positioned after the
+task's own fields, labeled with the item's name/unit and a `*` when
+required. A required link blocks Save the same way a required field already
+does (an inline error, same `setError` path); an optional link left blank
+is simply skipped — no `InventoryLog` row is written for a blank optional
+field, never a `count: 0`.
+
+**Verification is shared, never duplicated** — this is the part that
+depends on Part 1's multi-target NFC model, and the reason this needed its
+own spec rather than a quick Part 2 addition. A task's own
+`TaskDefinition.nfcTagUid` and a linked `InventoryItemType.nfcTagUid` are
+independent bindings that may or may not point at the *same* physical tag:
+
+- **Same tag on both** (the common case — e.g. the bathroom's tag bound to
+  both "Clean Bathroom" and "Toilet Paper"): one scan satisfies both.
+  Whichever UID verified the task's own completion (either
+  `TaskFormScreen.tsx`'s in-form Scan NFC step, or a `preVerifiedNfcUid`
+  carried in from the FAB's scan-in) is compared against each linked item's
+  own `nfcTagUid`; a match shows "Tag verified" under that item's field and
+  the resulting `InventoryLog` row gets that same `verifiedNfcUid`. No
+  second scan, ever — `TaskFormScreen.tsx`'s `buildInventoryCounts` is the
+  one place this comparison happens, client-side.
+- **Different tags, or no tag on the item**: the task's own verification
+  (if it has a tag) is completely unaffected. A linked item with a
+  *different* tag, or no tag at all, just gets a plain manual-entry count
+  (`verifiedNfcUid: null`) — this flow never initiates a second scan purely
+  for a linked item's sake.
+- **The server re-checks anyway**: `PATCH /api/task-logs` accepts an
+  `inventoryCounts: Array<{ itemTypeId, count, verifiedNfcUid? }>` body
+  field (only meaningful with `state: "done"`, same as `formData`), and
+  `lib/inventory.ts`'s `writeInventoryLogsForTaskCompletion` — called right
+  after the `TaskLog` write succeeds — drops any `itemTypeId` not actually
+  linked to this task (defensive; the client only ever sends its own
+  fetched links, but a client claim is never trusted outright) and
+  re-validates each `verifiedNfcUid` against that item's own bound tag, same
+  as `POST /api/inventory-logs` does directly. A UID that verified the
+  *task* but doesn't match the *item's* own tag is never stored as
+  verified — the two are separate claims that happen to reuse one scan when
+  the bindings line up. There's no server-side "required" enforcement
+  (same as `formData`'s own fields — trusted as sent), only the client-side
+  gate in `TaskFormScreen.tsx`.
+- **Where this write happens**: only `PATCH /api/task-logs`'s
+  `completeInProgressLog` success path — the one path `TaskFormScreen.tsx`'s
+  Save action actually reaches (both `TasksView.tsx`'s standalone
+  `handleTaskFormComplete` and `TaskListSessionView.tsx`'s
+  `saveLog`/`advance`/`handleTaskFormDone` chain funnel into this same PATCH
+  call). The route's other "done" branch (manual time-edit / back-entry via
+  `startedAt`+`completedAt` overrides) has no UI that ever produces
+  `inventoryCounts`, so it's not wired there.
+- **Offline**: no special-case code needed. `inventoryCounts` just rides
+  along inside the same JSON body `lib/offline-sync.ts`'s
+  `queueTaskLogMutation`/`flushQueue` already queues and replays verbatim —
+  see [offline.md](offline.md). It only actually reaches the server (and
+  writes `InventoryLog` rows) once the queue flushes online; nothing in the
+  offline SQLite cache mirrors Inventory data in the meantime, so a
+  just-logged count via a linked task isn't reflected in the Inventory tab
+  until sync completes.
+
 ## API routes
 
 | Route | Method | Gate | Purpose |
@@ -147,6 +246,10 @@ Inventory-specific:
 | `/api/inventory-item-types/[id]/nfc-tag` | POST / DELETE | manager | bind / unbind — see `lib/inventory.ts`'s `bindInventoryNfcTag`/`unbindInventoryNfcTag` |
 | `/api/inventory-logs` | GET | any company user | history for one `itemTypeId`, newest first (doubles as "current count" via `[0]`) |
 | `/api/inventory-logs` | POST | any company user | log a new count (append-only) |
+| `/api/tasks/[id]/inventory-links` | GET | any company user | this task's linked item types, joined with name/unit/nfcTagUid/required |
+| `/api/tasks/[id]/inventory-links` | POST | manager | link an item type (or update `required` on an existing link — upsert) |
+| `/api/tasks/[id]/inventory-links/[itemTypeId]` | PATCH | manager | toggle `required` |
+| `/api/tasks/[id]/inventory-links/[itemTypeId]` | DELETE | manager | unlink |
 
 ## Deferred / open questions
 
@@ -158,13 +261,15 @@ Inventory-specific:
   anywhere in the Reports tab. Left fully separate for now given how new
   both features are; revisit once Inventory has real usage data.
 - **Multiple item types sharing one tag** — supported by construction (it's
-  just another entry in Part 1's resolution list — see the "Ice Packs" /
-  "Meat Inventory Count" example above), not specially built for.
-- **Task integration (optional logic-gate)** — a task could optionally
-  prompt for an inventory count as a follow-up to a yes/no question (e.g.
-  "Did you restock?" → Yes → a count field for the relevant item type,
-  written as an `InventoryLog` row alongside the normal `TaskLog` write).
-  **Not built.** This would touch `docs/features/task-lists.md`'s form-task
-  field model and is scoped as a second, smaller spec of its own — logging
-  a count directly from the Inventory tab already works regardless of
-  whether any task references that item type, so nothing here blocks on it.
+  just another entry in Part 1's resolution list, same as the "Ice Packs" /
+  "Meat Inventory Count" example in [nfc.md](nfc.md)'s "Multi-target
+  binding"), not specially built for.
+- **Does an `InventoryLog` need to record it came from a linked task** (vs.
+  the Inventory tab directly)? Not modeled — `verifiedNfcUid` aside, nothing
+  distinguishes a task-linked write from a direct one; a count is a count
+  regardless of source. Revisit if the Reports "Logs" sub-tab or Inventory's
+  own history view ever wants to show "via Clean Bathroom task" as context.
+- **Order of the inventory fields relative to the task's own fields** —
+  currently fixed as "after," matching the natural reading order of "do the
+  task, then note what you noticed while you were there." No mechanism to
+  configure this per task.
