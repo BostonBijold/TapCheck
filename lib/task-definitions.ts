@@ -3,6 +3,7 @@ import TaskDefinition from "@/models/TaskDefinition";
 import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import TaskLog from "@/models/TaskLog";
+import InventoryItemType from "@/models/InventoryItemType";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
 import { pickMostRelevantPlacement } from "./placement-resolution";
 export { pickMostRelevantPlacement } from "./placement-resolution";
@@ -80,23 +81,37 @@ export async function resolveTask<T extends LeanTaskLike>(task: T): Promise<T & 
 // Shared by both NFC-binding routes — app/api/tasks/[id]/nfc-tag (resolves
 // a specific list placement to its definitionId first) and
 // app/api/task-definitions/[id]/nfc-tag (binds a definition directly, so it
-// works even for one not yet placed in any list). A physical tag identifies
-// exactly one task, permanently (see docs/features/nfc.md's "FAB 'scan to
-// open' shortcut"), so binding it here always clears that UID off any OTHER
-// definition in the company first — without this, re-linking an
-// already-used tag would leave two definitions answering to the same UID,
-// and GET /api/tasks/by-nfc-uid's lookup could resolve to either one.
+// works even for one not yet placed in any list). A physical tag can now
+// back MORE THAN ONE target (see docs/features/nfc.md's "Multi-target
+// binding" — e.g. the same freezer tag backing both a temperature-log task
+// and, once Part 2 exists, an Inventory item), so binding here no longer
+// clears the UID off any other definition — it just sets it on this one,
+// leaving any existing binding(s) elsewhere intact. GET /api/tasks/by-nfc-uid
+// is what fans a scan back out to every matching target and disambiguates
+// when there's more than one. `alsoBoundTo` on the return value is purely
+// informational, for the binding UI to warn a manager this tag now does
+// double duty — it never blocks the bind. Checked across BOTH
+// TaskDefinition and InventoryItemType (lib/inventory.ts's own
+// bindInventoryNfcTag does the mirror-image check), since either collection
+// could already be claiming this UID.
 export async function bindNfcTag(companyId: string, definitionId: string, uid: string) {
   const normalizedUid = uid.toLowerCase();
-  await TaskDefinition.updateMany(
-    { companyId, nfcTagUid: normalizedUid, _id: { $ne: definitionId } },
-    { $set: { nfcTagUid: null } }
-  );
-  return TaskDefinition.findOneAndUpdate(
+  const definition = await TaskDefinition.findOneAndUpdate(
     { _id: definitionId, companyId },
     { $set: { nfcTagUid: normalizedUid } },
     { returnDocument: "after" }
   );
+  if (!definition) return null;
+
+  const [otherDefinitions, boundItemTypes] = await Promise.all([
+    TaskDefinition.find(
+      { companyId, nfcTagUid: normalizedUid, isActive: true, _id: { $ne: definitionId } },
+      { name: 1 }
+    ).lean(),
+    InventoryItemType.find({ companyId, nfcTagUid: normalizedUid, isActive: true }, { name: 1 }).lean(),
+  ]);
+
+  return { definition, alsoBoundTo: [...otherDefinitions, ...boundItemTypes].map((d) => d.name) };
 }
 
 export async function unbindNfcTag(companyId: string, definitionId: string) {

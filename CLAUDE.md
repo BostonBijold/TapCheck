@@ -127,9 +127,8 @@ specifically to separate completion indicators from the broader blue accent.
 ### Layout
 - Max width: 420px, centered
 - Mobile-first
-- Bottom navigation bar (Tasks, Team, Reports, and a reserved placeholder
-  slot) around a center FAB — see "Current App State" below for the exact
-  tab layout
+- Bottom navigation bar (Tasks, Team, Reports, Inventory) around a center
+  FAB — see "Current App State" below for the exact tab layout
 
 ---
 
@@ -320,6 +319,37 @@ concept yet).
 }
 ```
 
+### InventoryItemType / InventoryLog
+A top-up count tracker, not a decrement ledger — nothing ever automatically
+subtracts a count when a task completes. Ownership-level catalog entry plus
+an append-only activity-level log — see `docs/features/inventory.md`.
+```js
+// InventoryItemType — the manager-defined catalog entry
+{
+  _id,
+  companyId,
+  name,              // 'Toilet Paper', 'Cases of Meat'
+  unit,              // free-text display label ('rolls', 'cases', 'lbs') — display only, null = none
+  parLevel,          // number | null — informational only, no low-stock alerting yet
+  nfcTagUid,         // raw hardware UID of a bound physical tag, or null — see docs/features/nfc.md's
+                     //   "Multi-target binding". Optional, and unlike TaskDefinition.nfcTagUid this
+                     //   never GATES logging a count — a shortcut/verification, never a requirement.
+  createdByUserId,
+  isActive: bool,    // soft-delete/archive — same convention as TaskDefinition.isActive
+}
+
+// InventoryLog — one count entry, append-only (a correction is a new row, never an edit)
+{
+  _id,
+  companyId,
+  itemTypeId,        // ref InventoryItemType
+  count,
+  loggedByUserId,
+  loggedAt,
+  verifiedNfcUid,    // set only when this save's NFC scan matched the item type's own nfcTagUid; else null
+}
+```
+
 ---
 
 ## Multi-Tenancy
@@ -328,13 +358,15 @@ Every restaurant, gym, or hotel using Ch'rps is a `Company` — the tenant
 anchor. Nothing in the Company model or its surrounding code is
 restaurant-specific; gyms and hotels are expected customers too.
 
-- **Ownership-level** collections (`TaskList`, `Task`, `TaskTemplate`) scope
-  by `companyId` — they're the company's shared configuration, not any
-  individual's data.
-- **Activity-level** collections (`TaskLog`, `TaskListSession`) scope by
-  `companyId` *and* stamp `performedByUserId` as an attribute, not part of
-  the uniqueness key — any employee on shift might complete a given task,
-  so the record is shared per task/day, not per person.
+- **Ownership-level** collections (`TaskList`, `Task`, `TaskTemplate`,
+  `InventoryItemType`) scope by `companyId` — they're the company's shared
+  configuration, not any individual's data.
+- **Activity-level** collections (`TaskLog`, `TaskListSession`,
+  `InventoryLog`) scope by `companyId` *and* stamp a `performedByUserId`/
+  `loggedByUserId` as an attribute, not part of the uniqueness key — any
+  employee on shift might complete a given task or log a count, so the
+  record is shared per task/day (or, for `InventoryLog`, just appended),
+  not per person.
 - `Todo` is scoped by both `companyId` and `userId` — still personal, but
   tenant-isolated.
 - `AppIntentLink` stays scoped only to the specific user — it tracks which
@@ -436,6 +468,33 @@ See `docs/features/task-lists.md` for the full detail.
 
 ---
 
+## Inventory
+
+A **top-up count tracker**, not a decrement ledger — nothing in the app
+ever automatically subtracts from an inventory count when a task is
+completed (considered and rejected: "clean bathroom" doesn't reliably mean
+"minus 4 rolls of toilet paper," and a count that drifted out of sync with
+reality is worse than no count at all). A manager defines item types
+(toilet paper, cases of meat...); anyone logs the *current* count when they
+check/restock; that's the whole loop. Its own bottom-nav tab (5th slot,
+after Reports) — see "Current App State" below.
+
+Uses the multi-target NFC binding model (`docs/features/nfc.md`'s
+"Multi-target binding"): an `InventoryItemType.nfcTagUid` binds to a
+**storage location**, not exclusively to that item type — the same
+physical tag can (and often will) also be bound to a `TaskDefinition` at
+the same location (e.g. the walk-in freezer's tag backing both "Log
+Freezer Temperature" and "Meat Inventory Count"). Binding a tag to an item
+type never gates logging a count the way a bound `TaskDefinition` gates
+task completion — it's a shortcut/verification layer only; manual entry
+always works, tag or no tag.
+
+Full detail — data model, roles, UI structure, and open questions (par-level
+alerting, Reports integration, an optional task-to-inventory logic-gate) —
+is in `docs/features/inventory.md`.
+
+---
+
 ## Feature Build Order
 
 ### Phase 1 — Task Lists (built)
@@ -457,6 +516,8 @@ See `docs/features/task-lists.md` for the full detail.
 - [x] NFC tap-to-trigger tasks (Universal Links) — see docs/features/nfc.md
 - [x] In-app NFC scan-to-complete task binding (distinct from the above) — see docs/features/nfc.md
 - [x] Team tab + invite-token-only company joining, manager role-switching/removal — see "Team & Invites" above and docs/features/team-invites.md
+- [x] Multi-target NFC binding (a tag can back more than one task/item type, with FAB-scan disambiguation) — see docs/features/nfc.md's "Multi-target binding"
+- [x] Inventory tab (top-up count tracker, not a decrement ledger) — see "Inventory" above and docs/features/inventory.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -570,21 +631,24 @@ table is a quick reference, not authoritative.
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
 - NFC tap-to-trigger: BUILT — physical tags linked to a task (manager-only), triggered via Universal Links only by any company user, see `docs/features/nfc.md`
 - NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
+- Multi-target NFC binding: BUILT — a tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss/rest) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
-- FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task it's bound to (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
+- FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task or Inventory item it's bound to, disambiguating first if it's bound to more than one (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
+- Inventory: BUILT — Inventory tab (top-up count tracker), manager-managed item-type catalog with optional NFC location binding, see "Inventory" above and `docs/features/inventory.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.
 
 **Bottom nav** (grew from Tasks/FAB/Analytics to four tabs, two per side,
 when Team was added — see `docs/features/team-invites.md`; Analytics was
-later renamed to Reports, see `docs/features/reports.md`):
+later renamed to Reports, see `docs/features/reports.md`; the reserved 5th
+placeholder slot became Inventory, see `docs/features/inventory.md`):
 1. Tasks (left 1) — Today view
 2. Team (left 2) — company roster; managers also see Pending Invites + "+ Invite"
-3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task directly
+3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task or Inventory item directly (disambiguating first if the tag is bound to more than one)
 4. Reports (right 1) — task trends, variance, adherence (manager) or personal streak/completion + charts scoped to self (employee), plus an Overview/Logs segmented control
-5. Placeholder (right 2) — inert, reserved for a future tab; not yet wired to a route
+5. Inventory (right 2) — item-type list with current counts; tap to log a new count or view history; managers also see "+ Add Item Type"
 
 **Top nav:**
 - Left: Jackalope logo mark
@@ -605,7 +669,7 @@ later renamed to Reports, see `docs/features/reports.md`):
 7. Closing Shift list (collapsible, time-aware)
 8. "+ Add Task List" button (managers only)
 9. Standalone Anytime Tasks list(s)
-10. Bottom nav: Tasks / Team / Reports / placeholder
+10. Bottom nav: Tasks / Team / Reports / Inventory
 
 ### Task List — Time-Aware Collapse Logic
 ```

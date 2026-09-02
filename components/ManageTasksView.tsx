@@ -80,6 +80,11 @@ function CatalogRow({
   const [nfcTagUid, setNfcTagUid] = useState<string | null>(definition.nfcTagUid);
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState<string | null>(null);
+  // Other active targets already bound to the same UID — a tag can now back
+  // more than one target (see docs/features/nfc.md's "Multi-target
+  // binding"), so binding here never fails or clears another's binding, it
+  // just informs the manager the tag is about to do double duty.
+  const [alsoBoundTo, setAlsoBoundTo] = useState<string[]>([]);
 
   async function handleScanToLink() {
     setBindError(null);
@@ -101,7 +106,9 @@ function CatalogRow({
         body: JSON.stringify({ uid: result.uid }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to bind tag");
+      const body = await res.json();
       setNfcTagUid(result.uid);
+      setAlsoBoundTo(body.alsoBoundTo ?? []);
     } catch (err) {
       setBindError(err instanceof Error ? err.message : "Failed to bind tag");
     } finally {
@@ -116,6 +123,7 @@ function CatalogRow({
       const res = await fetch(`/api/task-definitions/${definition._id}/nfc-tag`, { method: "DELETE" });
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || "Failed to unbind tag");
       setNfcTagUid(null);
+      setAlsoBoundTo([]);
     } catch (err) {
       setBindError(err instanceof Error ? err.message : "Failed to unbind tag");
     } finally {
@@ -172,6 +180,11 @@ function CatalogRow({
         )}
         {bindError && (
           <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{bindError}</p>
+        )}
+        {alsoBoundTo.length > 0 && (
+          <p className="font-mono text-[11px] text-dim mt-1.5">
+            Also bound to: {alsoBoundTo.join(", ")}
+          </p>
         )}
       </div>
 

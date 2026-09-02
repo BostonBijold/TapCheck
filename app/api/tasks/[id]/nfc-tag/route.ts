@@ -38,10 +38,10 @@ export async function POST(
   const task = await Task.findOne({ _id: params.id, companyId }).select("definitionId").lean();
   if (!task) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const definition = await bindNfcTag(companyId, task.definitionId.toString(), uid);
-  if (!definition) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const bound = await bindNfcTag(companyId, task.definitionId.toString(), uid);
+  if (!bound) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ nfcTagUid: definition.nfcTagUid });
+  return NextResponse.json({ nfcTagUid: bound.definition.nfcTagUid, alsoBoundTo: bound.alsoBoundTo });
 }
 
 // DELETE /api/tasks/[id]/nfc-tag — unbind. Manager-only.

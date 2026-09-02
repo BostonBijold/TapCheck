@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { ListChecks, BarChart3, Users, MoreHorizontal, Nfc } from "lucide-react";
+import { ListChecks, BarChart3, Users, Package, Nfc, X } from "lucide-react";
 import AppIcon from "@/components/AppIcon";
 import { TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
@@ -13,15 +13,15 @@ import { resolveOfflineNfcUid } from "@/lib/offline-nfc-resolver";
 // Two tabs per side around the center FAB — see docs/features/team-invites.md
 // on why this grew from the previous Tasks | FAB | Analytics shape (renamed
 // to Reports, see docs/features/reports.md). The 4th slot (right, after
-// Reports) is an inert placeholder reserved for a future tab, not yet wired
-// to a route — kept purely so the two sides stay visually balanced instead
-// of leaving Team lopsided on the left alone.
+// Reports) used to be an inert placeholder reserved for a future tab — now
+// Inventory, see docs/features/inventory.md.
 const LEFT_TABS = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
   { href: "/team",  label: "Team",  Icon: Users },
 ];
 const RIGHT_TABS = [
-  { href: "/reports", label: "Reports", Icon: BarChart3 },
+  { href: "/reports",   label: "Reports",   Icon: BarChart3 },
+  { href: "/inventory", label: "Inventory", Icon: Package },
 ];
 
 interface ActiveTimer {
@@ -130,6 +130,18 @@ export default function BottomNav() {
   const [scanning, setScanning] = useState(false);
   const scanMessageTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Disambiguation picker — only shown when a scanned uid resolves to more
+  // than one active target across TaskDefinition and InventoryItemType (see
+  // docs/features/nfc.md's "Multi-target binding"). Holds the uid/localDate
+  // from the scan that's already happened so picking an option never
+  // triggers a second scan — the same uid is what verifies whichever target
+  // gets chosen.
+  const [disambiguateOptions, setDisambiguateOptions] = useState<
+    Array<{ targetType: "task" | "inventory"; targetId: string; name: string }> | null
+  >(null);
+  const [disambiguateContext, setDisambiguateContext] = useState<{ uid: string; localDate: string } | null>(null);
+  const [disambiguateBusy, setDisambiguateBusy] = useState(false);
+
   const flashScanMessage = (message: string) => {
     setScanMessage(message);
     if (scanMessageTimeout.current) clearTimeout(scanMessageTimeout.current);
@@ -141,6 +153,62 @@ export default function BottomNav() {
       if (scanMessageTimeout.current) clearTimeout(scanMessageTimeout.current);
     };
   }, []);
+
+  // Navigates based on GET /api/tasks/by-nfc-uid's response, once it's
+  // resolved down to a single target — shared by the direct single-match
+  // path and the post-disambiguation pick. `"inventory"` opens the item's
+  // log-count screen directly, pre-verified — no session/lock/already-
+  // logged concept applies to an append-only inventory count, unlike a
+  // task's four-way split (see docs/features/inventory.md).
+  const navigateFromResolution = (
+    data:
+      | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
+      | { mode: "anytime"; taskId: string }
+      | { mode: "session"; taskId: string; taskListId: string }
+      | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+      | { mode: "inventory"; itemTypeId: string },
+    uid: string,
+    localDate: string
+  ) => {
+    if (data.mode === "already-logged") {
+      // A tag is permanently tied to exactly one task — rescanning it is
+      // never a way to reopen or "continue" that task, only a status
+      // check. No navigation, same transient pill other scan outcomes use.
+      const message =
+        data.state === "in_progress" || data.state === "paused"
+          ? "Already started — this task is already in progress."
+          : data.state === "done"
+            ? "Already completed for today."
+            : data.state === "missed"
+              ? "Already marked missed for today."
+              : "Already marked as rest for today.";
+      flashScanMessage(message);
+      return;
+    }
+    if (data.mode === "locked") {
+      // Never fight an active session lock — no navigation, just the same
+      // transient pill "no task linked"/"scan failed" already uses.
+      flashScanMessage(`In progress by ${data.lockedByName} — try again once they finish.`);
+      return;
+    }
+
+    const url =
+      data.mode === "inventory"
+        ? `/inventory/${data.itemTypeId}?verifiedNfcUid=${encodeURIComponent(uid)}`
+        : data.mode === "anytime"
+          ? `/tasks?openTaskId=${data.taskId}&verifiedNfcUid=${encodeURIComponent(uid)}&date=${localDate}`
+          : `/tasks?openSessionTaskId=${data.taskId}&openSessionListId=${data.taskListId}&verifiedNfcUid=${encodeURIComponent(uid)}&date=${localDate}`;
+    // Only /tasks needs router.replace's same-route-new-params behavior (see
+    // the "Why this effect's dependency array matters" note in
+    // docs/features/nfc.md) — an inventory item detail page is a plain
+    // fresh mount per item, so push is correct there same as any other
+    // non-/tasks destination.
+    if (pathname === "/tasks") {
+      router.replace(url);
+    } else {
+      router.push(url);
+    }
+  };
 
   const handleScanToOpen = async () => {
     if (scanning) return;
@@ -169,7 +237,8 @@ export default function BottomNav() {
         // an already-linked tag whose definition was present in the last
         // successful pull sync, and only opens the resolved task directly
         // (no attempt to replicate the online already-logged/session/locked
-        // response split below).
+        // response split below). Multi-target disambiguation isn't
+        // replicated offline either — see lib/offline-nfc-resolver.ts.
         const resolved = await resolveOfflineNfcUid(result.uid, localDate, nowMinutes);
         if (!resolved) {
           flashScanMessage("Can't verify this tag while offline.");
@@ -196,43 +265,56 @@ export default function BottomNav() {
         | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
         | { mode: "anytime"; taskId: string }
         | { mode: "session"; taskId: string; taskListId: string }
-        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string };
+        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+        | { mode: "inventory"; itemTypeId: string }
+        | { mode: "disambiguate"; options: Array<{ targetType: "task" | "inventory"; targetId: string; name: string }> };
 
-      if (data.mode === "already-logged") {
-        // A tag is permanently tied to exactly one task — rescanning it is
-        // never a way to reopen or "continue" that task, only a status
-        // check. No navigation, same transient pill other scan outcomes use.
-        const message =
-          data.state === "in_progress" || data.state === "paused"
-            ? "Already started — this task is already in progress."
-            : data.state === "done"
-              ? "Already completed for today."
-              : data.state === "missed"
-                ? "Already marked missed for today."
-                : "Already marked as rest for today.";
-        flashScanMessage(message);
-        return;
-      }
-      if (data.mode === "locked") {
-        // Never fight an active session lock — no navigation, just the same
-        // transient pill "no task linked"/"scan failed" already uses.
-        flashScanMessage(`In progress by ${data.lockedByName} — try again once they finish.`);
+      if (data.mode === "disambiguate") {
+        // This tag identifies more than one target — hand off to the picker
+        // instead of navigating. The scan is already done; picking an
+        // option below re-resolves with the same uid, no second scan.
+        setDisambiguateContext({ uid: result.uid, localDate });
+        setDisambiguateOptions(data.options);
         return;
       }
 
-      const url =
-        data.mode === "anytime"
-          ? `/tasks?openTaskId=${data.taskId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`
-          : `/tasks?openSessionTaskId=${data.taskId}&openSessionListId=${data.taskListId}&verifiedNfcUid=${encodeURIComponent(result.uid)}&date=${localDate}`;
-      if (pathname === "/tasks") {
-        router.replace(url);
-      } else {
-        router.push(url);
-      }
+      navigateFromResolution(data, result.uid, localDate);
     } catch {
       flashScanMessage("Something went wrong — try again.");
     } finally {
       setScanning(false);
+    }
+  };
+
+  const handlePickDisambiguateOption = async (option: { targetType: "task" | "inventory"; targetId: string }) => {
+    if (!disambiguateContext || disambiguateBusy) return;
+    setDisambiguateBusy(true);
+    try {
+      const { uid, localDate } = disambiguateContext;
+      const nowMinutes = new Date().getHours() * 60 + new Date().getMinutes();
+      const res = await fetch(
+        `/api/tasks/by-nfc-uid?uid=${encodeURIComponent(uid)}&date=${localDate}&nowMinutes=${nowMinutes}&targetType=${option.targetType}&targetId=${option.targetId}`
+      );
+      setDisambiguateOptions(null);
+      setDisambiguateContext(null);
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        flashScanMessage(body.error || "No task is linked to this tag.");
+        return;
+      }
+      const data = (await res.json()) as
+        | { mode: "already-logged"; taskId: string; state: "in_progress" | "paused" | "done" | "missed" | "rest" }
+        | { mode: "anytime"; taskId: string }
+        | { mode: "session"; taskId: string; taskListId: string }
+        | { mode: "locked"; taskId: string; taskListId: string; lockedByName: string }
+        | { mode: "inventory"; itemTypeId: string };
+      navigateFromResolution(data, uid, localDate);
+    } catch {
+      setDisambiguateOptions(null);
+      setDisambiguateContext(null);
+      flashScanMessage("Something went wrong — try again.");
+    } finally {
+      setDisambiguateBusy(false);
     }
   };
 
@@ -342,22 +424,52 @@ export default function BottomNav() {
                   </Link>
                 );
               })}
-
-              {/* Placeholder — reserved 4th slot, inert until a future tab
-                  is wired up here. Not a Link: nothing to navigate to yet. */}
-              <div
-                aria-hidden="true"
-                className="flex-1 flex flex-col items-center justify-center gap-1 min-h-[44px] text-dim/40"
-              >
-                <MoreHorizontal size={20} strokeWidth={1.5} />
-                <span className="font-mono text-[9px] uppercase tracking-widest leading-none">
-                  More
-                </span>
-              </div>
             </div>
           </div>
         </div>
       </nav>
+
+      {/* Disambiguation picker — a scanned tag resolved to more than one
+          active target (see docs/features/nfc.md's "Multi-target binding").
+          Tapping an option re-resolves with the same already-scanned uid,
+          so it opens pre-verified — no second scan. */}
+      {disambiguateOptions && (
+        <>
+          <div
+            className="fixed inset-0 bg-black/60 z-40"
+            onClick={() => { setDisambiguateOptions(null); setDisambiguateContext(null); }}
+          />
+          <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center">
+            <div className="w-full sm:max-w-mobile sm:mx-5 bg-card rounded-t-2xl sm:rounded-2xl overflow-hidden flex flex-col">
+              <div className="flex items-center gap-3 px-5 pt-5 pb-4 border-b border-border flex-shrink-0">
+                <div className="flex-1 min-w-0">
+                  <h2 className="font-heading text-base text-text">This tag is bound to more than one thing</h2>
+                  <p className="font-body text-xs text-muted mt-1">Which one do you mean?</p>
+                </div>
+                <button
+                  onClick={() => { setDisambiguateOptions(null); setDisambiguateContext(null); }}
+                  className="w-8 h-8 flex items-center justify-center text-dim flex-shrink-0"
+                  aria-label="Close"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <div className="p-3 space-y-1">
+                {disambiguateOptions.map((option) => (
+                  <button
+                    key={`${option.targetType}-${option.targetId}`}
+                    onClick={() => handlePickDisambiguateOption(option)}
+                    disabled={disambiguateBusy}
+                    className="w-full text-left px-3 py-3.5 rounded-card font-body text-sm text-text hover:bg-card-hover transition-colors min-h-[44px] disabled:opacity-40"
+                  >
+                    {option.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
     </>
   );
 }
