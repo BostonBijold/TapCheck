@@ -19,15 +19,23 @@ import { getTaskDefinitionsByNfcUid, getTaskLists, getTasksForDefinition, getTas
 // four-way response split) — the doc only asks for
 // resolveMostRelevantPlacement-equivalent behavior offline, not that
 // finer-grained routing. Callers just open the resolved task directly.
+//
+// Also does NOT replicate the online route's multi-target disambiguation
+// (see docs/features/nfc.md's "Multi-target binding") — a tag bound to more
+// than one TaskDefinition just resolves to the first match below, silently,
+// same as picking `definitions[0]` used to be the *only* possible outcome
+// before that constraint was removed. A documented, accepted gap offline,
+// same spirit as the other offline-mode simplifications in
+// docs/features/offline.md — online scans always disambiguate correctly.
 export async function resolveOfflineNfcUid(
   uid: string,
   localDate: string,
   nowMinutesLocal: number | null
 ): Promise<{ taskId: string; taskDefinitionId: string } | null> {
   const definitions = await getTaskDefinitionsByNfcUid(uid);
-  // bindNfcTag (lib/task-definitions.ts) always clears the UID off every
-  // other definition in the company before setting it, so this should
-  // never have more than one match — first is authoritative either way.
+  // See the "Also does NOT replicate" note above — a tag can legitimately
+  // resolve to more than one definition now; offline mode just takes the
+  // first rather than disambiguating.
   const definition = definitions[0];
   if (!definition) return null;
 

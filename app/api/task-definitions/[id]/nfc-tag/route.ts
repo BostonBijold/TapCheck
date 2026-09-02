@@ -11,9 +11,10 @@ export const dynamic = "force-dynamic";
 // lists every saved task regardless of whether it's placed in any list yet.
 // app/api/tasks/[id]/nfc-tag is the placement-addressed equivalent used by
 // TaskListEditView's per-row "Scan-to-Complete Tag" panel; both share
-// lib/task-definitions.ts's bindNfcTag/unbindNfcTag so the one-tag-one-task
-// uniqueness enforcement lives in exactly one place. Manager-only, same
-// gate as the other NFC-linking routes.
+// lib/task-definitions.ts's bindNfcTag/unbindNfcTag. A tag can back more
+// than one target (see docs/features/nfc.md's "Multi-target binding"), so
+// binding here never rejects or clears another definition's binding —
+// Manager-only, same gate as the other NFC-linking routes.
 export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } }
@@ -31,10 +32,10 @@ export async function POST(
 
   await connectDB();
 
-  const definition = await bindNfcTag(companyId, params.id, uid);
-  if (!definition) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const bound = await bindNfcTag(companyId, params.id, uid);
+  if (!bound) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  return NextResponse.json({ nfcTagUid: definition.nfcTagUid });
+  return NextResponse.json({ nfcTagUid: bound.definition.nfcTagUid, alsoBoundTo: bound.alsoBoundTo });
 }
 
 // DELETE /api/task-definitions/[id]/nfc-tag — unbind. Manager-only.
