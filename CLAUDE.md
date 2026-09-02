@@ -135,7 +135,9 @@ specifically to separate completion indicators from the broader blue accent.
 ### Layout
 - Max width: 420px, centered
 - Mobile-first
-- Bottom navigation bar (Tasks, Analytics) around a center FAB
+- Bottom navigation bar (Tasks, Team, Analytics, and a reserved placeholder
+  slot) around a center FAB — see "Current App State" below for the exact
+  tab layout
 
 ---
 
@@ -174,11 +176,36 @@ Company, and every other collection scopes its data either to the Company
 ```js
 {
   _id, email, name,
-  companyId,                   // ref Company — null until a developer manually attaches one in MongoDB
-  role: 'manager' | 'employee', // defaults to 'manager' on signup; hand-edited in MongoDB for now
+  companyId,                   // ref Company — null until attached via an Invite redemption or (still supported)
+                               // a developer manually attaching one in MongoDB
+  role: 'manager' | 'employee' | null, // defaults to 'manager' on signup; null after DELETE /api/team/[userId]
+                               // detaches a user from their company (see "Team & Invites" below) — a null role
+                               // never grants access on its own, every route gates on companyId first
+  companyJoinedAt,             // Date | null — set at Invite redemption alongside companyId/role; null for
+                               // anyone attached by hand in MongoDB. Distinct from account-creation createdAt
+                               // so re-joining a *different* company later reflects current tenure there.
   apiKey,                     // external-trigger auth (Shortcuts/App Intents), lazily generated
   liveActivityPushToken,      // iOS Live Activity push updates
   liveActivityPushEnvironment,// 'sandbox' | 'production'
+  createdAt
+}
+```
+
+### Invite
+Ownership-level, company-scoped join token — see "Team & Invites" below and
+`docs/features/team-invites.md`.
+```js
+{
+  _id,
+  companyId,
+  token,             // crypto.randomBytes(24).toString("base64url") — unguessable, opening
+                     //   /invite/<token> is what attaches a user to companyId
+  role: 'employee' | 'manager', // preset by the manager who generated it; applied to the User on redemption
+  createdByUserId,   // attribution only, same convention as NfcTag.claimedByUserId
+  expiresAt,         // Date — default now + 7 days
+  maxUses,           // default 1; a "reusable link" invite sets a higher cap
+  useCount,          // incremented atomically on each redemption
+  revokedAt,         // Date | null — soft-delete, set by a manager revoking a pending invite
   createdAt
 }
 ```
@@ -322,13 +349,21 @@ restaurant-specific; gyms and hotels are expected customers too.
 - `AppIntentLink` stays scoped only to the specific user — it tracks which
   person's Shortcut is connected to a task, not company configuration.
 
-**v1 has no self-serve company creation, invitation flow, or role-switching
-UI.** A manager is manually attached to a pre-created `Company` document —
-and `role` hand-edited if needed — directly in MongoDB by the developer.
-`User.role` (`'manager' | 'employee'`) defaults to `'manager'` on signup.
-Managers get one piece of real, in-app-built role-gated UI today: creating,
-renaming, scheduling, and deleting task lists — see "Task Lists" below —
-otherwise there's no broader role-switching UI yet.
+**v1 still has no self-serve company *creation* UI** — a company's very
+first manager is manually attached to a pre-created `Company` document
+directly in MongoDB by the developer. Every *subsequent* member joins
+through an in-app invite instead: a manager generates a link (`POST
+/api/invites`) scoped to a company and a preset role, shares it
+out-of-band, and opening it (`/invite/[token]`) is what attaches
+`companyId`/`role` to that person's `User` document — see "Team & Invites"
+below and `docs/features/team-invites.md`. `User.role`
+(`'manager' | 'employee' | null`) defaults to `'manager'` on signup.
+Managers also get real, in-app-built role-switching UI on the Team tab
+(`PATCH /api/team/[userId]`) and can remove a teammate from the company
+entirely (`DELETE /api/team/[userId]`, which sets `companyId`/`role` back
+to `null` — the same "not yet provisioned" state as a brand-new sign-up).
+Hand-editing a `User` document directly in MongoDB still works and is still
+the only path for a company's first manager.
 
 `companyId`/`role` are resolved fresh from the `User` document on every
 request (see `lib/session.ts`'s `resolveSessionUser()`), never cached on the
@@ -342,6 +377,25 @@ query.
 as the pre-existing `userId` fields they replaced: they carry whatever
 string a session or API key resolves to, and `SKIP_AUTH`'s local dev company
 id isn't a valid ObjectId at all.
+
+---
+
+## Team & Invites
+
+A **Team** tab (bottom nav) shows every company member's roster to any
+signed-in company user; adding a new member is invite-token-only, never a
+directory search across every Ch'rps company. A manager generates a link
+from the Team tab (`POST /api/invites`), preset to a role and to either
+`maxUses: 1` ("just this person") or a reusable cap; sharing and opening
+that link is the only way `companyId`/`role` get attached to a new `User`
+— see the `Invite` model above. Managers can also change a teammate's role
+or remove them from the company (`PATCH`/`DELETE /api/team/[userId]`) —
+both block rather than round-trip and fail if they'd leave the company with
+zero managers, a lockout state nobody could recover from through the UI.
+
+Full detail — redemption flow, API shapes, the bottom-nav layout change,
+and deferred items (email-locked invites, `apiKey` revocation on removal)
+— is in `docs/features/team-invites.md`.
 
 ---
 
@@ -412,6 +466,7 @@ See `docs/features/task-lists.md` for the full detail.
 - [x] Manager-created/renamed/deleted task lists + list-level day-of-week scheduling — see "Task Lists" above
 - [x] NFC tap-to-trigger tasks (Universal Links + Shortcuts silent triggers) — see docs/features/nfc.md
 - [x] In-app NFC scan-to-complete task binding (distinct from the above) — see docs/features/nfc.md
+- [x] Team tab + invite-token-only company joining, manager role-switching/removal — see "Team & Invites" above and docs/features/team-invites.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -522,14 +577,18 @@ table is a quick reference, not authoritative.
 - NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss/rest) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task it's bound to (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
+- Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.
 
-**Bottom nav:**
-1. Tasks (left) — Today view
-2. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task directly
-3. Analytics (right) — task trends, variance, adherence
+**Bottom nav** (grew from Tasks/FAB/Analytics to four tabs, two per side,
+when Team was added — see `docs/features/team-invites.md`):
+1. Tasks (left 1) — Today view
+2. Team (left 2) — company roster; managers also see Pending Invites + "+ Invite"
+3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task directly
+4. Analytics (right 1) — task trends, variance, adherence
+5. Placeholder (right 2) — inert, reserved for a future tab; not yet wired to a route
 
 **Top nav:**
 - Left: Jackalope logo mark
@@ -550,7 +609,7 @@ retired — it doesn't fit a checklist-based work app.
 7. Closing Shift list (collapsible, time-aware)
 8. "+ Add Task List" button (managers only)
 9. Standalone Anytime Tasks list(s)
-10. Bottom nav: Tasks / Analytics
+10. Bottom nav: Tasks / Team / Analytics / placeholder
 
 ### Task List — Time-Aware Collapse Logic
 ```

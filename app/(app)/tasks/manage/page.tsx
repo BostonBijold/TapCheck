@@ -13,9 +13,9 @@ export const dynamic = "force-dynamic";
 // delete), the standalone (anytime-list) tasks, and the company's full
 // saved-task catalog (see docs/features/task-lists.md's "Company Task
 // Catalog" section) where NFC tags get tied to a task, regardless of which
-// list(s) use it. Not part of the bottom nav (Tasks/Analytics + FAB is the
-// fixed shape — see CLAUDE.md) — reached from a manager-only icon in the
-// Tasks page header and from the Profile page.
+// list(s) use it. Not part of the bottom nav — see CLAUDE.md's Bottom Nav
+// section for the current tab shape — reached from a manager-only icon in
+// the Tasks page header and from the Profile page.
 export default async function ManageTasksPage() {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
@@ -35,7 +35,9 @@ export default async function ManageTasksPage() {
   // strictly later `order`) land right next to the list it was copied from.
   const taskLists = await TaskList.find({ companyId, isActive: true }).sort({ startTime: 1, order: 1 }).lean();
   const scheduledTaskLists = taskLists.filter((tl) => tl.timeOfDay !== "anytime");
-  const anytimeTaskListIds = taskLists.filter((tl) => tl.timeOfDay === "anytime").map((tl) => tl._id);
+  const anytimeTaskLists = taskLists.filter((tl) => tl.timeOfDay === "anytime");
+  const anytimeTaskListIds = anytimeTaskLists.map((tl) => tl._id);
+  const anytimeListNameById = new Map(anytimeTaskLists.map((tl) => [tl._id.toString(), tl.name]));
 
   const rawStandaloneTasks = await Task.find({
     taskListId: { $in: anytimeTaskListIds },
@@ -64,6 +66,8 @@ export default async function ManageTasksPage() {
         name: t.name,
         icon: t.icon,
         projectedMinutes: t.projectedMinutes,
+        taskListId: t.taskListId.toString(),
+        taskListName: anytimeListNameById.get(t.taskListId.toString()) ?? "Anytime Tasks",
       }))}
     />
   );
