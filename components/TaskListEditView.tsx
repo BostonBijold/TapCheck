@@ -740,10 +740,10 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
         {/* Header */}
         <header className="flex items-center gap-3 px-4 pt-10 pb-4 border-b border-border">
           <Link
-            href="/tasks"
+            href="/tasks/manage"
             className="font-mono text-dim text-sm flex items-center gap-1 min-h-[44px] pr-2"
           >
-            ← Tasks
+            ← Manage Tasks
           </Link>
           <div className="flex-1 text-center">
             <h1 className="font-heading text-lg text-text">{taskList.name}</h1>

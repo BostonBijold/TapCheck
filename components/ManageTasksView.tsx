@@ -1,16 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
-import { ChevronLeft, ChevronRight, Copy, Nfc } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Copy, Search } from "lucide-react";
 import Header from "@/components/Header";
 import AppIcon from "@/components/AppIcon";
 import AddTaskListSheet from "@/components/AddTaskListSheet";
 import AddTaskSheet from "@/components/AddTaskSheet";
+import ManageTaskDetailSheet from "@/components/ManageTaskDetailSheet";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import type { FormFieldDef } from "@/models/TaskDefinition";
+
+// Sections default to collapsed once they pass this many items — keeps the
+// screen scannable as a company's catalog/standalone-task count grows,
+// without hiding anything for the common small-company case. Collapse
+// state itself is plain component state, not persisted across visits —
+// CLAUDE.md rules out localStorage/sessionStorage for app state, and a
+// MongoDB-backed per-user preference is more than this is worth for now.
+const COLLAPSE_THRESHOLD = 5;
 
 interface DefinitionPlacement {
   taskId: string;
@@ -59,13 +68,22 @@ function fmtTime(t: string) {
   return `${h12}:${m.toString().padStart(2, "0")} ${period}`;
 }
 
-// ── Company task catalog row — scan-to-complete binding lives here, at the
-// definition level, so it works for a saved task regardless of which list
-// (if any) currently places it. See docs/features/nfc.md's "In-app
-// scan-to-complete binding" and docs/features/task-lists.md's "Company Task
-// Catalog" section. Mirrors TaskListEditView.tsx's SortableRow bind logic,
-// minus drag-and-drop and the tap-to-trigger "NFC Tag" panel (that one
-// stays placement-scoped, unaffected by this screen). ──
+function fieldsAndPlacementsMeta(definition: Definition) {
+  const fields = `${definition.formFields.length} field${definition.formFields.length === 1 ? "" : "s"}`;
+  if (definition.placements.length === 0) return `${fields} · not placed in any list`;
+  return `${fields} · used in ${definition.placements.map((p) => p.taskListName).join(", ")}`;
+}
+
+// ── Company task catalog row — a compact single-line row that opens a
+// detail sheet on tap (see ManageTaskDetailSheet.tsx) rather than rendering
+// field count / used-in / tag-binding / delete inline for every item at
+// once. Scan-to-complete binding lives at the definition level, so it works
+// for a saved task regardless of which list (if any) currently places it —
+// see docs/features/nfc.md's "In-app scan-to-complete binding" and
+// docs/features/task-lists.md's "Company Task Catalog" section. Mirrors
+// TaskListEditView.tsx's SortableRow bind logic, minus drag-and-drop and
+// the tap-to-trigger "NFC Tag" panel (that one stays placement-scoped,
+// unaffected by this screen). ──
 function CatalogRow({
   definition,
   onDelete,
@@ -77,6 +95,7 @@ function CatalogRow({
   deleting: boolean;
   blockedMessage: string | null;
 }) {
+  const [open, setOpen] = useState(false);
   const [nfcTagUid, setNfcTagUid] = useState<string | null>(definition.nfcTagUid);
   const [bindBusy, setBindBusy] = useState(false);
   const [bindError, setBindError] = useState<string | null>(null);
@@ -132,86 +151,48 @@ function CatalogRow({
   }
 
   return (
-    <div className="bg-card rounded-card border border-border p-4">
-      <div className="flex items-center gap-3">
+    <>
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-3 text-left hover:bg-card-hover transition-colors min-h-[44px]"
+      >
         <div className="w-8 flex items-center justify-center flex-shrink-0">
           <AppIcon name={definition.icon} size={18} className="text-muted" />
         </div>
         <div className="flex-1 min-w-0">
           <p className="font-body text-sm text-text truncate">{definition.name}</p>
-          <p className="font-mono text-[10px] text-dim mt-0.5">
-            {definition.formFields.length} field{definition.formFields.length === 1 ? "" : "s"}
-            {definition.placements.length > 0 && (
-              <> · used in {definition.placements.map((p) => p.taskListName).join(", ")}</>
-            )}
-            {definition.placements.length === 0 && <> · not placed in any list</>}
+          <p className="font-mono text-[10px] text-dim truncate mt-0.5">
+            {fieldsAndPlacementsMeta(definition)}
           </p>
         </div>
-      </div>
+        <ChevronRight size={16} className="text-dim flex-shrink-0" />
+      </button>
 
-      <div className="mt-3 pt-3 border-t border-border">
-        <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-1.5 flex items-center gap-1.5">
-          <Nfc size={11} strokeWidth={1.75} />
-          Scan-to-Complete Tag
-        </p>
-        {nfcTagUid ? (
-          <div className="flex items-center gap-2">
-            <span className="font-mono text-[11px] text-olive flex-1 truncate">
-              Bound · {nfcTagUid}
-            </span>
-            <button
-              type="button"
-              onClick={handleUnbindTag}
-              disabled={bindBusy}
-              className="font-mono text-[11px] text-burgundy-light px-2 py-1 disabled:opacity-40"
-            >
-              Unbind
-            </button>
-          </div>
-        ) : (
-          <button
-            type="button"
-            onClick={handleScanToLink}
-            disabled={bindBusy}
-            className="font-mono text-[11px] text-olive border border-olive/30 bg-olive/10 px-3 py-1.5 rounded-pill disabled:opacity-40"
-          >
-            {bindBusy ? "Hold near tag…" : "Scan to Link"}
-          </button>
-        )}
-        {bindError && (
-          <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{bindError}</p>
-        )}
-        {alsoBoundTo.length > 0 && (
-          <p className="font-mono text-[11px] text-dim mt-1.5">
-            Also bound to: {alsoBoundTo.join(", ")}
-          </p>
-        )}
-      </div>
-
-      <div className="mt-3 flex items-center justify-between gap-2">
-        {definition.placements.length > 0 ? (
-          <Link
-            href={`/tasks/${definition.placements[0].taskListId}/edit`}
-            className="font-mono text-[10px] text-olive uppercase tracking-widest"
-          >
-            Edit in {definition.placements[0].taskListName}
-          </Link>
-        ) : (
-          <span />
-        )}
-        <button
-          onClick={() => onDelete(definition._id)}
-          disabled={deleting}
-          className="font-mono text-[10px] text-burgundy-light uppercase tracking-widest disabled:opacity-50"
-        >
-          {deleting ? "Deleting…" : "Delete"}
-        </button>
-      </div>
-
-      {blockedMessage && (
-        <p className="mt-2 font-mono text-[10px] text-burgundy-light">{blockedMessage}</p>
+      {open && (
+        <ManageTaskDetailSheet
+          icon={definition.icon}
+          name={definition.name}
+          meta={`${definition.formFields.length} field${definition.formFields.length === 1 ? "" : "s"}`}
+          usedIn={definition.placements.map((p) => ({ taskListId: p.taskListId, taskListName: p.taskListName }))}
+          tagBinding={{
+            nfcTagUid,
+            busy: bindBusy,
+            error: bindError,
+            alsoBoundTo,
+            onScanToLink: handleScanToLink,
+            onUnbind: handleUnbindTag,
+          }}
+          editHref={definition.placements.length > 0 ? `/tasks/${definition.placements[0].taskListId}/edit` : undefined}
+          editLabel={definition.placements.length > 0 ? `Edit in ${definition.placements[0].taskListName}` : undefined}
+          onDelete={() => onDelete(definition._id)}
+          deleteLabel="Delete"
+          deleting={deleting}
+          blockedMessage={blockedMessage}
+          onClose={() => setOpen(false)}
+        />
       )}
-    </div>
+    </>
   );
 }
 
@@ -225,6 +206,24 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   const [addTaskSheetFor, setAddTaskSheetFor] = useState<{ id: string; name: string } | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [removingStandaloneId, setRemovingStandaloneId] = useState<string | null>(null);
+  const [openStandaloneId, setOpenStandaloneId] = useState<string | null>(null);
+
+  // Search filters Task Lists, Standalone Tasks, and the Company Task
+  // Catalog at once (by name, and — for the catalog — by bound tag UID too,
+  // so a manager troubleshooting a specific physical tag can find it).
+  const [search, setSearch] = useState("");
+  const q = search.trim().toLowerCase();
+  const searching = q.length > 0;
+  const matches = (s: string) => q === "" || s.toLowerCase().includes(q);
+
+  // Standalone Tasks/Company Task Catalog default to collapsed once they
+  // pass COLLAPSE_THRESHOLD; Task Lists stays always-expanded since it's a
+  // small, bounded set (shift-based lists). A search in progress forces
+  // every section open regardless of its collapsed state so results are
+  // visible, without changing the stored toggle state underneath it.
+  const [standaloneExpanded, setStandaloneExpanded] = useState(() => standaloneTasks.length <= COLLAPSE_THRESHOLD);
+  const [catalogExpanded, setCatalogExpanded] = useState(true);
+  const catalogDefaultSet = useRef(false);
 
   const handleDuplicateTaskList = async (id: string) => {
     setDuplicatingId(id);
@@ -247,9 +246,21 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
   useEffect(() => {
     fetch("/api/task-definitions")
       .then((r) => r.json())
-      .then(setDefinitions)
+      .then((data: Definition[]) => {
+        setDefinitions(data);
+        if (!catalogDefaultSet.current) {
+          setCatalogExpanded(data.length <= COLLAPSE_THRESHOLD);
+          catalogDefaultSet.current = true;
+        }
+      })
       .catch(() => setDefinitions([]));
   }, []);
+
+  const filteredTaskLists = taskLists.filter((tl) => matches(tl.name));
+  const filteredStandalone = standaloneTasks.filter((t) => matches(t.name));
+  const filteredDefinitions =
+    definitions?.filter((d) => matches(d.name) || (d.nfcTagUid ? d.nfcTagUid.toLowerCase().includes(q) : false)) ?? null;
+  const openStandaloneTask = openStandaloneId ? standaloneTasks.find((t) => t._id === openStandaloneId) ?? null : null;
 
   const handleDelete = async (id: string) => {
     setDeletingId(id);
@@ -316,18 +327,46 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
         <div className="mt-4 mb-5 flex items-center gap-2">
-          <Link href="/tasks" className="flex items-center gap-1 text-muted font-body text-sm min-h-[44px]" aria-label="Back">
+          {/* Manage Tasks has two entry points (the Tasks page header icon
+              and the Profile page) — router.back() actually returns to
+              whichever one was used, unlike a hardcoded Link that could
+              only ever be right for one of them. */}
+          <button
+            type="button"
+            onClick={() => router.back()}
+            className="flex items-center gap-1 text-muted font-body text-sm min-h-[44px]"
+            aria-label="Back"
+          >
             <ChevronLeft size={16} />
-          </Link>
+          </button>
           <h1 className="font-heading text-xl text-text">Manage Tasks</h1>
         </div>
 
-        {/* ── Task Lists ─────────────────────────────────────────────────── */}
+        {/* ── Search — filters Task Lists, Standalone Tasks, and the Company
+            Task Catalog at once by name (and, for the catalog, tag UID). ── */}
+        <div className="mb-5 flex items-center gap-2 bg-card border border-border rounded-card px-3 py-2 sticky top-0 z-10">
+          <Search size={14} className="text-dim flex-shrink-0" />
+          <input
+            type="text"
+            placeholder="Search task lists, tasks, or tag ID..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="flex-1 bg-transparent font-body text-sm text-text placeholder:text-dim outline-none"
+          />
+        </div>
+
+        {/* ── Task Lists — always expanded; a small, bounded set (shift-based
+            lists), unlike Standalone Tasks/Company Task Catalog below. ──── */}
         <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3">
-          Task Lists
+          Task Lists {searching && `(${filteredTaskLists.length})`}
         </p>
+        {searching && filteredTaskLists.length === 0 && (
+          <p className="text-dim font-mono text-xs text-center py-6">
+            No task lists match &ldquo;{search}&rdquo;
+          </p>
+        )}
         <div className="space-y-2">
-          {taskLists.map((tl) => (
+          {filteredTaskLists.map((tl) => (
             <div key={tl._id} className="flex items-center gap-1 bg-card rounded-card border border-border">
               <Link
                 href={`/tasks/${tl._id}/edit`}
@@ -369,73 +408,116 @@ export default function ManageTasksView({ userName, today, skipAuth, taskLists, 
             an accidental add doesn't require a detour through the Company
             Task Catalog below. NFC binding still happens in that catalog
             regardless of which list a task sits in. ──────────────────── */}
-        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3 mt-8">
-          Standalone Tasks
-        </p>
-        {standaloneTasks.length === 0 ? (
-          <p className="text-dim font-mono text-xs text-center py-6">No standalone tasks yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {standaloneTasks.map((t) => (
-              <div key={t._id} className="bg-card rounded-card border border-border p-4">
-                <div className="flex items-center gap-3">
+        <button
+          type="button"
+          onClick={() => setStandaloneExpanded((v) => !v)}
+          className="w-full flex items-center justify-between mb-3 mt-8 min-h-[32px]"
+        >
+          <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
+            Standalone Tasks ({standaloneTasks.length})
+          </p>
+          {standaloneExpanded || searching ? (
+            <ChevronUp size={14} className="text-dim" />
+          ) : (
+            <ChevronDown size={14} className="text-dim" />
+          )}
+        </button>
+        {(standaloneExpanded || searching) &&
+          (standaloneTasks.length === 0 ? (
+            <p className="text-dim font-mono text-xs text-center py-6">No standalone tasks yet.</p>
+          ) : filteredStandalone.length === 0 ? (
+            <p className="text-dim font-mono text-xs text-center py-6">
+              No standalone tasks match &ldquo;{search}&rdquo;
+            </p>
+          ) : (
+            <div className="space-y-2">
+              {filteredStandalone.map((t) => (
+                <button
+                  key={t._id}
+                  type="button"
+                  onClick={() => setOpenStandaloneId(t._id)}
+                  className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-3 text-left hover:bg-card-hover transition-colors min-h-[44px]"
+                >
                   <div className="w-8 flex items-center justify-center flex-shrink-0">
                     <AppIcon name={t.icon} size={18} className="text-muted" />
                   </div>
-                  <p className="font-body text-sm text-text truncate flex-1">{t.name}</p>
-                  <span className="font-mono text-[10px] text-dim flex-shrink-0">{t.projectedMinutes}m</span>
-                </div>
-                <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-2">
-                  <Link
-                    href={`/tasks/${t.taskListId}/edit`}
-                    className="font-mono text-[10px] text-olive uppercase tracking-widest"
-                  >
-                    Edit in {t.taskListName}
-                  </Link>
-                  <button
-                    type="button"
-                    onClick={() => handleRemoveStandaloneTask(t._id)}
-                    disabled={removingStandaloneId === t._id}
-                    className="font-mono text-[10px] text-burgundy-light uppercase tracking-widest disabled:opacity-50"
-                  >
-                    {removingStandaloneId === t._id ? "Removing…" : "Remove"}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+                  <div className="flex-1 min-w-0">
+                    <p className="font-body text-sm text-text truncate">{t.name}</p>
+                    <p className="font-mono text-[10px] text-dim truncate mt-0.5">
+                      {t.projectedMinutes}m · {t.taskListName}
+                    </p>
+                  </div>
+                  <ChevronRight size={16} className="text-dim flex-shrink-0" />
+                </button>
+              ))}
+            </div>
+          ))}
 
         {/* ── Company task catalog — every saved task (TaskDefinition) the
             company has, regardless of which lists currently use it. This is
             where a physical NFC tag gets tied to a task, whether that task
             lives in a standalone list or a scheduled one. ────────────────── */}
-        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mb-3 mt-8">
-          Company Task Catalog
-        </p>
-
-        {definitions === null && (
-          <p className="text-dim font-mono text-xs text-center py-8">Loading…</p>
-        )}
-
-        {definitions !== null && definitions.length === 0 && (
-          <p className="text-dim font-mono text-xs text-center py-8">
-            No saved tasks yet — add one from any task list&rsquo;s edit page.
+        <button
+          type="button"
+          onClick={() => setCatalogExpanded((v) => !v)}
+          className="w-full flex items-center justify-between mb-3 mt-8 min-h-[32px]"
+        >
+          <p className="font-mono text-[10px] text-dim uppercase tracking-widest">
+            Company Task Catalog {definitions !== null && `(${definitions.length})`}
           </p>
-        )}
+          {catalogExpanded || searching ? (
+            <ChevronUp size={14} className="text-dim" />
+          ) : (
+            <ChevronDown size={14} className="text-dim" />
+          )}
+        </button>
 
-        <div className="space-y-2">
-          {definitions?.map((d) => (
-            <CatalogRow
-              key={d._id}
-              definition={d}
-              onDelete={handleDelete}
-              deleting={deletingId === d._id}
-              blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
-            />
-          ))}
-        </div>
+        {(catalogExpanded || searching) && (
+          <>
+            {definitions === null && (
+              <p className="text-dim font-mono text-xs text-center py-8">Loading…</p>
+            )}
+
+            {definitions !== null && definitions.length === 0 && (
+              <p className="text-dim font-mono text-xs text-center py-8">
+                No saved tasks yet — add one from any task list&rsquo;s edit page.
+              </p>
+            )}
+
+            {definitions !== null && definitions.length > 0 && filteredDefinitions?.length === 0 && (
+              <p className="text-dim font-mono text-xs text-center py-8">
+                No catalog tasks match &ldquo;{search}&rdquo;
+              </p>
+            )}
+
+            <div className="space-y-2">
+              {filteredDefinitions?.map((d) => (
+                <CatalogRow
+                  key={d._id}
+                  definition={d}
+                  onDelete={handleDelete}
+                  deleting={deletingId === d._id}
+                  blockedMessage={blockedMessage?.id === d._id ? blockedMessage.message : null}
+                />
+              ))}
+            </div>
+          </>
+        )}
       </div>
+
+      {openStandaloneTask && (
+        <ManageTaskDetailSheet
+          icon={openStandaloneTask.icon}
+          name={openStandaloneTask.name}
+          meta={`${openStandaloneTask.projectedMinutes}m`}
+          editHref={`/tasks/${openStandaloneTask.taskListId}/edit`}
+          editLabel={`Edit in ${openStandaloneTask.taskListName}`}
+          onDelete={() => handleRemoveStandaloneTask(openStandaloneTask._id)}
+          deleteLabel="Remove"
+          deleting={removingStandaloneId === openStandaloneTask._id}
+          onClose={() => setOpenStandaloneId(null)}
+        />
+      )}
 
       {addTaskSheetFor && (
         <AddTaskSheet
