@@ -13,7 +13,7 @@ export { pickMostRelevantPlacement } from "./placement-resolution";
 // document now gets the identical flat shape back from here instead, with
 // projectedMinutes resolved (the placement's own override, or the
 // definition's default) — so nothing downstream of this (API response
-// shapes, RowItem/TimerItem, StreakDots, analytics) needed to change at
+// shapes, RowItem/TimerItem, StreakDots, Reports) needed to change at
 // all, only where these fields are actually stored.
 
 export interface ResolvedTaskFields {

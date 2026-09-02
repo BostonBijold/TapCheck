@@ -64,9 +64,9 @@ attempted here.
 - **Tap-to-trigger via Universal Links** (`/nfc/<tagCode>`, see
   [nfc.md](nfc.md)) still requires network — a full Next.js page navigation
   resolved server-side, structurally the same "cold reload while offline"
-  problem as the known limitation above, just narrower.
-- Silent Shortcuts-driven triggers — same reason, they hit
-  `GET /api/external/nfc/[tagCode]` directly.
+  problem as the known limitation above, just narrower. It's also the only
+  tap-to-trigger path left — the Shortcuts-driven silent-trigger flow that
+  used to exist alongside it was removed entirely, see nfc.md's history note.
 - **Undo** and every manager-only action (linking/unlinking NFC tags,
   creating/editing task lists or definitions) — lower-frequency, config-
   style actions a person can reasonably be asked to retry once back online;

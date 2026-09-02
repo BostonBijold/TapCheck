@@ -30,10 +30,6 @@ const UserSchema = new Schema(
     // hand-attached to a company directly in MongoDB rather than through an
     // invite (all pre-existing users, and any future manual assignment).
     companyJoinedAt: { type: Date, default: null },
-    // Long-lived token for external triggers (e.g. an iPhone Shortcut fired by
-    // an NFC tag) — see app/api/external/start-timer. Generated once, lazily,
-    // the first time it's requested; never rotated automatically.
-    apiKey: { type: String, default: null, index: true, unique: true, sparse: true },
     // Live Activity push-update token — see docs/features/live-activity.md's
     // "Push-driven updates" section and lib/apns.ts. Re-issued by iOS
     // periodically; POST /api/live-activity/push-token always overwrites

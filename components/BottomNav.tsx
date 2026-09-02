@@ -11,16 +11,17 @@ import { useNetworkStatus } from "@/components/NetworkStatusProvider";
 import { resolveOfflineNfcUid } from "@/lib/offline-nfc-resolver";
 
 // Two tabs per side around the center FAB — see docs/features/team-invites.md
-// on why this grew from the previous Tasks | FAB | Analytics shape. The 4th
-// slot (right, after Analytics) is an inert placeholder reserved for a
-// future tab, not yet wired to a route — kept purely so the two sides stay
-// visually balanced instead of leaving Team lopsided on the left alone.
+// on why this grew from the previous Tasks | FAB | Analytics shape (renamed
+// to Reports, see docs/features/reports.md). The 4th slot (right, after
+// Reports) is an inert placeholder reserved for a future tab, not yet wired
+// to a route — kept purely so the two sides stay visually balanced instead
+// of leaving Team lopsided on the left alone.
 const LEFT_TABS = [
   { href: "/tasks", label: "Tasks", Icon: ListChecks },
   { href: "/team",  label: "Team",  Icon: Users },
 ];
 const RIGHT_TABS = [
-  { href: "/analytics", label: "Analytics", Icon: BarChart3 },
+  { href: "/reports", label: "Reports", Icon: BarChart3 },
 ];
 
 interface ActiveTimer {

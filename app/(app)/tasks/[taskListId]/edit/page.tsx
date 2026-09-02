@@ -4,7 +4,6 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import type { TaskType } from "@/models/TaskDefinition";
-import AppIntentLink from "@/models/AppIntentLink";
 import NfcTag from "@/models/NfcTag";
 import TaskListEditView from "@/components/TaskListEditView";
 import { resolveTasks } from "@/lib/task-definitions";
@@ -23,7 +22,7 @@ export default async function EditTaskListPage({
 
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
-  const { companyId, userId, role } = sessionUser;
+  const { companyId, role } = sessionUser;
   if (!companyId) redirect("/tasks");
 
   await connectDB();
@@ -40,18 +39,8 @@ export default async function EditTaskListPage({
     .lean();
   const tasks = await resolveTasks(rawTasks);
 
-  // AppIntentLink stays scoped to the specific signed-in person — it
-  // records whose Shortcut is connected to a task, not company config.
-  const appIntentLinks = await AppIntentLink.find({
-    userId,
-    taskId: { $in: tasks.map((t) => t._id) },
-  }).lean();
-  const appIntentByTaskId = new Map(
-    appIntentLinks.map((l) => [l.taskId.toString(), l.lastTriggeredAt.toISOString()])
-  );
-
-  // Company-scoped, unlike AppIntentLink above — an NFC tag is a shared
-  // physical object at the restaurant, not tied to whoever set it up.
+  // Company-scoped — an NFC tag is a shared physical object at the
+  // restaurant, not tied to whoever set it up.
   const nfcTags = await NfcTag.find({
     companyId,
     taskId: { $in: tasks.map((t) => t._id) },
@@ -79,7 +68,6 @@ export default async function EditTaskListPage({
         // apply on create, so a .lean() read can come back undefined.
         scheduledDays: t.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         successThreshold: t.successThreshold ?? (t.scheduledDays?.length ?? 7),
-        appIntentLastTriggeredAt: appIntentByTaskId.get(t._id.toString()) ?? null,
         nfcTagCode: nfcTagCodeByTaskId.get(t._id.toString()) ?? null,
         nfcTagUid: t.nfcTagUid ?? null,
       }))}

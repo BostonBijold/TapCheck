@@ -136,8 +136,18 @@ export default function TasksView({
     [taskLists]
   );
 
-  // Split into scheduled shift task lists and standalone anytime task lists
-  const scheduledTaskLists = useMemo(() => taskLists.filter((tl) => tl.timeOfDay !== "anytime"), [taskLists]);
+  // Split into scheduled shift task lists and standalone anytime task lists.
+  // A shift list with zero tasks scheduled for the selected date (e.g. a
+  // manager set the whole list to "Monday only") drops off the Tasks screen
+  // entirely that day, rather than rendering as an empty "0/0" card — see
+  // lib/task-visibility.ts.
+  const scheduledTaskLists = useMemo(
+    () =>
+      taskLists.filter(
+        (tl) => tl.timeOfDay !== "anytime" && tl.tasks.some((t) => isTaskVisibleOn(t, selectedDate))
+      ),
+    [taskLists, selectedDate]
+  );
   const anytimeTaskLists = useMemo(() => taskLists.filter((tl) => tl.timeOfDay === "anytime"), [taskLists]);
 
   // Handle URL params passed from FAB navigation

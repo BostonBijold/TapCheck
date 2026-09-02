@@ -40,10 +40,9 @@ public class LiveActivityPlugin: CAPPlugin, CAPBridgedPlugin {
                 let token = tokenData.map { String(format: "%02x", $0) }.joined()
                 NSLog("[LiveActivityPlugin] pushTokenUpdates yielded: \(token)")
                 // Development-signed builds (this project's only build
-                // config today — see docs/features/app-intents.md's
-                // deployment target note) must push through APNs' sandbox
-                // host; a Distribution-signed build must use production.
-                // #if DEBUG is the correct proxy for that distinction here.
+                // config today) must push through APNs' sandbox host; a
+                // Distribution-signed build must use production. #if DEBUG
+                // is the correct proxy for that distinction here.
                 #if DEBUG
                 let environment = "sandbox"
                 #else

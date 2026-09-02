@@ -89,12 +89,11 @@ async function buildTaskListTimeline(
 // Best-effort push of the newly-current task (or an "end" if nothing's
 // active anymore) to performedByUserId's own Live Activity — see
 // docs/features/live-activity.md's "Push-driven updates" section. Only
-// meaningful for the two external-trigger entry points below (trigger-task,
-// completeActiveTask): in-app switches already update the card locally from
-// the app's own foreground JS (lib/native/routine-activity.ts) and don't
-// need a push. Never throws — a push failure shouldn't fail the
-// task-completion request that triggered it, same as the AppIntentLink
-// bookkeeping below.
+// meaningful for triggerTask below (the Universal Link NFC entry point):
+// in-app switches already update the card locally from the app's own
+// foreground JS (lib/native/routine-activity.ts) and don't need a push.
+// Never throws — a push failure shouldn't fail the task-completion request
+// that triggered it.
 //
 // NOTE ON FIELD NAMES: the payload built here (RoutineActivityContentState)
 // is decoded verbatim by ios/App/RoutineActivity/RoutineActivityAttributes.
@@ -190,12 +189,14 @@ async function notifyLiveActivity(
   }
 }
 
-// The shared start/complete/advance dispatch behind POST /api/external/
-// trigger-task — called both directly (a caller who already knows the
-// target taskId) and by the native TriggerHabitIntent App Intent
-// (ios/App/App/AppIntents/TriggerHabitIntent.swift), which resolves the
-// task from a live Shortcuts/Siri picker instead. See
-// docs/api/external-api.md for the full case breakdown this implements.
+// The shared start/complete/advance dispatch — called directly by
+// app/nfc/[tagCode]/page.tsx (Universal Link NFC tap), the only entry point
+// left since the external API and native App Intents/Shortcuts layer that
+// used to also call this were removed entirely (see
+// docs/project-structure.md's "iOS Native Shell" section). See
+// docs/features/nfc.md's "triggerTask()'s three-case dispatch" section for
+// the full case breakdown this implements, including the known form-task
+// data-loss gap.
 //
 // Bidirectional: whether this starts or completes a task is decided
 // entirely by current server state (is there an active timer for this
@@ -291,42 +292,12 @@ export async function triggerTask(
   return { completed, started };
 }
 
-// Completes whichever task is currently in_progress for performedByUserId —
-// no taskId needed, unlike triggerTask above — and, if it was anchored to a
-// Task List Session (sessionTaskListId set), auto-starts the next unlogged
-// task in that list. Built for the Live Activity's "Done" button
-// (CompleteHabitFromActivityIntent.swift): that button can't reliably know
-// which task is current by the time it's tapped (see
-// docs/features/live-activity.md's note on stale bound parameters vs.
-// Activity.activities being unreliable from within a LiveActivityIntent's
-// perform()), but the server always knows unambiguously — at most one
-// in_progress log ever exists per person per the single-active-timer
-// invariant. A no-op (both null) if nothing is currently active. Takes no
-// `date` either — always acts on the active log's own `date`, same as Case
-// 3 above, since there's no per-call caller intent to anchor to a
-// particular day.
-export async function completeActiveTask(companyId: string, performedByUserId: string) {
-  const activeLog = await TaskLog.findOne({ companyId, performedByUserId, state: "in_progress" })
-    .sort({ startedAt: -1 })
-    .lean();
-
-  if (!activeLog) {
-    return { completed: null, started: null };
-  }
-
-  const completedLog = await completeInProgressLog(companyId, performedByUserId, activeLog.taskId.toString(), activeLog.date);
-  const completed = serializeLog(completedLog);
-
-  let started = null;
-  const sessionTaskListId = activeLog.sessionTaskListId ? activeLog.sessionTaskListId.toString() : null;
-  if (sessionTaskListId) {
-    const next = await findNextTaskInList(companyId, sessionTaskListId, activeLog.date);
-    if (next) {
-      const startedLog = await startTask(companyId, performedByUserId, next.taskType, next._id.toString(), activeLog.date, sessionTaskListId);
-      started = serializeLog(startedLog);
-    }
-  }
-
-  await notifyLiveActivity(companyId, performedByUserId, started, completed);
-  return { completed, started };
-}
+// completeActiveTask() used to live here — built for the Live Activity's
+// old "Done" button, then for the external API generally once the button
+// was replaced with a plain open-the-app Link (see
+// docs/features/live-activity.md's "Open App button" section). Removed
+// outright once its only caller (POST /api/external/complete-active-task)
+// was deleted along with the rest of the API-key-authenticated external API
+// surface — see docs/features/nfc.md's history note on why. `triggerTask`
+// above is the only entry point left; it's called directly as a library
+// function by app/nfc/[tagCode]/page.tsx (Universal Links), not over HTTP.

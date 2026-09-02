@@ -1,12 +1,10 @@
 "use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { Capacitor } from "@capacitor/core";
-import { Copy, Check, ChevronRight } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import Header from "@/components/Header";
-import { ApiKeyBridge } from "@/lib/native/api-key-bridge";
 
 interface Props {
   name: string;
@@ -18,8 +16,6 @@ interface Props {
 }
 
 export default function ProfileView({ name, email, today, skipAuth, isManager = false, hasPassword = false }: Props) {
-  const [apiKey, setApiKey] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
   const [passwordSet, setPasswordSet] = useState(hasPassword);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -64,27 +60,6 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
     }
   };
 
-  useEffect(() => {
-    fetch("/api/user/api-key")
-      .then((r) => r.json())
-      .then((data: { apiKey?: string }) => {
-        setApiKey(data.apiKey ?? null);
-        if (data.apiKey && Capacitor.isNativePlatform()) {
-          ApiKeyBridge.setApiKey({ apiKey: data.apiKey }).catch(() => {});
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  const handleCopy = async () => {
-    if (!apiKey) return;
-    try {
-      await navigator.clipboard.writeText(apiKey);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch { /* clipboard unavailable — key is still selectable by hand */ }
-  };
-
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
@@ -104,32 +79,6 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
                 <p className="font-mono text-dim text-xs mt-0.5 truncate">{email}</p>
               </div>
             </div>
-          </div>
-
-          {/* External API key */}
-          <div className="bg-card rounded-card border border-border p-5">
-            <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-2">
-              External API Key
-            </p>
-            <p className="font-body text-xs text-muted mb-3">
-              Paste into an iPhone Shortcut (e.g. fired from an NFC tag) to start a task timer from outside the app.
-            </p>
-            {apiKey ? (
-              <div className="flex items-center gap-2 bg-bg border border-border rounded-card px-3 py-2.5">
-                <span className="font-mono text-[11px] text-text break-all select-all flex-1">
-                  {apiKey}
-                </span>
-                <button
-                  onClick={handleCopy}
-                  aria-label="Copy API key"
-                  className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-full text-dim hover:text-olive transition-colors"
-                >
-                  {copied ? <Check size={14} className="text-olive" /> : <Copy size={14} />}
-                </button>
-              </div>
-            ) : (
-              <p className="font-mono text-xs text-dim">Loading…</p>
-            )}
           </div>
 
           {/* Credentials sign-in password — see app/api/user/password/route.ts.

@@ -6,9 +6,8 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 // which task a cold tap should claim the tag for. One per user (a manager
 // is only ever holding one tag at a time). Treated as stale and ignored if
 // armedAt is older than a few minutes at read time — see
-// PENDING_LINK_MAX_AGE_MS in app/nfc/[tagCode]/page.tsx and
-// app/api/external/nfc/[tagCode]/route.ts — no TTL index needed for
-// correctness, just hygiene.
+// PENDING_LINK_MAX_AGE_MS in app/nfc/[tagCode]/page.tsx — no TTL index
+// needed for correctness, just hygiene.
 export interface IPendingNfcLink extends Document {
   userId: string;
   companyId: string;

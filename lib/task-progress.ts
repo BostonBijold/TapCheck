@@ -1,6 +1,6 @@
 // Pure weekly-progress math — safe to import from client or server code.
-// Shared by StreakDots (per-row dot strip) and the Analytics Task Breakdown
-// (segmented bar + pacing verdict) so the two never diverge.
+// Shared by StreakDots (per-row dot strip) and the Reports Overview's Task
+// Breakdown (segmented bar + pacing verdict) so the two never diverge.
 
 export type DayState = "done" | "rest" | "missed" | "unlogged" | "pending" | "not_scheduled";
 
@@ -12,8 +12,9 @@ export type DayState = "done" | "rest" | "missed" | "unlogged" | "pending" | "no
 // see targetMinutes below); null otherwise.
 //
 // Only two tiers, deliberately: red is reserved exclusively for `missed`
-// (see DayState rendering in StreakDots/AnalyticsContent) — any amount of
-// overtime, however severe, reads as amber, not a third "way over" red tier.
+// (see DayState rendering in StreakDots/components/reports/TaskStatRow.tsx)
+// — any amount of overtime, however severe, reads as amber, not a third
+// "way over" red tier.
 export type TimingTier = "green" | "amber";
 
 export interface DayBreakdown {

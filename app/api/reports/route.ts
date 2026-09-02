@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { calendarWeekDates } from "@/lib/week-dates";
 import { computeWeeklyProgress } from "@/lib/task-progress";
+import { computeCurrentStreakForUser } from "@/lib/streak";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -28,7 +29,7 @@ function getDates(days: number, anchorDate: string): string[] {
 export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId } = sessionUser;
+  const { companyId, role, userId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const { searchParams } = req.nextUrl;
@@ -49,7 +50,13 @@ export async function GET(req: NextRequest) {
   const taskLists = await TaskList.find({ companyId }).sort({ startTime: 1, order: 1 }).lean();
   const rawTasks = await Task.find({ companyId, isActive: true }).lean();
   const allTasks = await resolveTasks(rawTasks);
-  const logs = await TaskLog.find({ companyId, date: { $in: dates } }).lean();
+  // Employees see only their own logs — every downstream aggregate
+  // (taskListStats, taskStats, weeklyProgress) folds over `logs` without
+  // ever touching performedByUserId itself, so this one filter personalizes
+  // the whole response. Managers keep the unfiltered, company-wide query.
+  const logQuery: Record<string, unknown> = { companyId, date: { $in: dates } };
+  if (role === "employee") logQuery.performedByUserId = userId;
+  const logs = await TaskLog.find(logQuery).lean();
 
   // Fast lookup: taskId → date → log
   const logMap: Record<string, Record<string, (typeof logs)[0]>> = {};
@@ -226,5 +233,12 @@ export async function GET(req: NextRequest) {
     };
   });
 
-  return NextResponse.json({ dates, days, today: localDate, taskLists: taskListStats, tasks: taskStats });
+  // Employee-only: how many consecutive days this person has fully cleared
+  // every scheduled task. Needs its own bounded backward query beyond the
+  // windowed `dates` fetch above, so it never runs on the manager path.
+  const currentStreak = role === "employee"
+    ? await computeCurrentStreakForUser(companyId, userId, localDate)
+    : undefined;
+
+  return NextResponse.json({ dates, days, today: localDate, taskLists: taskListStats, tasks: taskStats, currentStreak });
 }

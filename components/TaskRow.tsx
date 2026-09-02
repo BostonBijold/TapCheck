@@ -43,7 +43,10 @@ function fmtMins(mins: number) {
   return m ? `${h}h ${m}m` : `${h}h`;
 }
 
-const BORDER: Record<LogState, string> = {
+// Exported so other views can render a log's state with the same
+// color/label convention instead of redefining it — see
+// components/reports/LogsTab.tsx.
+export const BORDER: Record<LogState, string> = {
   in_progress: "border-l-[3px] border-l-amber",
   paused:      "border-l-[3px] border-l-amber",
   done:        "border-l-[3px] border-l-done",
@@ -51,7 +54,7 @@ const BORDER: Record<LogState, string> = {
   rest:        "border-l-[3px] border-l-blue-muted",
 };
 
-const BADGE: Record<LogState, string> = {
+export const BADGE: Record<LogState, string> = {
   in_progress: "text-amber bg-amber/10",
   paused:      "text-amber bg-amber/10",
   done:        "text-done bg-done/10",
@@ -59,7 +62,7 @@ const BADGE: Record<LogState, string> = {
   rest:        "text-blue-muted bg-blue-muted/10",
 };
 
-const LABEL: Record<LogState, string> = {
+export const LABEL: Record<LogState, string> = {
   in_progress: "Active",
   paused:      "Paused",
   done:        "Done",

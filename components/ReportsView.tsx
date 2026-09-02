@@ -1,20 +1,21 @@
 "use client";
 
 import Header from "@/components/Header";
-import AnalyticsContent from "@/components/AnalyticsContent";
+import ReportsContent from "@/components/ReportsContent";
 
 interface Props {
   userName: string;
   today: string;
+  role: "manager" | "employee";
   skipAuth?: boolean;
 }
 
-export default function AnalyticsView({ userName, today, skipAuth }: Props) {
+export default function ReportsView({ userName, today, role, skipAuth }: Props) {
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-12">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
-        <AnalyticsContent />
+        <ReportsContent role={role} />
       </div>
     </div>
   );

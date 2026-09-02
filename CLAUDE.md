@@ -43,30 +43,22 @@ describing what a task actually does (e.g. a seeded task literally named
 "Restroom Check", or a temperature "check") is unaffected — only the old
 *product* vocabulary was renamed, not every occurrence of the word.
 
-**Two deliberate, permanent exceptions**, both already reflected in code
-comments at the relevant files:
+**One deliberate, permanent exception remains** (a second one, the external
+API's un-renamed wire-contract field names, no longer applies — that whole
+surface was deleted, see `docs/project-structure.md`'s "iOS Native Shell"
+section):
 
-1. **The external API's request/response field names** (`routineItemId`,
-   `routineGroupId`, and the `GET /api/external/tasks` response's
-   `itemType`/`groupId`/`groupName` keys) were **not** renamed, so an
-   already-configured iPhone Shortcut doesn't need its fields edited, only
-   its URL (the URL *paths* were renamed — see `docs/api/external-api.md`).
-2. **The iOS native Swift layer's `Habit`/`Routine` naming** (`HabitEntity`,
-   `HabitEntityQuery`, `TriggerHabitIntent`, the `RoutineActivity` Xcode
-   target/Widget Extension and its `RoutineActivityAttributes` push/Live-
-   Activity contract) still uses the pre-pivot vocabulary. This was a
-   deliberate scope cut, not an oversight: a native Xcode-target rename
-   needs Xcode itself to verify safely, unlike a text-only pass over the
-   Next.js codebase. The URL *paths* these Swift files call were updated
-   to match the renamed API routes (required — otherwise the native app
-   would 404), but no Swift type/file/target name was touched. See
-   `docs/project-structure.md`'s "iOS Native Shell" section. This is
-   separate from the app's own brand-name naming in this same layer
-   (`ios/App/App/ChrpsAPI.swift`, `ChrpsShortcuts.swift`), which *was*
-   renamed during the Ch'rps rebrand (previously `BeOneAPI.swift`/
-   `BeOneShortcuts.swift`, from the "Be One" app this was originally forked
-   from, then briefly "TapCheck") — done as a text-only pass, so it should
-   still be verified by building in Xcode rather than assumed correct.
+**The `RoutineActivity` Xcode target/Widget Extension's `Habit`/`Routine`
+naming** (`RoutineActivityAttributes`, its `ContentState` push/Live-Activity
+contract) still uses the pre-pivot vocabulary. This was a deliberate scope
+cut, not an oversight: a native Xcode-target rename needs Xcode itself to
+verify safely, unlike a text-only pass over the Next.js codebase. See
+`docs/project-structure.md`'s "iOS Native Shell" section. The app's own
+brand-name naming in this same layer (`ios/App/App/ChrpsAPI.swift`,
+`ChrpsShortcuts.swift`, previously `BeOneAPI.swift`/`BeOneShortcuts.swift`
+from the "Be One" app this was originally forked from, then briefly
+"TapCheck") is moot now too — both files were deleted along with the App
+Intents/Shortcuts layer they backed, not just renamed.
 
 ---
 
@@ -135,7 +127,7 @@ specifically to separate completion indicators from the broader blue accent.
 ### Layout
 - Max width: 420px, centered
 - Mobile-first
-- Bottom navigation bar (Tasks, Team, Analytics, and a reserved placeholder
+- Bottom navigation bar (Tasks, Team, Reports, and a reserved placeholder
   slot) around a center FAB — see "Current App State" below for the exact
   tab layout
 
@@ -184,7 +176,6 @@ Company, and every other collection scopes its data either to the Company
   companyJoinedAt,             // Date | null — set at Invite redemption alongside companyId/role; null for
                                // anyone attached by hand in MongoDB. Distinct from account-creation createdAt
                                // so re-joining a *different* company later reflects current tenure there.
-  apiKey,                     // external-trigger auth (Shortcuts/App Intents), lazily generated
   liveActivityPushToken,      // iOS Live Activity push updates
   liveActivityPushEnvironment,// 'sandbox' | 'production'
   createdAt
@@ -394,8 +385,8 @@ both block rather than round-trip and fail if they'd leave the company with
 zero managers, a lockout state nobody could recover from through the UI.
 
 Full detail — redemption flow, API shapes, the bottom-nav layout change,
-and deferred items (email-locked invites, `apiKey` revocation on removal)
-— is in `docs/features/team-invites.md`.
+and deferred items (email-locked invites) — is in
+`docs/features/team-invites.md`.
 
 ---
 
@@ -459,12 +450,11 @@ See `docs/features/task-lists.md` for the full detail.
 - [x] 7-day streak dots per task
 - [x] Back-entry: manual log when a list's window has passed
 - [x] Task List Session flow (multi-task guided walkthrough) — see docs/features/timer.md
-- [x] Analytics tab — task completion, variance
+- [x] Reports tab (renamed from Analytics) — task completion, variance, plus a manager/employee role split and a Logs history sub-tab — see docs/features/reports.md
 - [x] Standalone To-Dos — see docs/features/todos.md
 - [x] Live Activity (iOS Lock Screen timer) — see docs/features/live-activity.md
-- [x] External trigger API (Shortcuts/App Intents) — see docs/api/external-api.md
 - [x] Manager-created/renamed/deleted task lists + list-level day-of-week scheduling — see "Task Lists" above
-- [x] NFC tap-to-trigger tasks (Universal Links + Shortcuts silent triggers) — see docs/features/nfc.md
+- [x] NFC tap-to-trigger tasks (Universal Links) — see docs/features/nfc.md
 - [x] In-app NFC scan-to-complete task binding (distinct from the above) — see docs/features/nfc.md
 - [x] Team tab + invite-token-only company joining, manager role-switching/removal — see "Team & Invites" above and docs/features/team-invites.md
 
@@ -474,7 +464,13 @@ Review" goal-vs-average-minutes comparison — have been retired. Future
 phases (Goals, Virtues, Quotes) from the original "A Good Man" brief were
 stripped out even earlier and are not planned here either. The recurring
 "every thirty minutes" task-frequency concept is a distinct, unbuilt future
-feature, not part of anything above.
+feature, not part of anything above. The native App Intents/Shortcuts
+"Trigger Habit" action and the API-key-authenticated external API it (and
+NFC's old silent-trigger flow) depended on were built, then later removed
+entirely — not deprecated in place — since Shortcuts integration wasn't
+considered load-bearing and the whole surface shared an unfixable gap with
+`form`-type tasks; see `docs/project-structure.md`'s "iOS Native Shell"
+section for the full removal note.
 
 ---
 
@@ -505,9 +501,9 @@ Two distinct skip states — must be visually and semantically different:
 Every TaskLog with `state: 'done'` stores `actualMinutes`, and — for a
 `form` task — the captured `formData` (each field's reading or yes/no
 value). Over time this builds a picture of projected vs actual time per
-task, and a record of what was actually checked. Analytics shows average
-actual vs projected per task, identifying where tasks consistently
-over/under-run their time budget.
+task, and a record of what was actually checked. The Reports tab's Overview
+shows average actual vs projected per task, identifying where tasks
+consistently over/under-run their time budget.
 
 ---
 
@@ -568,12 +564,11 @@ table is a quick reference, not authoritative.
 ## Current App State
 - Task Lists: BUILT — Opening/Mid-Shift/Closing shift lists + standalone Anytime Tasks list + manager-created custom lists, time-aware collapse/expand, dot progress, Edit button per list
 - Task List Session: BUILT — guided multi-task walkthrough with live projected-finish/timeline
-- Analytics tab: BUILT — task completion, variance data
+- Reports tab: BUILT — renamed from Analytics; manager sees the company-wide task completion/variance dashboard, employee sees a personal-only Overview (streak + weekly % + charts scoped to self), plus a chronological Logs history sub-tab for both roles, see `docs/features/reports.md`
 - To-Dos: BUILT — standalone quick-capture list, shown on the Today view
-- Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`)
-- External API: BUILT — Shortcuts/App Intents trigger endpoint (see `docs/api/external-api.md`)
+- Live Activity: BUILT — iOS Lock Screen timer (see `docs/features/live-activity.md`); its Lock Screen button opens the app rather than completing a task directly (see the doc's "Open App button" section)
 - Manager task-list management: BUILT — create/rename/schedule/delete, see "Task Lists" above
-- NFC tap-to-trigger: BUILT — physical/generated tags linked to a task (manager-only), triggered via Universal Links or a silent Shortcuts Automation by any company user, see `docs/features/nfc.md`
+- NFC tap-to-trigger: BUILT — physical tags linked to a task (manager-only), triggered via Universal Links only by any company user, see `docs/features/nfc.md`
 - NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss/rest) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task it's bound to (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
@@ -583,11 +578,12 @@ Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.
 
 **Bottom nav** (grew from Tasks/FAB/Analytics to four tabs, two per side,
-when Team was added — see `docs/features/team-invites.md`):
+when Team was added — see `docs/features/team-invites.md`; Analytics was
+later renamed to Reports, see `docs/features/reports.md`):
 1. Tasks (left 1) — Today view
 2. Team (left 2) — company roster; managers also see Pending Invites + "+ Invite"
 3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task directly
-4. Analytics (right 1) — task trends, variance, adherence
+4. Reports (right 1) — task trends, variance, adherence (manager) or personal streak/completion + charts scoped to self (employee), plus an Overview/Logs segmented control
 5. Placeholder (right 2) — inert, reserved for a future tab; not yet wired to a route
 
 **Top nav:**
@@ -609,7 +605,7 @@ when Team was added — see `docs/features/team-invites.md`):
 7. Closing Shift list (collapsible, time-aware)
 8. "+ Add Task List" button (managers only)
 9. Standalone Anytime Tasks list(s)
-10. Bottom nav: Tasks / Team / Analytics / placeholder
+10. Bottom nav: Tasks / Team / Reports / placeholder
 
 ### Task List — Time-Aware Collapse Logic
 ```
