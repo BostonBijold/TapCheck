@@ -39,7 +39,9 @@ function ItemRow({ it, onClick, subtitle }: { it: ItemType; onClick: () => void;
     <button
       type="button"
       onClick={onClick}
-      className="w-full flex items-center gap-3 bg-card rounded-card border border-border p-4 text-left hover:bg-card-hover transition-colors min-h-[44px]"
+      className={`w-full flex items-center gap-3 rounded-card border p-4 text-left transition-colors min-h-[44px] ${
+        it.belowPar ? "bg-burgundy/10 border-burgundy/40 hover:bg-burgundy/15" : "bg-card border-border hover:bg-card-hover"
+      }`}
     >
       <div className="w-8 flex items-center justify-center flex-shrink-0">
         <Package size={18} className="text-muted" strokeWidth={1.75} />
@@ -54,9 +56,14 @@ function ItemRow({ it, onClick, subtitle }: { it: ItemType; onClick: () => void;
         </p>
       </div>
       <div className="text-right flex-shrink-0">
-        <p className={`font-mono text-sm flex items-center gap-1 justify-end ${it.belowPar ? "text-burgundy-light" : "text-text"}`}>
+        {/* Below par (or any item with a par level set) shows as a
+            current/par fraction — "3/5 rolls" — same treatment as
+            InventoryItemDetailView.tsx's own count display, so the target
+            is visible at a glance, not just that it's low. */}
+        <p className={`font-mono text-sm flex items-center gap-1 justify-end ${it.belowPar ? "text-burgundy-light font-medium" : "text-text"}`}>
           {it.belowPar && <TriangleAlert size={12} strokeWidth={2} />}
           {it.currentCount !== null ? it.currentCount : "—"}
+          {it.parLevel !== null && <span className="text-dim">/{it.parLevel}</span>}
         </p>
         {it.unit && <p className="font-mono text-[10px] text-dim mt-0.5">{it.unit}</p>}
       </div>

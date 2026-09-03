@@ -212,14 +212,17 @@ to compare against, same as before this pass.
   compares each item's `parLevel` against the same latest-log join
   `getLatestInventoryLogs` already produces, adding a plain `belowPar:
   boolean` to each row. No new collection, no new write path.
-- **Item-level**: a below-par item's count renders in burgundy with a small
-  warning glyph in the Inventory tab's expanded group list. On the item
-  detail screen the whole current-count card gets a red tint (background +
-  border, not just the text) and the count itself renders as a
+- **Item-level**: below-par gets the same red treatment everywhere it shows
+  an item's count, not just red text — the whole row/card gets a red tint
+  (background + border). In the Inventory tab's expanded group list
+  (`InventoryView.tsx`'s `ItemRow`) that's the row itself; on the item
+  detail screen it's the current-count card. Both render the count as a
   `current/parLevel` fraction — "3/5 rolls" — whenever a par level is set
   (above or below it), so the target is always visible for context, with
-  the red treatment and an "At or below par" line kicking in only once it's
-  actually crossed.
+  the red tint and warning glyph kicking in only once it's actually
+  crossed (the detail screen additionally shows an "At or below par" line
+  under the count — the list row relies on the red tint + fraction alone,
+  since space is tighter there).
 - **Group-level**: a group's header shows a small red dot if *any* active
   item inside it is currently below par — computed client-side in
   `InventoryView.tsx` from the same flat `belowPar` list, not a separate
@@ -233,9 +236,10 @@ to compare against, same as before this pass.
 - **Inventory tab (list view)** — `components/InventoryView.tsx`, fetched
   from `GET /api/inventory-item-types` (+ `GET /api/inventory-groups` for
   section labels). Grouped into collapsible sections — see "Grouping"
-  above — each item row showing name, current count + unit (burgundy when
-  below par — see "Par-level alerting" above), and how recently it was
-  logged ("Logged 2h ago by Maria" / "Not yet logged"). Tapping a row opens
+  above — each item row showing name, current count + unit as a
+  `current/parLevel` fraction with a red-tinted row when at or below par
+  (see "Par-level alerting" above), and how recently it was logged ("Logged
+  2h ago by Maria" / "Not yet logged"). Tapping a row opens
   `/inventory/<itemTypeId>` to log a count. Managers see a "+ Add Item
   Type" button (`components/AddInventoryItemTypeSheet.tsx` —
   name/unit/parLevel/group; NFC binding and `nfcRequiredToLog` are separate
