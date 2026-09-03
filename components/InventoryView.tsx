@@ -2,10 +2,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ChevronDown, ChevronRight, Package, Search, TriangleAlert } from "lucide-react";
+import Link from "next/link";
+import { ChevronDown, ChevronRight, Package, Search, Settings, TriangleAlert } from "lucide-react";
 import Header from "@/components/Header";
 import AddInventoryItemTypeSheet from "@/components/AddInventoryItemTypeSheet";
-import ManageInventoryGroupsSheet from "@/components/ManageInventoryGroupsSheet";
 import { formatRelativeTime } from "@/lib/format-relative-time";
 
 interface ItemType {
@@ -76,7 +76,6 @@ export default function InventoryView({ userName, today, skipAuth, isManager }: 
   const [itemTypes, setItemTypes] = useState<ItemType[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
   const [showAddSheet, setShowAddSheet] = useState(false);
-  const [showManageGroups, setShowManageGroups] = useState(false);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
 
@@ -131,16 +130,8 @@ export default function InventoryView({ userName, today, skipAuth, isManager }: 
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
 
-        <div className="mt-4 mb-5 flex items-center justify-between gap-2">
+        <div className="mt-4 mb-5">
           <h1 className="font-heading text-xl text-text">Inventory</h1>
-          {isManager && (
-            <button
-              onClick={() => setShowManageGroups(true)}
-              className="font-mono text-[10px] text-olive uppercase tracking-widest px-1 min-h-[44px] flex items-center"
-            >
-              Manage Groups
-            </button>
-          )}
         </div>
 
         <div className="relative mb-4">
@@ -228,6 +219,20 @@ export default function InventoryView({ userName, today, skipAuth, isManager }: 
             + Add Item Type
           </button>
         )}
+
+        {/* Manage Inventory entry point (managers only) — item type
+            name/unit/parLevel/group editing, NFC tag sync, and Groups CRUD,
+            all in one hub — see components/ManageInventoryView.tsx. Mirrors
+            TasksView.tsx's own bottom "Manage" button. */}
+        {isManager && (
+          <Link
+            href="/inventory/manage"
+            className="mt-10 w-full flex items-center justify-center gap-2 bg-card border border-border-light text-text font-body text-sm font-medium py-4 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"
+          >
+            <Settings size={18} strokeWidth={1.75} />
+            Manage
+          </Link>
+        )}
       </div>
 
       {showAddSheet && (
@@ -238,10 +243,6 @@ export default function InventoryView({ userName, today, skipAuth, isManager }: 
           }}
           onClose={() => setShowAddSheet(false)}
         />
-      )}
-
-      {showManageGroups && (
-        <ManageInventoryGroupsSheet onClose={() => setShowManageGroups(false)} onChanged={fetchAll} />
       )}
     </div>
   );

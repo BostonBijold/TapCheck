@@ -148,6 +148,23 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
             </Link>
           )}
 
+          {/* Manager-only: item type catalog (name/unit/parLevel/group/NFC
+              tag binding/nfcRequiredToLog), plus groups — see
+              components/ManageInventoryView.tsx and
+              docs/features/inventory.md's "Grouping"/"NFC enforcement". */}
+          {isManager && (
+            <Link
+              href="/inventory/manage"
+              className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+            >
+              <div>
+                <p className="font-body text-sm text-text">Manage Inventory</p>
+                <p className="font-mono text-[10px] text-dim mt-0.5">Item types, groups, par levels, and NFC tag bindings</p>
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
+          )}
+
           {/* Manager-only: which chirp plays on this company's devices for
               an NFC scan-to-complete save — see components/CompanySettingsView.tsx. */}
           {isManager && (

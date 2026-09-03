@@ -189,8 +189,8 @@ in one physical place — not a many-to-many tagging system.
   leaving the sheet. The item detail screen's manager edit panel has the
   same picker for moving an existing item between groups.
 - **"Manage Groups"** (`components/ManageInventoryGroupsSheet.tsx`,
-  manager-only, opened from a header action on the Inventory tab) is a
-  simple list/rename/archive CRUD over `InventoryGroup`. Archiving
+  manager-only, opened from the "Manage Inventory" hub — see "UI structure"
+  below) is a simple list/rename/archive CRUD over `InventoryGroup`. Archiving
   (`DELETE /api/inventory-groups/[id]`) ungroups every member item as part
   of the same request — see the data-model entry above; there is no
   confirmation prompt beyond an inline "this will ungroup N items" notice,
@@ -231,11 +231,12 @@ to compare against, same as before this pass.
   above — each item row showing name, current count + unit (burgundy when
   below par — see "Par-level alerting" above), and how recently it was
   logged ("Logged 2h ago by Maria" / "Not yet logged"). Tapping a row opens
-  `/inventory/<itemTypeId>`. Managers see a "Manage Groups" header action
-  and a "+ Add Item Type" button at the bottom
-  (`components/AddInventoryItemTypeSheet.tsx` — name/unit/parLevel/group;
-  NFC binding and `nfcRequiredToLog` are separate steps once the item
-  exists, same create-then-bind flow as the task catalog).
+  `/inventory/<itemTypeId>` to log a count. Managers see a "+ Add Item
+  Type" button (`components/AddInventoryItemTypeSheet.tsx` —
+  name/unit/parLevel/group; NFC binding and `nfcRequiredToLog` are separate
+  steps once the item exists, same create-then-bind flow as the task
+  catalog) and, at the bottom, a "Manage" button into the hub below —
+  mirrors `TasksView.tsx`'s own bottom "Manage" button into `/tasks/manage`.
 - **Item detail/log screen** — `components/InventoryItemDetailView.tsx`
   (`app/(app)/inventory/[itemTypeId]/page.tsx`). Current count prominent at
   top (burgundy + warning glyph when below par), a numeric input + "Save"
@@ -249,7 +250,38 @@ to compare against, same as before this pass.
   "Location Tag" bind/unbind panel (same "Scan to Link"/"Unbind"/"Also
   bound to" pattern as `TaskListEditView.tsx`'s Scan-to-Complete panel) with
   the "Require NFC scan to log a count" toggle directly beside it, and
-  "Archive Item Type."
+  "Archive Item Type." This same editing surface is now also reachable
+  independent of the log-count flow — see "Manage Inventory hub" below.
+- **Manage Inventory hub** (`components/ManageInventoryView.tsx`,
+  `app/(app)/inventory/manage/page.tsx`) — manager-only, reached from the
+  Inventory tab's bottom "Manage" button and from a "Manage Inventory" card
+  on the Profile page, same two-entry-point convention as `/tasks/manage`
+  (`ManageTasksView.tsx`, linked from both the Tasks page header and
+  Profile). One screen for everything a manager needs to keep the catalog
+  current without touching the day-to-day log-count flow:
+  - **Search + "Scan to Find"** — filters by name or by a bound tag's raw
+    UID; the NFC button scans a physical tag and jumps straight to the
+    matching item's editor (or a disambiguation picker if the tag backs
+    more than one item — same pattern as `ManageTasksView.tsx`'s own
+    "Scan to Find").
+  - **Groups** — a row that opens the existing `ManageInventoryGroupsSheet.tsx`
+    (list/rename/archive) — unchanged from "Grouping" above, just relocated
+    here from the Inventory tab's header so there's one manage destination
+    instead of two.
+  - **Item Types** — every active item, grouped exactly like the Inventory
+    tab's own list, each row's meta line showing par level and NFC status
+    ("Synced" once a tag is bound, "Required" once `nfcRequiredToLog` is
+    also on, "Below par" when applicable) at a glance. Tapping a row opens
+    `components/ManageInventoryDetailSheet.tsx` — the full editor: name,
+    unit, par level, group, "Save Changes"; then a "Location Tag" panel to
+    scan-to-sync or unbind the physical tag (`POST`/`DELETE
+    /api/inventory-item-types/[id]/nfc-tag`) and the `nfcRequiredToLog`
+    toggle beside it; then "Archive Item Type." Binding/unbinding a tag
+    updates the row's list meta immediately without closing the sheet
+    (`onTagChanged`), so scanning a tag and then flipping
+    `nfcRequiredToLog` in the same visit doesn't require reopening
+    anything — only "Save Changes" itself, or Archive, closes the sheet.
+  - "+ Add Item Type" at the bottom, same sheet the Inventory tab uses.
 
 ## Task ↔ Inventory Linking
 
