@@ -319,7 +319,7 @@ concept yet).
 }
 ```
 
-### InventoryItemType / InventoryLog
+### InventoryItemType / InventoryGroup / InventoryLog
 A top-up count tracker, not a decrement ledger — nothing ever automatically
 subtracts a count when a task completes. Ownership-level catalog entry plus
 an append-only activity-level log — see `docs/features/inventory.md`.
@@ -330,12 +330,29 @@ an append-only activity-level log — see `docs/features/inventory.md`.
   companyId,
   name,              // 'Toilet Paper', 'Cases of Meat'
   unit,              // free-text display label ('rolls', 'cases', 'lbs') — display only, null = none
-  parLevel,          // number | null — informational only, no low-stock alerting yet
+  parLevel,          // number | null — read at request time for the below-par red-tint/warning
+                     //   cascade (item -> group), see docs/features/inventory.md's "Par-level alerting"
+  groupId,           // ref InventoryGroup, or null = the implicit "Ungrouped" bucket — one group per
+                     //   item, see docs/features/inventory.md's "Grouping"
   nfcTagUid,         // raw hardware UID of a bound physical tag, or null — see docs/features/nfc.md's
-                     //   "Multi-target binding". Optional, and unlike TaskDefinition.nfcTagUid this
-                     //   never GATES logging a count — a shortcut/verification, never a requirement.
+                     //   "Multi-target binding". Optional; by default (nfcRequiredToLog: false) never
+                     //   GATES logging a count — a shortcut/verification, not a requirement — but see next.
+  nfcRequiredToLog,  // bool, default false — manager opt-in per item. When true, logging a count DOES
+                     //   require a matching scan (POST /api/inventory-logs -> 409 otherwise), the same
+                     //   way TaskDefinition.nfcTagUid always gates task completion. See
+                     //   docs/features/inventory.md's "NFC enforcement".
   createdByUserId,
   isActive: bool,    // soft-delete/archive — same convention as TaskDefinition.isActive
+}
+
+// InventoryGroup — a manager-defined organizational label ("Freezer," "Bar," "Dry Storage")
+{
+  _id,
+  companyId,
+  name,
+  createdByUserId,
+  isActive: bool,    // archiving does NOT archive its items — every member InventoryItemType's groupId
+                     //   is set back to null ("Ungrouped") as part of the same request
 }
 
 // InventoryLog — one count entry, append-only (a correction is a new row, never an edit)
@@ -373,8 +390,8 @@ anchor. Nothing in the Company model or its surrounding code is
 restaurant-specific; gyms and hotels are expected customers too.
 
 - **Ownership-level** collections (`TaskList`, `Task`, `TaskTemplate`,
-  `InventoryItemType`) scope by `companyId` — they're the company's shared
-  configuration, not any individual's data.
+  `InventoryItemType`, `InventoryGroup`) scope by `companyId` — they're the
+  company's shared configuration, not any individual's data.
 - **Activity-level** collections (`TaskLog`, `TaskListSession`,
   `InventoryLog`) scope by `companyId` *and* stamp a `performedByUserId`/
   `loggedByUserId` as an attribute, not part of the uniqueness key — any
@@ -493,15 +510,25 @@ reality is worse than no count at all). A manager defines item types
 check/restock; that's the whole loop. Its own bottom-nav tab (5th slot,
 after Reports) — see "Current App State" below.
 
+Item types are organized into manager-defined **groups** ("Freezer," "Bar,"
+"Dry Storage" — `InventoryGroup`, one per item, nullable = the implicit
+"Ungrouped" bucket), and a `parLevel` drives a **below-par red-tint/warning
+cascade** (item row → group header) computed at read time from each item's
+latest logged count — see "Grouping" and "Par-level alerting" in
+`docs/features/inventory.md`.
+
 Uses the multi-target NFC binding model (`docs/features/nfc.md`'s
 "Multi-target binding"): an `InventoryItemType.nfcTagUid` binds to a
 **storage location**, not exclusively to that item type — the same
 physical tag can (and often will) also be bound to a `TaskDefinition` at
 the same location (e.g. the walk-in freezer's tag backing both "Log
-Freezer Temperature" and "Meat Inventory Count"). Binding a tag to an item
-type never gates logging a count the way a bound `TaskDefinition` gates
-task completion — it's a shortcut/verification layer only; manual entry
-always works, tag or no tag.
+Freezer Temperature" and "Meat Inventory Count"). By default, binding a tag
+to an item type never gates logging a count the way a bound
+`TaskDefinition` gates task completion — it's a shortcut/verification layer
+only, manual entry always works, tag or no tag — **unless** a manager opts
+that specific item into `nfcRequiredToLog`, at which point a matching scan
+*is* required, mirroring `TaskDefinition`'s own enforcement exactly. See
+"NFC enforcement" in `docs/features/inventory.md`.
 
 A manager can also **link** one or more `InventoryItemType`s directly to a
 task (`TaskInventoryLink` — see the Data Models section above), so checking
@@ -510,6 +537,15 @@ to Toilet Paper, Soap, and Paper Towels, each independently marked required
 or optional. When a task and a linked item share the same physical tag, one
 NFC scan verifies both — no second scan. See "Task ↔ Inventory Linking" in
 `docs/features/inventory.md`.
+
+A manager-only **"Manage Inventory" hub** (`/inventory/manage`, reached from
+the Inventory tab's bottom "Manage" button and a Profile page card, same
+two-entry-point convention as `/tasks/manage`) is where item name/unit/
+parLevel/group editing, NFC tag sync, and Groups CRUD all live — search +
+"Scan to Find" included. The item detail/log screen
+(`components/InventoryItemDetailView.tsx`) keeps a lightweight pencil
+"Edit" icon in its own header, right under the top nav's profile icon, that
+opens the same editor sheet without leaving the log-count flow.
 
 Full detail — data model, roles, UI structure, task linking, and open
 questions (par-level alerting, Reports integration) — is in
@@ -541,6 +577,7 @@ questions (par-level alerting, Reports integration) — is in
 - [x] Multi-target NFC binding (a tag can back more than one task/item type, with FAB-scan disambiguation) — see docs/features/nfc.md's "Multi-target binding"
 - [x] Inventory tab (top-up count tracker, not a decrement ledger) — see "Inventory" above and docs/features/inventory.md
 - [x] Task ↔ Inventory Linking (a task can capture one or more Inventory counts as part of its own form, with shared NFC verification when a tag backs both) — see "Inventory" above and docs/features/inventory.md's "Task ↔ Inventory Linking"
+- [x] Inventory grouping, par-level red-tint/warning cascade, per-item `nfcRequiredToLog` enforcement, and the manager-only "Manage Inventory" hub — see "Inventory" above and docs/features/inventory.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -658,7 +695,7 @@ table is a quick reference, not authoritative.
 - Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss/rest) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task or Inventory item it's bound to, disambiguating first if it's bound to more than one (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
-- Inventory: BUILT — Inventory tab (top-up count tracker), manager-managed item-type catalog with optional NFC location binding, see "Inventory" above and `docs/features/inventory.md`
+- Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
@@ -672,7 +709,7 @@ placeholder slot became Inventory, see `docs/features/inventory.md`):
 2. Team (left 2) — company roster; managers also see Pending Invites + "+ Invite"
 3. FAB (center) — active-timer resume indicator, or (when nothing is running) an NFC-scan shortcut to open a bound task or Inventory item directly (disambiguating first if the tag is bound to more than one)
 4. Reports (right 1) — task trends, variance, adherence (manager) or personal streak/completion + charts scoped to self (employee), plus an Overview/Logs segmented control
-5. Inventory (right 2) — item-type list with current counts; tap to log a new count or view history; managers also see "+ Add Item Type"
+5. Inventory (right 2) — item-type list grouped into sections with search, current counts (red-tinted when at/below par); tap to log a new count or view history; managers also see "+ Add Item Type" and a "Manage" button into `/inventory/manage`
 
 **Top nav:**
 - Left: Jackalope logo mark

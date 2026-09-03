@@ -142,9 +142,11 @@ Inventory-specific:
 
 Per-item, manager-controlled, default `false` (matches every pre-existing
 item type's actual behavior — nothing became stricter on deploy). When a
-manager flips `nfcRequiredToLog` to `true` on an item (a checkbox on the
-item detail screen's manager section, sitting directly next to the
-"Location Tag" bind panel so the dependency is visually obvious):
+manager flips `nfcRequiredToLog` to `true` on an item (a checkbox in
+`ManageInventoryDetailSheet.tsx`'s editor, sitting directly next to the
+"Location Tag" bind panel so the dependency is visually obvious — reached
+either from the item detail screen's header Edit icon or from the "Manage
+Inventory" hub, see "UI structure" below):
 
 - **`POST /api/inventory-logs`** now rejects (`409`) unless the submitted
   `verifiedNfcUid` matches that item's own `nfcTagUid` exactly —
@@ -158,10 +160,10 @@ item detail screen's manager section, sitting directly next to the
   slot it already occupies when a tag is merely bound-but-optional.
 - **`nfcRequiredToLog: true` with `nfcTagUid: null`** (required, but
   nothing bound yet) is a valid-but-inert state, not an error — nothing can
-  be logged that way until a tag is bound. The item detail screen surfaces
-  this plainly to whoever's looking (a small note under the toggle, and a
-  note in place of the Save row for anyone trying to log a count) rather
-  than blocking the toggle itself.
+  be logged that way until a tag is bound. Both screens surface this
+  plainly rather than blocking the toggle itself: `ManageInventoryDetailSheet.tsx`
+  shows a small note under the toggle, and `InventoryItemDetailView.tsx`
+  shows a note in place of the Save row for anyone trying to log a count.
 - **Task ↔ Inventory Linking's shared-scan case**: see the "Verification is
   shared, never duplicated" subsection below — a required-but-linked item
   whose task-side scan doesn't happen to verify it gets its `InventoryLog`
