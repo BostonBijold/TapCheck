@@ -213,8 +213,13 @@ to compare against, same as before this pass.
   `getLatestInventoryLogs` already produces, adding a plain `belowPar:
   boolean` to each row. No new collection, no new write path.
 - **Item-level**: a below-par item's count renders in burgundy with a small
-  warning glyph, both in the Inventory tab's expanded group list and on the
-  item detail screen's prominent count display.
+  warning glyph in the Inventory tab's expanded group list. On the item
+  detail screen the whole current-count card gets a red tint (background +
+  border, not just the text) and the count itself renders as a
+  `current/parLevel` fraction — "3/5 rolls" — whenever a par level is set
+  (above or below it), so the target is always visible for context, with
+  the red treatment and an "At or below par" line kicking in only once it's
+  actually crossed.
 - **Group-level**: a group's header shows a small red dot if *any* active
   item inside it is currently below par — computed client-side in
   `InventoryView.tsx` from the same flat `belowPar` list, not a separate
@@ -238,20 +243,30 @@ to compare against, same as before this pass.
   catalog) and, at the bottom, a "Manage" button into the hub below —
   mirrors `TasksView.tsx`'s own bottom "Manage" button into `/tasks/manage`.
 - **Item detail/log screen** — `components/InventoryItemDetailView.tsx`
-  (`app/(app)/inventory/[itemTypeId]/page.tsx`). Current count prominent at
-  top (burgundy + warning glyph when below par), a numeric input + "Save"
-  and, when the item has a bound tag, a second "Save via NFC" button next
-  to it — "Save" is hidden instead when `nfcRequiredToLog` is true (see
-  "NFC enforcement" above) — then a recent-history list (`GET
+  (`app/(app)/inventory/[itemTypeId]/page.tsx`). Header row is back button +
+  name + (managers only) a pencil "Edit" icon button — placed here,
+  immediately under the top nav's own profile icon, specifically so a
+  manager sees at a glance where to edit rather than having to discover a
+  collapsible section further down the page (see "Editing" below for what
+  it opens). Then the current-count card (red-tinted, "3/5 rolls" fraction
+  when below par — see "Par-level alerting" above), a numeric input +
+  "Save" and, when the item has a bound tag, a second "Save via NFC" button
+  next to it — "Save" is hidden instead when `nfcRequiredToLog` is true
+  (see "NFC enforcement" above) — then a recent-history list (`GET
   /api/inventory-logs?itemTypeId=&limit=`, newest first — each row shows
   count/who/when, with a small NFC glyph on any row whose `verifiedNfcUid`
-  is set). A collapsible manager-only section below holds name/unit/
-  parLevel/group editing (`PATCH /api/inventory-item-types/[id]`), the
-  "Location Tag" bind/unbind panel (same "Scan to Link"/"Unbind"/"Also
-  bound to" pattern as `TaskListEditView.tsx`'s Scan-to-Complete panel) with
-  the "Require NFC scan to log a count" toggle directly beside it, and
-  "Archive Item Type." This same editing surface is now also reachable
-  independent of the log-count flow — see "Manage Inventory hub" below.
+  is set). No manager section at the bottom of this page anymore — see
+  "Editing" below.
+- **Editing** — tapping the header's Edit icon opens
+  `components/ManageInventoryDetailSheet.tsx`, the exact same editor the
+  "Manage Inventory" hub uses (name/unit/parLevel/group editing, the
+  "Location Tag" bind/unbind panel, the `nfcRequiredToLog` toggle beside
+  it, and "Archive Item Type") — one component, two entry points, so
+  there's no separate edit UI to keep in sync. The page keeps its own
+  mutable copy of the item's editable fields (`item` state, seeded from the
+  server-rendered prop) so a tag bind/unbind or `nfcRequiredToLog` change
+  updates the Save/Save-via-NFC controls above immediately — no page
+  reload — while archiving redirects back to `/inventory`.
 - **Manage Inventory hub** (`components/ManageInventoryView.tsx`,
   `app/(app)/inventory/manage/page.tsx`) — manager-only, reached from the
   Inventory tab's bottom "Manage" button and from a "Manage Inventory" card
