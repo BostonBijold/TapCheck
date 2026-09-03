@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Capacitor } from "@capacitor/core";
-import { ChevronLeft, Nfc } from "lucide-react";
+import { ChevronLeft, Nfc, TriangleAlert } from "lucide-react";
 import Header from "@/components/Header";
 import { scanNfcTag } from "@/lib/native/nfc-scan";
 import { playNotificationSound, type NotificationSound } from "@/lib/notification-sound";
@@ -16,6 +16,13 @@ interface ItemType {
   unit: string | null;
   parLevel: number | null;
   nfcTagUid: string | null;
+  nfcRequiredToLog: boolean;
+  groupId: string | null;
+}
+
+interface Group {
+  _id: string;
+  name: string;
 }
 
 interface LogEntry {
@@ -70,6 +77,9 @@ export default function InventoryItemDetailView({
   }, [itemType._id]);
 
   const currentCount = logs && logs.length > 0 ? logs[0].count : null;
+  // Below par: latest logged count <= parLevel — see
+  // docs/features/inventory.md's "Par-level alerting".
+  const belowPar = itemType.parLevel !== null && currentCount !== null && currentCount <= itemType.parLevel;
 
   // ── Log a new count ───────────────────────────────────────────────────
   const [countInput, setCountInput] = useState("");
@@ -93,12 +103,16 @@ export default function InventoryItemDetailView({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemTypeId: itemType._id, count, verifiedNfcUid }),
       });
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "This item requires an NFC scan to log a count.");
+      }
       if (!res.ok) throw new Error("Failed to save");
       if (verifiedNfcUid) playNotificationSound(notificationSound);
       setCountInput("");
       fetchLogs();
-    } catch {
-      setSaveError("Failed to save — try again.");
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : "Failed to save — try again.");
     } finally {
       setSaving(false);
     }
@@ -132,10 +146,15 @@ export default function InventoryItemDetailView({
       return;
     }
     if (result.uid !== itemType.nfcTagUid) {
-      // Never a hard gate — the manual Save button below still works. This
-      // just means the scan didn't verify anything, so it isn't stored as
-      // verified — see models/InventoryLog.ts.
-      setSaveError("That's not this item's linked tag — saved counts still work without scanning.");
+      // When nfcRequiredToLog is false this is never a hard gate — the
+      // manual Save button still works, this just means the scan didn't
+      // verify anything (see models/InventoryLog.ts). When true, Save
+      // itself is hidden, so a wrong scan here really does block logging.
+      setSaveError(
+        itemType.nfcRequiredToLog
+          ? "That's not this item's linked tag — scan the correct one."
+          : "That's not this item's linked tag — saved counts still work without scanning."
+      );
       return;
     }
     submitLog(result.uid);
@@ -146,7 +165,17 @@ export default function InventoryItemDetailView({
   const [editName, setEditName] = useState(itemType.name);
   const [editUnit, setEditUnit] = useState(itemType.unit ?? "");
   const [editParLevel, setEditParLevel] = useState(itemType.parLevel !== null ? String(itemType.parLevel) : "");
+  const [editGroupId, setEditGroupId] = useState<string | null>(itemType.groupId);
+  const [nfcRequiredToLog, setNfcRequiredToLog] = useState(itemType.nfcRequiredToLog);
   const [savingEdit, setSavingEdit] = useState(false);
+
+  const [groups, setGroups] = useState<Group[]>([]);
+  useEffect(() => {
+    fetch("/api/inventory-groups")
+      .then((r) => (r.ok ? r.json() : []))
+      .then(setGroups)
+      .catch(() => setGroups([]));
+  }, []);
 
   const [nfcTagUid, setNfcTagUid] = useState<string | null>(itemType.nfcTagUid);
   const [bindBusy, setBindBusy] = useState(false);
@@ -166,6 +195,8 @@ export default function InventoryItemDetailView({
           name: editName.trim(),
           unit: editUnit.trim() || null,
           parLevel: editParLevel.trim() ? Number(editParLevel) : null,
+          groupId: editGroupId,
+          nfcRequiredToLog,
         }),
       });
       router.refresh();
@@ -241,7 +272,8 @@ export default function InventoryItemDetailView({
 
         {/* ── Current count ──────────────────────────────────────────────── */}
         <div className="bg-card rounded-card border border-border p-5 text-center">
-          <p className="font-mono text-4xl text-text">
+          <p className={`font-mono text-4xl flex items-center justify-center gap-2 ${belowPar ? "text-burgundy-light" : "text-text"}`}>
+            {belowPar && <TriangleAlert size={22} strokeWidth={2} />}
             {currentCount !== null ? currentCount : "—"}
             {itemType.unit && <span className="text-lg text-dim ml-1.5">{itemType.unit}</span>}
           </p>
@@ -250,6 +282,9 @@ export default function InventoryItemDetailView({
               ? `Logged ${formatRelativeTime(logs[0].loggedAt)} by ${logs[0].loggedByName}`
               : "Not yet logged"}
           </p>
+          {belowPar && (
+            <p className="font-mono text-[11px] text-burgundy-light mt-1">At or below par ({itemType.parLevel})</p>
+          )}
         </div>
 
         {/* ── Log a new count ────────────────────────────────────────────── */}
@@ -271,13 +306,19 @@ export default function InventoryItemDetailView({
           )}
 
           <div className="flex gap-2">
-            <button
-              onClick={handleSave}
-              disabled={saving || scanning}
-              className="flex-1 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] disabled:opacity-40 transition-opacity"
-            >
-              {saving ? "Saving…" : "Save"}
-            </button>
+            {/* Plain Save (no scan) is hidden — not disabled — once this item
+                opts into nfcRequiredToLog, unless a scan already verified it
+                on the way in (alreadyVerified). See docs/features/inventory.md's
+                "NFC enforcement". */}
+            {(!nfcRequiredToLog || alreadyVerified) && (
+              <button
+                onClick={handleSave}
+                disabled={saving || scanning}
+                className="flex-1 bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] disabled:opacity-40 transition-opacity"
+              >
+                {saving ? "Saving…" : "Save"}
+              </button>
+            )}
             {nfcTagUid && !alreadyVerified && (
               <button
                 onClick={handleSaveViaNfc}
@@ -289,6 +330,12 @@ export default function InventoryItemDetailView({
               </button>
             )}
           </div>
+
+          {nfcRequiredToLog && !nfcTagUid && (
+            <p className="font-mono text-[11px] text-burgundy-light">
+              This item requires an NFC scan to log a count, but no tag is bound yet — ask a manager to bind one below.
+            </p>
+          )}
 
           {saveError && (
             <p className="font-mono text-xs text-burgundy-light">{saveError}</p>
@@ -365,6 +412,19 @@ export default function InventoryItemDetailView({
                     />
                   </div>
                 </div>
+                <div className="space-y-1.5">
+                  <label className="font-mono text-[10px] text-dim uppercase tracking-widest">Group</label>
+                  <select
+                    value={editGroupId ?? ""}
+                    onChange={(e) => setEditGroupId(e.target.value || null)}
+                    className="w-full bg-card border border-border rounded-card px-3 py-2.5 font-body text-sm text-text outline-none focus:border-border-light"
+                  >
+                    <option value="">Ungrouped</option>
+                    {groups.map((g) => (
+                      <option key={g._id} value={g._id}>{g.name}</option>
+                    ))}
+                  </select>
+                </div>
                 <button
                   onClick={handleSaveEdit}
                   disabled={!editName.trim() || savingEdit}
@@ -407,7 +467,7 @@ export default function InventoryItemDetailView({
                     </button>
                   )}
                   <p className="font-body text-[11px] text-dim mt-1.5">
-                    Optional — bind a physical tag at this item&apos;s storage location for a quicker, verified log. Never required: Save always works without it.
+                    Bind a physical tag at this item&apos;s storage location for a quicker, verified log.
                   </p>
                   {bindError && (
                     <p className="font-mono text-[11px] text-burgundy-light mt-1.5">{bindError}</p>
@@ -415,6 +475,27 @@ export default function InventoryItemDetailView({
                   {alsoBoundTo.length > 0 && (
                     <p className="font-mono text-[11px] text-dim mt-1.5">
                       Also bound to: {alsoBoundTo.join(", ")}
+                    </p>
+                  )}
+
+                  {/* Sits directly next to the tag panel so the dependency
+                      (this only does something once a tag is actually bound
+                      above) is visually obvious — see
+                      docs/features/inventory.md's "NFC enforcement". Toggling
+                      this on before binding a tag is a valid-but-inert state,
+                      not an error. */}
+                  <label className="flex items-center gap-2 mt-3 pt-3 border-t border-border cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={nfcRequiredToLog}
+                      onChange={(e) => setNfcRequiredToLog(e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                    <span className="font-body text-[12px] text-text">Require NFC scan to log a count</span>
+                  </label>
+                  {nfcRequiredToLog && !nfcTagUid && (
+                    <p className="font-mono text-[11px] text-dim mt-1">
+                      No tag bound yet — no one can log a count until one is.
                     </p>
                   )}
                 </div>

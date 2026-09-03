@@ -21,17 +21,29 @@ that references Inventory at all.
 ## Data model
 
 - **`models/InventoryItemType.ts`** — `{ companyId, name, unit | null,
-  parLevel | null, nfcTagUid | null, createdByUserId, isActive }`. The
-  manager-defined catalog entry ("Toilet Paper," "Cases of Meat"). `unit` is
-  a free-text display label ("rolls," "cases," "lbs") shown next to a count
-  — display only, never used in a calculation. `parLevel` is stored but
-  purely informational in this pass — see "Deferred" below. `isActive` is
-  the soft-delete/archive flag, same convention as `TaskDefinition.isActive`
-  — the spec that introduced this model floated a timestamp-based
-  `archivedAt` field instead, but `isActive: bool` was chosen to stay
-  consistent with every other soft-delete in this codebase
-  (`TaskList.isActive`, `Task.isActive`, `TaskDefinition.isActive`), not to
-  introduce a second archival convention for one model.
+  parLevel | null, nfcTagUid | null, createdByUserId, isActive, groupId |
+  null, nfcRequiredToLog: boolean }`. The manager-defined catalog entry
+  ("Toilet Paper," "Cases of Meat"). `unit` is a free-text display label
+  ("rolls," "cases," "lbs") shown next to a count — display only, never used
+  in a calculation. `isActive` is the soft-delete/archive flag, same
+  convention as `TaskDefinition.isActive` — the spec that introduced this
+  model floated a timestamp-based `archivedAt` field instead, but `isActive:
+  bool` was chosen to stay consistent with every other soft-delete in this
+  codebase (`TaskList.isActive`, `Task.isActive`, `TaskDefinition.isActive`),
+  not to introduce a second archival convention for one model. `groupId` and
+  `nfcRequiredToLog` were added in a later pass — see "Grouping" and "NFC
+  enforcement" below; every pre-existing row got `groupId: null` and
+  `nfcRequiredToLog: false` on migration, so nothing became stricter for
+  existing data on deploy.
+- **`models/InventoryGroup.ts`** — `{ companyId, name, createdByUserId,
+  isActive }`. A manager-defined organizational label ("Freezer," "Cold
+  Storage," "Dry Storage," "Bar") — see "Grouping" below. Purely
+  organizational: no NFC tag or par level of its own. Archiving a group
+  (`DELETE /api/inventory-groups/[id]`) does **not** archive its items —
+  every member `InventoryItemType.groupId` is set back to `null`
+  ("Ungrouped") as part of the same request (`lib/inventory.ts`'s
+  `archiveInventoryGroup`); items and their `InventoryLog` history are
+  untouched either way.
 - **`models/InventoryLog.ts`** — `{ companyId, itemTypeId, count,
   loggedByUserId, loggedAt, verifiedNfcUid | null }`. One row per count
   entry — append-only, never edited in place, same "never mutate a past
@@ -44,7 +56,9 @@ that references Inventory at all.
   any other way. `lib/inventory.ts`'s `getLatestInventoryLogs` is the one
   place that "most recent per item type" batch join lives (the Inventory
   tab's list view); a single item's detail screen just asks for that item's
-  logs sorted newest-first and takes `logs[0]`.
+  logs sorted newest-first and takes `logs[0]`. `parLevel` comparisons for
+  the below-par cascade (see "Par-level alerting" below) are computed at
+  read time against this same latest-log join — nothing new is stored.
 - **`models/TaskInventoryLink.ts`** — `{ companyId, taskDefinitionId,
   itemTypeId, required: boolean }`. See "Task ↔ Inventory Linking" below.
 
@@ -61,14 +75,16 @@ it happens to have linked items.
   entry is always available (`POST /api/inventory-logs`, open to any
   signed-in company user, not manager-gated).
 - **Managers**: everything employees can do, plus create item types (`POST
-  /api/inventory-item-types`), edit name/unit/parLevel (`PATCH
-  /api/inventory-item-types/[id]`), archive one (`DELETE
-  /api/inventory-item-types/[id]` — soft delete, no "still referenced"
-  block the way `TaskDefinition` has, since an item type has no placement
-  concept to check and its `InventoryLog` history stays valid/readable once
-  archived), and bind/unbind an NFC tag (`POST`/`DELETE
-  /api/inventory-item-types/[id]/nfc-tag`). Managers also manage which item
-  types are linked to a given task — see "Task ↔ Inventory Linking" below.
+  /api/inventory-item-types`), edit name/unit/parLevel/groupId/
+  nfcRequiredToLog (`PATCH /api/inventory-item-types/[id]`), archive one
+  (`DELETE /api/inventory-item-types/[id]` — soft delete, no "still
+  referenced" block the way `TaskDefinition` has, since an item type has no
+  placement concept to check and its `InventoryLog` history stays
+  valid/readable once archived), and bind/unbind an NFC tag (`POST`/`DELETE
+  /api/inventory-item-types/[id]/nfc-tag`). Managers also create/rename/
+  archive `InventoryGroup`s (`POST /api/inventory-groups`, `PATCH`/`DELETE
+  /api/inventory-groups/[id]`) and manage which item types are linked to a
+  given task — see "Task ↔ Inventory Linking" below.
 
 ## NFC binding — uses Part 1's multi-target model directly
 
@@ -82,20 +98,25 @@ binding" for the full mechanism (resolution, disambiguation, the
 `alsoBoundTo` binding-UI warning). This doc only covers what's
 Inventory-specific:
 
-- **Binding never gates logging a count.** Unlike a bound `TaskDefinition`
-  (which requires a matching Scan NFC to complete — see
-  `docs/features/nfc.md`'s `assertNfcVerified`), there is no Inventory
-  equivalent of that server-side enforcement. `POST /api/inventory-logs`
-  accepts an optional `verifiedNfcUid`; it's stored on the new
+- **Binding never gates logging a count — unless `nfcRequiredToLog` is
+  true.** By default (`nfcRequiredToLog: false`, every item type's starting
+  state) this holds exactly as before: unlike a bound `TaskDefinition`
+  (which always requires a matching Scan NFC to complete — see
+  `docs/features/nfc.md`'s `assertNfcVerified`), `POST /api/inventory-logs`
+  accepts an optional `verifiedNfcUid` and stores it on the new
   `InventoryLog` row **only when it actually matches** the item type's own
   bound `nfcTagUid` — a stray or mismatched value is silently dropped
-  (never stored as verified), and the log still saves either way. Manual
-  entry must always work, tag or no tag, match or no match.
+  (never stored as verified), and the log still saves either way. A manager
+  can opt a specific item into strict enforcement instead — see "NFC
+  enforcement" below — at which point this default no longer applies to
+  that one item.
 - **From inside the item's own log-count screen** ("Save via NFC" on
   `components/InventoryItemDetailView.tsx`): unambiguous, same pattern as
   `TaskFormScreen.tsx`'s Scan NFC step — checks the scan against that item
-  type's own `nfcTagUid` and nothing else. A mismatch shows an inline error
-  but the plain "Save" button (no scan) is never blocked by it.
+  type's own `nfcTagUid` and nothing else. A mismatch shows an inline error;
+  the plain "Save" button (no scan) is never blocked by it **unless**
+  `nfcRequiredToLog` is true, in which case that button is hidden entirely
+  — see "NFC enforcement" below.
 - **From the FAB's blind scan** (`components/BottomNav.tsx`): goes through
   `GET /api/tasks/by-nfc-uid`'s combined `TaskDefinition` +
   `InventoryItemType` resolution. A single match resolves directly to `{
@@ -117,26 +138,117 @@ Inventory-specific:
   full navigation here, never a same-page prop swap), so there's nothing
   left over to leak onto a later, unrelated save.
 
+## NFC enforcement
+
+Per-item, manager-controlled, default `false` (matches every pre-existing
+item type's actual behavior — nothing became stricter on deploy). When a
+manager flips `nfcRequiredToLog` to `true` on an item (a checkbox on the
+item detail screen's manager section, sitting directly next to the
+"Location Tag" bind panel so the dependency is visually obvious):
+
+- **`POST /api/inventory-logs`** now rejects (`409`) unless the submitted
+  `verifiedNfcUid` matches that item's own `nfcTagUid` exactly —
+  `lib/inventory.ts`'s `assertInventoryNfcVerified`, thrown as
+  `InventoryNfcRequiredError` and caught the same way `assertNfcVerified`/
+  `NfcTagRequiredError` are for tasks. This is the actual enforcement;
+  everything else in this section is UI convenience sitting in front of
+  this one server-side gate.
+- **`InventoryItemDetailView.tsx`** hides the plain "Save" button entirely
+  (not disabled-with-no-explanation) — only "Save via NFC" is offered, same
+  slot it already occupies when a tag is merely bound-but-optional.
+- **`nfcRequiredToLog: true` with `nfcTagUid: null`** (required, but
+  nothing bound yet) is a valid-but-inert state, not an error — nothing can
+  be logged that way until a tag is bound. The item detail screen surfaces
+  this plainly to whoever's looking (a small note under the toggle, and a
+  note in place of the Save row for anyone trying to log a count) rather
+  than blocking the toggle itself.
+- **Task ↔ Inventory Linking's shared-scan case**: see the "Verification is
+  shared, never duplicated" subsection below — a required-but-linked item
+  whose task-side scan doesn't happen to verify it gets its `InventoryLog`
+  write skipped rather than written unverified, and `TaskFormScreen.tsx`
+  shows "Requires NFC scan" in place of that one numeric input.
+- The FAB's blind-scan resolution (`GET /api/tasks/by-nfc-uid`) is
+  unaffected in shape — a scan still resolves and disambiguates exactly as
+  described above; `nfcRequiredToLog` only changes what happens once you're
+  actually trying to log a count.
+
+## Grouping
+
+`InventoryGroup` is a manager-defined organizational label — "Freezer,"
+"Cold Storage," "Dry Storage," "Bar." One group per item
+(`InventoryItemType.groupId`, nullable), matching how an item actually sits
+in one physical place — not a many-to-many tagging system.
+
+- **Inventory tab** renders one collapsible section per active group
+  (creation order), plus an implicit **"Ungrouped"** section last for any
+  item with `groupId: null` (hidden entirely if empty). No sort feature —
+  groups are the organization; see "Deferred" below.
+- **"+ Add Item Type"** (`AddInventoryItemTypeSheet.tsx`) includes a group
+  picker (defaults to "Ungrouped") with an inline "+ New Group" option that
+  creates an `InventoryGroup` (`POST /api/inventory-groups`) without
+  leaving the sheet. The item detail screen's manager edit panel has the
+  same picker for moving an existing item between groups.
+- **"Manage Groups"** (`components/ManageInventoryGroupsSheet.tsx`,
+  manager-only, opened from a header action on the Inventory tab) is a
+  simple list/rename/archive CRUD over `InventoryGroup`. Archiving
+  (`DELETE /api/inventory-groups/[id]`) ungroups every member item as part
+  of the same request — see the data-model entry above; there is no
+  confirmation prompt beyond an inline "this will ungroup N items" notice,
+  since items and their history are never at risk.
+- **Search** (a bar above the section list, item-name-only —
+  `InventoryView.tsx`'s `search` state) collapses the section view into a
+  flat filtered list when non-empty, showing each match's group name as a
+  small subtitle so context isn't lost; reverts to the normal collapsible
+  view when cleared. Does not match group names — see "Deferred" below.
+
+## Par-level alerting
+
+`parLevel` (stored since the first Inventory pass) is now read, not just
+stored. **Below par**: the latest `InventoryLog.count` for an item ≤ its
+`parLevel`. An item with `parLevel: null` can never be below par — nothing
+to compare against, same as before this pass.
+
+- Computed at read time, not stored: `GET /api/inventory-item-types`
+  compares each item's `parLevel` against the same latest-log join
+  `getLatestInventoryLogs` already produces, adding a plain `belowPar:
+  boolean` to each row. No new collection, no new write path.
+- **Item-level**: a below-par item's count renders in burgundy with a small
+  warning glyph, both in the Inventory tab's expanded group list and on the
+  item detail screen's prominent count display.
+- **Group-level**: a group's header shows a small red dot if *any* active
+  item inside it is currently below par — computed client-side in
+  `InventoryView.tsx` from the same flat `belowPar` list, not a separate
+  aggregation endpoint.
+- **No push notifications, no bottom-nav badge** — explicitly out of scope
+  for this pass; the red dot only exists inside the Inventory tab's own
+  section headers. See "Deferred" below.
+
 ## UI structure
 
 - **Inventory tab (list view)** — `components/InventoryView.tsx`, fetched
-  from `GET /api/inventory-item-types`. Every active item type: name,
-  current count + unit, and how recently it was logged ("Logged 2h ago by
-  Maria" / "Not yet logged"). Tapping a row opens
-  `/inventory/<itemTypeId>`. Managers see a "+ Add Item Type" button at the
-  bottom (`components/AddInventoryItemTypeSheet.tsx` — name/unit/parLevel
-  only; NFC binding is a separate step once the item exists, same
-  create-then-bind flow as the task catalog).
+  from `GET /api/inventory-item-types` (+ `GET /api/inventory-groups` for
+  section labels). Grouped into collapsible sections — see "Grouping"
+  above — each item row showing name, current count + unit (burgundy when
+  below par — see "Par-level alerting" above), and how recently it was
+  logged ("Logged 2h ago by Maria" / "Not yet logged"). Tapping a row opens
+  `/inventory/<itemTypeId>`. Managers see a "Manage Groups" header action
+  and a "+ Add Item Type" button at the bottom
+  (`components/AddInventoryItemTypeSheet.tsx` — name/unit/parLevel/group;
+  NFC binding and `nfcRequiredToLog` are separate steps once the item
+  exists, same create-then-bind flow as the task catalog).
 - **Item detail/log screen** — `components/InventoryItemDetailView.tsx`
   (`app/(app)/inventory/[itemTypeId]/page.tsx`). Current count prominent at
-  top, a numeric input + "Save" (always works) and, when the item has a
-  bound tag, a second "Save via NFC" button next to it, then a recent-
-  history list (`GET /api/inventory-logs?itemTypeId=&limit=`, newest first
-  — each row shows count/who/when, with a small NFC glyph on any row whose
-  `verifiedNfcUid` is set). A collapsible manager-only section below holds
-  name/unit/parLevel editing (`PATCH /api/inventory-item-types/[id]`), the
+  top (burgundy + warning glyph when below par), a numeric input + "Save"
+  and, when the item has a bound tag, a second "Save via NFC" button next
+  to it — "Save" is hidden instead when `nfcRequiredToLog` is true (see
+  "NFC enforcement" above) — then a recent-history list (`GET
+  /api/inventory-logs?itemTypeId=&limit=`, newest first — each row shows
+  count/who/when, with a small NFC glyph on any row whose `verifiedNfcUid`
+  is set). A collapsible manager-only section below holds name/unit/
+  parLevel/group editing (`PATCH /api/inventory-item-types/[id]`), the
   "Location Tag" bind/unbind panel (same "Scan to Link"/"Unbind"/"Also
-  bound to" pattern as `TaskListEditView.tsx`'s Scan-to-Complete panel), and
+  bound to" pattern as `TaskListEditView.tsx`'s Scan-to-Complete panel) with
+  the "Require NFC scan to log a count" toggle directly beside it, and
   "Archive Item Type."
 
 ## Task ↔ Inventory Linking
@@ -181,7 +293,13 @@ task's own fields, labeled with the item's name/unit and a `*` when
 required. A required link blocks Save the same way a required field already
 does (an inline error, same `setError` path); an optional link left blank
 is simply skipped — no `InventoryLog` row is written for a blank optional
-field, never a `count: 0`.
+field, never a `count: 0`. **Exception**: a link whose item has
+`nfcRequiredToLog: true` on a *different* (or no) tag than this task's own
+— `canLinkBeVerifiedByThisTask` — can never be satisfied through this
+task's completion at all; its numeric input is replaced with a static
+"Requires NFC scan" row (no input to type into), and a required link in
+that state is exempt from the required-field Save block, since there'd be
+no way to ever satisfy it otherwise.
 
 **Verification is shared, never duplicated** — this is the part that
 depends on Part 1's multi-target NFC model, and the reason this needed its
@@ -214,9 +332,14 @@ independent bindings that may or may not point at the *same* physical tag:
   as `POST /api/inventory-logs` does directly. A UID that verified the
   *task* but doesn't match the *item's* own tag is never stored as
   verified — the two are separate claims that happen to reuse one scan when
-  the bindings line up. There's no server-side "required" enforcement
-  (same as `formData`'s own fields — trusted as sent), only the client-side
-  gate in `TaskFormScreen.tsx`.
+  the bindings line up. There's no server-side "required" enforcement for a
+  link's own `required` flag (same as `formData`'s own fields — trusted as
+  sent), only the client-side gate in `TaskFormScreen.tsx` — but
+  `nfcRequiredToLog` *is* enforced server-side here too: an item with that
+  flag set whose entry didn't end up with a matching `verifiedNfcUid` has
+  its `InventoryLog` row skipped entirely rather than written unverified.
+  The task's own completion is unaffected either way — this only changes
+  whether that one inventory count gets written.
 - **Where this write happens**: only `PATCH /api/task-logs`'s
   `completeInProgressLog` success path — the one path `TaskFormScreen.tsx`'s
   Save action actually reaches (both `TasksView.tsx`'s standalone
@@ -238,25 +361,42 @@ independent bindings that may or may not point at the *same* physical tag:
 
 | Route | Method | Gate | Purpose |
 |---|---|---|---|
-| `/api/inventory-item-types` | GET | any company user | list, joined with each item's latest log |
-| `/api/inventory-item-types` | POST | manager | create |
+| `/api/inventory-item-types` | GET | any company user | list, joined with each item's latest log — each row now also carries `groupId`, `nfcRequiredToLog`, `belowPar` |
+| `/api/inventory-item-types` | POST | manager | create (accepts `groupId`) |
 | `/api/inventory-item-types/[id]` | GET | any company user | single item (detail page's server fetch) |
-| `/api/inventory-item-types/[id]` | PATCH | manager | edit name/unit/parLevel |
+| `/api/inventory-item-types/[id]` | PATCH | manager | edit name/unit/parLevel/groupId/nfcRequiredToLog |
 | `/api/inventory-item-types/[id]` | DELETE | manager | archive (soft delete) |
 | `/api/inventory-item-types/[id]/nfc-tag` | POST / DELETE | manager | bind / unbind — see `lib/inventory.ts`'s `bindInventoryNfcTag`/`unbindInventoryNfcTag` |
+| `/api/inventory-groups` | GET | any company user | list active groups |
+| `/api/inventory-groups` | POST | manager | create |
+| `/api/inventory-groups/[id]` | PATCH | manager | rename |
+| `/api/inventory-groups/[id]` | DELETE | manager | archive; ungroups its items (`groupId` → `null`) as part of the same request |
 | `/api/inventory-logs` | GET | any company user | history for one `itemTypeId`, newest first (doubles as "current count" via `[0]`) |
-| `/api/inventory-logs` | POST | any company user | log a new count (append-only) |
-| `/api/tasks/[id]/inventory-links` | GET | any company user | this task's linked item types, joined with name/unit/nfcTagUid/required |
+| `/api/inventory-logs` | POST | any company user | log a new count (append-only); `409` if the item has `nfcRequiredToLog: true` and no matching `verifiedNfcUid` was supplied — see "NFC enforcement" |
+| `/api/tasks/[id]/inventory-links` | GET | any company user | this task's linked item types, joined with name/unit/nfcTagUid/nfcRequiredToLog/required |
 | `/api/tasks/[id]/inventory-links` | POST | manager | link an item type (or update `required` on an existing link — upsert) |
 | `/api/tasks/[id]/inventory-links/[itemTypeId]` | PATCH | manager | toggle `required` |
 | `/api/tasks/[id]/inventory-links/[itemTypeId]` | DELETE | manager | unlink |
 
 ## Deferred / open questions
 
-- **Par-level alerting** — `parLevel` is stored but nothing notifies or
-  badges when a logged count drops below it. A fast-follow once push
-  notifications (already on the roadmap separately) exist; out of scope
-  here.
+- **Push notifications / bottom-nav badge for below-par items** — the
+  in-tab red-dot cascade is built (see "Par-level alerting" above), but
+  nothing pages anyone and the bottom-nav Inventory icon itself never gets
+  a badge. A natural fast-follow once push infrastructure exists (already
+  on the roadmap separately); this pass only builds the in-tab cascade.
+- **Sort** — not built. Grouping already gives practical organization;
+  revisit only if real usage shows a need (e.g. "below par first" as a
+  cross-group view) that grouping alone doesn't solve.
+- **Search matching group names** — out of scope; search is item-name-only
+  since grouping already covers "show me everything in the freezer" via
+  navigation.
+- **Multiple groups per item** — deliberately simplified to exactly one,
+  matching how an item actually sits in one physical place. Revisit only if
+  a real use case (an item genuinely tracked in two locations) shows up.
+- **Does archiving a group's last item auto-archive an empty group?** Not
+  modeled — an empty group just sits there; a manager can archive it
+  manually via "Manage Groups" if it's clutter.
 - **CSV export / Reports integration** — Inventory history does not show up
   anywhere in the Reports tab. Left fully separate for now given how new
   both features are; revisit once Inventory has real usage data.
@@ -273,3 +413,6 @@ independent bindings that may or may not point at the *same* physical tag:
   currently fixed as "after," matching the natural reading order of "do the
   task, then note what you noticed while you were there." No mechanism to
   configure this per task.
+- **`nfcRequiredToLog` interaction with a required-but-linked item's UI
+  treatment** — "Requires NFC scan" in place of the input is a reasonable
+  placeholder, not a final design pass.

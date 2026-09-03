@@ -1,4 +1,4 @@
-import { Schema, Document, model, models } from "mongoose";
+import mongoose, { Schema, Document, model, models } from "mongoose";
 
 // The manager-defined catalog entry for something the company keeps a
 // running count of — toilet paper, cases of meat, ice packs. NOT a
@@ -25,6 +25,16 @@ export interface IInventoryItemType extends Document {
   // floated when this model was speced, so historical InventoryLog rows
   // stay meaningful without introducing a second archival convention.
   isActive: boolean;
+  // Ref InventoryGroup, or null for the implicit "Ungrouped" bucket — one
+  // group per item, matching how it actually sits in one physical place.
+  // See docs/features/inventory.md's "Grouping".
+  groupId: mongoose.Types.ObjectId | null;
+  // Manager-controlled per item, default false (matches every pre-existing
+  // row's actual behavior). When true, logging a count REQUIRES a scan of
+  // this item's own nfcTagUid — see lib/inventory.ts's
+  // assertInventoryNfcVerified. Unlike nfcTagUid this isn't a binding
+  // lifecycle, just a boolean — no separate bind/unbind endpoint.
+  nfcRequiredToLog: boolean;
 }
 
 const InventoryItemTypeSchema = new Schema<IInventoryItemType>(
@@ -38,6 +48,8 @@ const InventoryItemTypeSchema = new Schema<IInventoryItemType>(
     nfcTagUid: { type: String, default: null },
     createdByUserId: { type: String, required: true },
     isActive: { type: Boolean, default: true },
+    groupId: { type: Schema.Types.ObjectId, ref: "InventoryGroup", default: null },
+    nfcRequiredToLog: { type: Boolean, default: false },
   },
   { timestamps: true }
 );

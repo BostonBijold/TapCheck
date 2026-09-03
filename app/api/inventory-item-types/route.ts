@@ -37,15 +37,22 @@ export async function GET() {
   return NextResponse.json(
     itemTypes.map((it) => {
       const latest = latestLogs.get(it._id.toString());
+      // Below par: latest logged count <= parLevel — see
+      // docs/features/inventory.md's "Par-level alerting". parLevel: null
+      // (or nothing logged yet) can never be below par.
+      const belowPar = it.parLevel !== null && latest !== undefined && latest.count <= it.parLevel;
       return {
         _id: it._id.toString(),
         name: it.name,
         unit: it.unit ?? null,
         parLevel: it.parLevel ?? null,
         nfcTagUid: it.nfcTagUid ?? null,
+        nfcRequiredToLog: it.nfcRequiredToLog ?? false,
+        groupId: it.groupId ? it.groupId.toString() : null,
         currentCount: latest?.count ?? null,
         lastLoggedAt: latest ? new Date(latest.loggedAt).toISOString() : null,
         lastLoggedByName: latest ? loggerNameById.get(latest.loggedByUserId) ?? "Unknown" : null,
+        belowPar,
       };
     })
   );
@@ -67,14 +74,20 @@ export async function POST(req: NextRequest) {
   if (!name) return NextResponse.json({ error: "Name is required" }, { status: 400 });
   const unit = typeof body.unit === "string" && body.unit.trim() ? body.unit.trim() : null;
   const parLevel = typeof body.parLevel === "number" && Number.isFinite(body.parLevel) ? body.parLevel : null;
+  const groupId = typeof body.groupId === "string" && body.groupId ? body.groupId : null;
 
   await connectDB();
+
+  if (groupId && !mongoose.isValidObjectId(groupId)) {
+    return NextResponse.json({ error: "Invalid groupId" }, { status: 400 });
+  }
 
   const itemType = await InventoryItemType.create({
     companyId,
     name,
     unit,
     parLevel,
+    groupId,
     createdByUserId: userId,
   });
 
@@ -84,8 +97,11 @@ export async function POST(req: NextRequest) {
     unit: itemType.unit,
     parLevel: itemType.parLevel,
     nfcTagUid: itemType.nfcTagUid,
+    nfcRequiredToLog: itemType.nfcRequiredToLog,
+    groupId: itemType.groupId ? itemType.groupId.toString() : null,
     currentCount: null,
     lastLoggedAt: null,
     lastLoggedByName: null,
+    belowPar: false,
   });
 }

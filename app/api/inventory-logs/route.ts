@@ -4,6 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import InventoryItemType from "@/models/InventoryItemType";
 import InventoryLog from "@/models/InventoryLog";
 import User from "@/models/User";
+import { assertInventoryNfcVerified, InventoryNfcRequiredError } from "@/lib/inventory";
 import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -57,12 +58,14 @@ export async function GET(req: NextRequest) {
 // creates a new row, even for a manager correcting a bad prior entry —
 // there is no edit path, same as TaskLog's own history.
 //
-// verifiedNfcUid is never required — an item type's nfcTagUid (if bound) is
-// a shortcut/verification, not a gate (unlike TaskDefinition, there is no
-// assertNfcVerified for Inventory). If the caller supplies one, it's only
+// verifiedNfcUid is only required when the item type has opted into
+// nfcRequiredToLog (default false) — see docs/features/inventory.md's "NFC
+// enforcement" and lib/inventory.ts's assertInventoryNfcVerified, which
+// mirrors assertNfcVerified for tasks. Otherwise an item type's nfcTagUid
+// (if bound) is a shortcut/verification, not a gate: a supplied uid is only
 // ever stored as "verified" when it actually matches this item type's own
 // bound tag — a stray or mismatched value is silently dropped rather than
-// rejecting the whole log, since manual entry must always still work.
+// rejecting the whole log.
 export async function POST(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -81,6 +84,15 @@ export async function POST(req: NextRequest) {
 
   const itemType = await InventoryItemType.findOne({ _id: itemTypeId, companyId, isActive: true }).lean();
   if (!itemType) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  try {
+    await assertInventoryNfcVerified(itemTypeId, claimedUid);
+  } catch (err) {
+    if (err instanceof InventoryNfcRequiredError) {
+      return NextResponse.json({ error: err.message }, { status: 409 });
+    }
+    throw err;
+  }
 
   const verifiedNfcUid = claimedUid && itemType.nfcTagUid && claimedUid === itemType.nfcTagUid ? claimedUid : null;
 

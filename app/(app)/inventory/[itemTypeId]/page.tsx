@@ -60,6 +60,8 @@ export default async function InventoryItemDetailPage({
         unit: itemType.unit ?? null,
         parLevel: itemType.parLevel ?? null,
         nfcTagUid: itemType.nfcTagUid ?? null,
+        nfcRequiredToLog: itemType.nfcRequiredToLog ?? false,
+        groupId: itemType.groupId ? itemType.groupId.toString() : null,
       }}
     />
   );

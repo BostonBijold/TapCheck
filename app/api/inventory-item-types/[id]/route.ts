@@ -1,3 +1,4 @@
+import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import InventoryItemType from "@/models/InventoryItemType";
@@ -25,13 +26,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     unit: itemType.unit ?? null,
     parLevel: itemType.parLevel ?? null,
     nfcTagUid: itemType.nfcTagUid ?? null,
+    nfcRequiredToLog: itemType.nfcRequiredToLog ?? false,
+    groupId: itemType.groupId ? itemType.groupId.toString() : null,
   });
 }
 
-// PATCH /api/inventory-item-types/[id] — edit name/unit/parLevel.
-// Manager-only. NFC binding has its own route (./nfc-tag), same split as
-// TaskDefinition.
-const EDITABLE_FIELDS = ["name", "unit", "parLevel"] as const;
+// PATCH /api/inventory-item-types/[id] — edit name/unit/parLevel/groupId/
+// nfcRequiredToLog. Manager-only. NFC binding (the tag itself) has its own
+// route (./nfc-tag), same split as TaskDefinition — groupId and
+// nfcRequiredToLog are plain fields here, not a binding lifecycle, see
+// docs/features/inventory.md's "Grouping" and "NFC enforcement".
+const EDITABLE_FIELDS = ["name", "unit", "parLevel", "groupId", "nfcRequiredToLog"] as const;
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const sessionUser = await resolveSessionUser();
@@ -55,6 +60,16 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ("parLevel" in updates) {
     updates.parLevel = typeof updates.parLevel === "number" && Number.isFinite(updates.parLevel) ? updates.parLevel : null;
   }
+  if ("groupId" in updates) {
+    const groupId = typeof updates.groupId === "string" && updates.groupId ? updates.groupId : null;
+    if (groupId && !mongoose.isValidObjectId(groupId)) {
+      return NextResponse.json({ error: "Invalid groupId" }, { status: 400 });
+    }
+    updates.groupId = groupId;
+  }
+  if ("nfcRequiredToLog" in updates) {
+    updates.nfcRequiredToLog = updates.nfcRequiredToLog === true;
+  }
 
   await connectDB();
 
@@ -71,6 +86,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     unit: itemType.unit,
     parLevel: itemType.parLevel,
     nfcTagUid: itemType.nfcTagUid,
+    nfcRequiredToLog: itemType.nfcRequiredToLog,
+    groupId: itemType.groupId ? itemType.groupId.toString() : null,
   });
 }
 

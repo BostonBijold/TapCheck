@@ -138,6 +138,17 @@ This `preVerified` state machine is specific to `TasksView.tsx`'s standalone-tas
 
 **Do not add `.iso18092` (FeliCa) to `NfcScanPlugin.swift`'s polling options.** FeliCa requires a separate, restricted entitlement (`com.apple.developer.nfc.readersession.felica.systemcodes`) that Apple grants only on request — it is NOT included by standard NFC Tag Reading. Requesting it anyway fails the *entire* session with `NFCError` code 2 ("Missing required entitlement"), even when `com.apple.developer.nfc.readersession.formats` is otherwise correctly signed and provisioned — this cost real debugging time before being traced to the polling options rather than anything about signing. `.iso14443`/`.iso15693` alone cover MiFare/NTAG/vicinity tags, which is what this feature is built for.
 
+### Scan to Find (Manage Tasks)
+
+A read-only sibling of the FAB's "scan to open" shortcut above, solving a different problem: a manager standing at the **Manage Tasks** screen (`/tasks/manage`, `components/ManageTasksView.tsx`) troubleshooting a specific physical tag has no way to know its raw UID by sight, so typing it into that screen's search box isn't a real option. The **Scan to Find** button next to that search box (`handleScanToFind`) calls the same `scanNfcTag()` used everywhere else, then matches the read UID client-side against the Company Task Catalog data the screen already has loaded (`GET /api/task-definitions`, which includes each definition's own `nfcTagUid`) — **no server round-trip**, unlike the FAB's `by-nfc-uid` lookup, since this screen already holds the whole catalog in memory.
+
+- **Zero matches** → an inline message ("No saved task in your catalog is bound to this tag."). Deliberately scoped to `TaskDefinition` only — an `InventoryItemType` bound to the same UID (see "Multi-target binding" above) isn't reported here, since Inventory item types aren't part of this screen's catalog at all; a manager looking for one uses Inventory's own screen instead.
+- **One match** → opens that definition's `ManageTaskDetailSheet` directly (via `openCatalogId`) and expands the Company Task Catalog section if it was collapsed, so the row is visible in context once the sheet is closed.
+- **More than one match** → since the same UID can legitimately back more than one saved task (see "Multi-target binding" above), a small tap-to-pick list of matching task names renders inline below the search bar; picking one opens that definition's detail sheet the same way the one-match case does.
+- Off-device (no native NFC hardware — a desktop/plain-web session) shows the same "Open the app on your phone to scan a tag." message the catalog's own "Scan to Link" button uses.
+
+Unlike the FAB's shortcut, this never resolves a *placement*, starts a timer, or completes anything — it only locates a `TaskDefinition` in the catalog and opens its detail view. There's no dedicated API route for it; add one only if some other caller ever needs the same "find by UID" lookup server-side.
+
 ## Manage Task List UI
 
 `components/TaskListEditView.tsx`'s `SortableRow` inline edit panel shows current link status per task (loaded server-side by `app/(app)/tasks/[taskListId]/edit/page.tsx`, which queries `NfcTag.find({ companyId, taskId: { $in: taskIds } })` alongside the tasks — no client round-trip).

@@ -27,6 +27,7 @@ interface InventoryLink {
   name: string;
   unit: string | null;
   nfcTagUid: string | null;
+  nfcRequiredToLog: boolean;
   required: boolean;
 }
 
@@ -153,6 +154,14 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
   const alreadyVerified = requiresNfcScan && !!preVerifiedNfcUid && preVerifiedNfcUid === item.nfcTagUid;
   const [scanning, setScanning] = useState(false);
 
+  // Can this task's own scan ever verify a given linked item's count? Only
+  // when the two share the identical bound tag — see
+  // docs/features/inventory.md's "NFC enforcement". A required link that
+  // can never be verified this way has no fillable input (see the render
+  // below) and so is exempt from the "required" Save-blocking check too.
+  const canLinkBeVerifiedByThisTask = (link: InventoryLink) =>
+    requiresNfcScan && !!link.nfcTagUid && link.nfcTagUid === item.nfcTagUid;
+
   const setField = (key: string, value: FieldValue) => {
     setValues((v) => ({ ...v, [key]: value }));
     if (error) setError("");
@@ -198,6 +207,7 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
     }
     for (const link of inventoryLinks ?? []) {
       if (!link.required) continue;
+      if (link.nfcRequiredToLog && !canLinkBeVerifiedByThisTask(link)) continue;
       const raw = inventoryValues[link.itemTypeId];
       if (raw === undefined || raw.trim() === "") {
         setError(`${link.name} count is required`);
@@ -409,6 +419,12 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
               <p className="font-mono text-[10px] text-dim uppercase tracking-widest">Linked Inventory</p>
               {inventoryLinks.map((link) => {
                 const isPreVerified = alreadyVerified && !!link.nfcTagUid && link.nfcTagUid === preVerifiedNfcUid;
+                // A required item on a different (or no) tag than this
+                // task's own can never be satisfied through this task's
+                // completion — see docs/features/inventory.md's "NFC
+                // enforcement" — so there's no point offering an input
+                // whose value would just be silently dropped server-side.
+                const blockedByNfcRequirement = link.nfcRequiredToLog && !canLinkBeVerifiedByThisTask(link);
                 return (
                   <div key={link.itemTypeId} className="space-y-1.5">
                     <label className="font-mono text-[10px] text-dim uppercase tracking-widest">
@@ -416,14 +432,21 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
                       {link.unit ? ` (${link.unit})` : ""}
                       {link.required ? " *" : ""}
                     </label>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      value={inventoryValues[link.itemTypeId] ?? ""}
-                      onChange={(e) => setInventoryValue(link.itemTypeId, e.target.value)}
-                      placeholder={link.required ? "Required" : "Optional"}
-                      className="w-full bg-card border border-border rounded-card px-3 py-3 font-mono text-sm text-text placeholder:text-dim outline-none focus:border-border-light min-h-[44px]"
-                    />
+                    {blockedByNfcRequirement ? (
+                      <p className="w-full bg-card border border-border rounded-card px-3 py-3 font-mono text-sm text-dim min-h-[44px] flex items-center gap-1.5">
+                        <Nfc size={13} strokeWidth={1.75} />
+                        Requires NFC scan
+                      </p>
+                    ) : (
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        value={inventoryValues[link.itemTypeId] ?? ""}
+                        onChange={(e) => setInventoryValue(link.itemTypeId, e.target.value)}
+                        placeholder={link.required ? "Required" : "Optional"}
+                        className="w-full bg-card border border-border rounded-card px-3 py-3 font-mono text-sm text-text placeholder:text-dim outline-none focus:border-border-light min-h-[44px]"
+                      />
+                    )}
                     {isPreVerified && (
                       <p className="font-mono text-[11px] text-olive">Tag verified</p>
                     )}

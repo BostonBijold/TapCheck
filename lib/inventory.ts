@@ -1,9 +1,34 @@
 import mongoose from "mongoose";
 import InventoryItemType from "@/models/InventoryItemType";
 import InventoryLog from "@/models/InventoryLog";
+import InventoryGroup from "@/models/InventoryGroup";
 import TaskDefinition from "@/models/TaskDefinition";
 import TaskInventoryLink from "@/models/TaskInventoryLink";
 import Task from "@/models/Task";
+
+// Thrown by assertInventoryNfcVerified below — every route that can write
+// an InventoryLog for an item with nfcRequiredToLog must catch this and
+// turn it into a clean 4xx rather than letting it bubble up as a 500.
+export class InventoryNfcRequiredError extends Error {
+  constructor() {
+    super("This item requires scanning its linked NFC tag to log a count — use Save via NFC.");
+    this.name = "InventoryNfcRequiredError";
+  }
+}
+
+// Mirrors lib/task-log-actions.ts's assertNfcVerified exactly, one layer
+// down: gates POST /api/inventory-logs the same way a bound TaskDefinition
+// gates task completion, but only when the item type has opted in via
+// nfcRequiredToLog (default false — see docs/features/inventory.md's "NFC
+// enforcement"). A required-but-unbound item (nfcTagUid: null) can never be
+// satisfied — a valid-but-inert state, not specially handled here.
+export async function assertInventoryNfcVerified(itemTypeId: string, verifiedNfcUid?: string | null) {
+  const itemType = await InventoryItemType.findById(itemTypeId).select("nfcTagUid nfcRequiredToLog").lean();
+  if (!itemType) return;
+  if (itemType.nfcRequiredToLog && (!itemType.nfcTagUid || itemType.nfcTagUid !== verifiedNfcUid)) {
+    throw new InventoryNfcRequiredError();
+  }
+}
 
 // Binds a physical tag's raw UID to an item type's storage location — see
 // docs/features/nfc.md's "Multi-target binding". Mirrors
@@ -39,6 +64,23 @@ export async function unbindInventoryNfcTag(companyId: string, itemTypeId: strin
     { $set: { nfcTagUid: null } },
     { returnDocument: "after" }
   );
+}
+
+// Archives an InventoryGroup and, in the same request, sets every member
+// InventoryItemType's groupId back to null ("Ungrouped") — see
+// docs/features/inventory.md's "Grouping". Items and their InventoryLog
+// history are untouched either way; only the group label goes away.
+export async function archiveInventoryGroup(companyId: string, groupId: string) {
+  const group = await InventoryGroup.findOne({ _id: groupId, companyId });
+  if (!group) return null;
+
+  const ungroupedCount = await InventoryItemType.countDocuments({ companyId, groupId, isActive: true });
+  await InventoryItemType.updateMany({ companyId, groupId }, { $set: { groupId: null } });
+
+  group.isActive = false;
+  await group.save();
+
+  return { group, ungroupedCount };
 }
 
 // Batch "most recent log per item type" — the Inventory tab's list view
@@ -81,6 +123,7 @@ export interface InventoryLinkView {
   name: string;
   unit: string | null;
   nfcTagUid: string | null;
+  nfcRequiredToLog: boolean;
   required: boolean;
 }
 
@@ -115,6 +158,7 @@ export async function getInventoryLinksForTaskDefinition(
         name: itemType.name,
         unit: itemType.unit ?? null,
         nfcTagUid: itemType.nfcTagUid ?? null,
+        nfcRequiredToLog: itemType.nfcRequiredToLog ?? false,
         required: l.required,
       };
     })
@@ -180,18 +224,25 @@ export async function writeInventoryLogsForTaskCompletion(
   const loggedAt = new Date();
   const docs = validEntries
     .filter((e) => itemTypeById.has(e.itemTypeId))
-    .map((e) => {
+    .flatMap((e) => {
       const itemType = itemTypeById.get(e.itemTypeId)!;
       const claimedUid = e.verifiedNfcUid ? e.verifiedNfcUid.toLowerCase() : null;
       const verifiedNfcUid = claimedUid && itemType.nfcTagUid && claimedUid === itemType.nfcTagUid ? claimedUid : null;
-      return {
-        companyId,
-        itemTypeId: e.itemTypeId,
-        count: e.count,
-        loggedByUserId,
-        loggedAt,
-        verifiedNfcUid,
-      };
+      // A required item that this task's own scan didn't happen to verify
+      // (different tag, or no tag on the task) is skipped entirely rather
+      // than written unverified — see docs/features/inventory.md's "NFC
+      // enforcement". The task's own completion is unaffected either way.
+      if (itemType.nfcRequiredToLog && !verifiedNfcUid) return [];
+      return [
+        {
+          companyId,
+          itemTypeId: e.itemTypeId,
+          count: e.count,
+          loggedByUserId,
+          loggedAt,
+          verifiedNfcUid,
+        },
+      ];
     });
 
   if (docs.length > 0) await InventoryLog.insertMany(docs);
