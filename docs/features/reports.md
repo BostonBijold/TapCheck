@@ -126,3 +126,97 @@ Deferred: exact retention/paging limits for very old date ranges, and a CSV/expo
 ## Depends on
 
 [`api/task-lists-api.md`](../api/task-lists-api.md) for the `TaskLog` states this all aggregates over, and the `scheduledDays`/`successThreshold` fields on `Task`. [`team-invites.md`](team-invites.md) for the bottom-nav layout this feature doesn't modify, and `GET /api/team` (used by the Logs tab's team-member filter).
+
+## Reports v2 — leaderboard, exceptions, inventory (Stories 1–6)
+
+Six of the seven "Reports v2" stories are built: team leaderboard + outcome
+breakdown (Stories 1–2), worst-list/variance-outlier callouts (Stories
+3–4), and inventory trend + below-par callout (Stories 5–6). **Story 7
+(a monthly-rollup trend window beyond 30 days) is deliberately deferred**
+— it needs a genuinely new aggregation path (monthly buckets, not a wider
+daily array) and a minimum-account-age gate that isn't yet meaningful to
+build against; it gets its own plan later. Multi-location rollup remains
+out of scope entirely, per the original addendum — it's a data-model
+change (`Company` has no parent-organization concept), not a reports story.
+
+### Leaderboard (Stories 1–2)
+
+`GET /api/reports/leaderboard?days=7|30&localDate=YYYY-MM-DD`, manager-only
+(403 for an employee). Shares `lib/report-dates.ts`'s `getDates`/
+`elapsedDates` with `GET /api/reports` (pulled out of that route into this
+shared module specifically so the two windows can never drift apart) —
+aggregates only over `elapsedDates`, never a not-yet-happened day.
+
+**Resolved denominator** (the addendum's own flagged open question):
+option (b) — a person's completion rate is `doneCount / (doneCount +
+missedCount)` over tasks *they themselves* logged, ignoring `rest` (an
+intentional, protected skip, not an "attempt" — same reasoning the
+existing `tasks[].engagedDays` already uses). Below **5 engaged tasks** in
+the window, a person moves to an unranked "Not enough data" group instead
+of showing a misleadingly perfect (or empty) percentage. Ties in the
+ranked list break on raw `doneCount` descending.
+
+The response also carries the Story 2 outcome breakdown per ranked user —
+`onTimeCount`/`lateCount` alongside `doneCount`/`missedCount` — computed
+per-log rather than a second endpoint, since it's the same log set just
+re-bucketed. "Late" uses the identical actual-vs-projected threshold
+`avgVariance` already applies in `GET /api/reports`, just per-log instead
+of averaged; checkbox/stopwatch tasks (no real time target) never count as
+late. `components/reports/Leaderboard.tsx` renders this above "Task List
+Performance" in `ManagerOverview.tsx`, row tap expands the breakdown.
+
+### Exception callouts (Stories 3–4)
+
+`components/reports/ExceptionCallouts.tsx`, rendered at the top of
+`ManagerOverview.tsx`. Pure client-side sorts over the `ReportsData`
+`ManagerOverview.tsx` already has from `GET /api/reports` — no new route.
+Worst task lists: `totalTasks > 0 && avgCompletionRate < 0.9`, ascending,
+top 3; suppressed entirely when nothing clears that bar. Variance
+outliers: `engagedDays >= 3` (a minimum-sample guard against one fluke
+slow log headlining the callout) sorted by `|avgVariance|` descending, top
+3, labeled by direction ("running long" vs. "suspiciously fast" — the
+latter can mean rubber-stamping, not efficiency). Each entry is a
+scroll-to-anchor shortcut, not a new destination: the Task List
+Performance cards (`ManagerOverview.tsx`) and `TaskStatRow.tsx` rows both
+now carry a stable `id` (`tasklist-<id>` / `task-<id>`) that
+`document.getElementById(...).scrollIntoView(...)` targets.
+
+### Inventory in Reports (Stories 5–6)
+
+New "Inventory" segmented-control pill in `components/ReportsContent.tsx`,
+manager-only (no employee-personal equivalent — inventory counts aren't
+attributed to "your" work the way tasks are), rendering
+`components/reports/InventoryTab.tsx`.
+
+Story 6 (below-par callout) needed **no new query**: `GET
+/api/inventory-item-types` already computes `belowPar`/`lastLoggedAt` per
+active item for the existing Inventory tab (`app/api/inventory-item-types/
+route.ts`) — `InventoryTab.tsx` just fetches that same endpoint and
+filters `belowPar`, linking each entry to the existing `/inventory/
+[itemTypeId]` detail page. This is the same comparison flagged as
+deferred "push" alerting in [`inventory.md`](inventory.md)'s "Par-level
+alerting" — this is its read-only, pull precursor, not the push version.
+
+Story 5 (trend chart) is the one new route: `GET
+/api/reports/inventory?itemTypeId=&days=7|30`, manager-only, querying
+`InventoryLog` directly for one item type's counts across the window
+(sorted chronologically) — kept separate from `GET /api/reports`, same
+"different query shape, different consumer" reasoning `GET
+/api/task-logs/history` already used to stay separate from `GET
+/api/task-logs`. Since `InventoryLog.loggedAt` is a `Date`, not a stored
+`YYYY-MM-DD` string like `TaskLog.date`, the window's date strings
+(`lib/report-dates.ts`) get converted to local-midnight boundaries rather
+than compared directly. The item picker (`InventoryTab.tsx`) defaults to
+the most-recently-logged item and renders a custom-CSS bar chart — same
+no-library approach as `components/reports/TaskListChart.tsx` — bar height
+normalized to the window's max count, a below-par bar tinted red.
+
+### Files
+
+- `lib/report-dates.ts` — `getDates`/`elapsedDates`, shared by `GET
+  /api/reports`, the leaderboard route, and the inventory route.
+- `app/api/reports/leaderboard/route.ts`, `components/reports/
+  Leaderboard.tsx`.
+- `components/reports/ExceptionCallouts.tsx` (no new route).
+- `app/api/reports/inventory/route.ts`, `components/reports/
+  InventoryTab.tsx`.

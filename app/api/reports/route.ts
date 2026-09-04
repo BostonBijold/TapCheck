@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
-import { calendarWeekDates } from "@/lib/week-dates";
+import { getDates, elapsedDates as computeElapsedDates } from "@/lib/report-dates";
 import { computeWeeklyProgress } from "@/lib/task-progress";
 import { computeCurrentStreakForUser } from "@/lib/streak";
 import { resolveSessionUser } from "@/lib/session";
@@ -10,21 +10,6 @@ import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
 import { resolveTasks } from "@/lib/task-definitions";
-
-// anchorDate: client's local today (YYYY-MM-DD). Never derive from server UTC.
-// The 7-day view is a fixed Sunday–Saturday calendar week containing
-// anchorDate — it can include days after anchorDate (later this week), which
-// the client renders as a distinct pending state. The 30-day view stays a
-// trailing window ending at anchorDate, which by construction never
-// includes a future date.
-function getDates(days: number, anchorDate: string): string[] {
-  if (days === 7) return calendarWeekDates(anchorDate);
-  return Array.from({ length: days }, (_, i) => {
-    const d = new Date(anchorDate + "T12:00:00");
-    d.setDate(d.getDate() - (days - 1 - i));
-    return d.toISOString().split("T")[0];
-  });
-}
 
 export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
@@ -40,7 +25,7 @@ export async function GET(req: NextRequest) {
   // Days later this week that haven't happened yet still appear in `dates`
   // (for a consistent chart width) but can't have logs — exclude them from
   // "how many days could this have been logged" denominators below.
-  const elapsedDates = dates.filter((d) => d <= localDate);
+  const elapsedDates = computeElapsedDates(dates, localDate);
 
   await connectDB();
 

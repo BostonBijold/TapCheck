@@ -35,7 +35,7 @@ export default function TaskStatRow({ task }: { task: TaskStats }) {
   const weekUnloggedCount = wp?.days.filter((d) => d.state === "unlogged").length ?? task.unloggedCount;
 
   return (
-    <div className="py-3.5 border-b border-border last:border-0">
+    <div id={`task-${task._id}`} className="py-3.5 border-b border-border last:border-0">
       <div className="flex items-center gap-2.5 mb-2">
         <div className="w-5 flex items-center justify-center flex-shrink-0">
           <AppIcon name={task.icon} size={14} strokeWidth={1.75} className="text-muted" />

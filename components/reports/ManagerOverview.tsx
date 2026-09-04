@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 import TaskListChart from "@/components/reports/TaskListChart";
 import TaskStatRow from "@/components/reports/TaskStatRow";
+import ExceptionCallouts from "@/components/reports/ExceptionCallouts";
+import Leaderboard from "@/components/reports/Leaderboard";
 import { fmtMins, utcMinsToLocalTime, completionBarColor, type ReportsData } from "@/components/reports/shared";
 
 // Manager's Reports Overview — the company-wide dashboard, unchanged from
@@ -77,6 +79,9 @@ export default function ManagerOverview() {
 
       {!loading && data && (
         <>
+          <ExceptionCallouts data={data} />
+          <Leaderboard days={days} />
+
           {/* Task List Performance */}
           <section className="mb-10">
             <p className="font-mono text-[10px] uppercase tracking-widest text-dim mb-3">
@@ -89,7 +94,7 @@ export default function ManagerOverview() {
                 const variance = taskList.avgActualMins - taskList.totalProjectedMins;
 
                 return (
-                  <div key={taskList._id} className="bg-card rounded-card px-4 pt-4 pb-3">
+                  <div key={taskList._id} id={`tasklist-${taskList._id}`} className="bg-card rounded-card px-4 pt-4 pb-3">
                     <div className="flex items-start justify-between mb-1">
                       <h3 className="font-heading text-base text-text">{taskList.name}</h3>
                       <span
