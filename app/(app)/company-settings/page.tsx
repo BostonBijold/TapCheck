@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import Company from "@/models/Company";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import CompanySettingsView from "@/components/CompanySettingsView";
 import type { NotificationSound } from "@/lib/notification-sound";
 
@@ -18,7 +18,7 @@ export default async function CompanySettingsPage() {
   if (!sessionUser) redirect("/login");
   const { companyId } = sessionUser;
   if (!companyId) redirect("/tasks");
-  if (sessionUser.role !== "manager") redirect("/tasks");
+  if (!isManagerOrAbove(sessionUser.role)) redirect("/tasks");
 
   await connectDB();
   const company = await Company.findById(

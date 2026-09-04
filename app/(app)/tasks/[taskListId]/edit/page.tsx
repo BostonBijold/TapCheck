@@ -7,7 +7,7 @@ import type { TaskType } from "@/models/TaskDefinition";
 import NfcTag from "@/models/NfcTag";
 import TaskListEditView from "@/components/TaskListEditView";
 import { resolveTasks } from "@/lib/task-definitions";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +49,7 @@ export default async function EditTaskListPage({
 
   return (
     <TaskListEditView
-      isManager={role === "manager"}
+      isManager={isManagerOrAbove(role)}
       taskList={{
         _id: taskList._id.toString(),
         name: taskList.name,

@@ -5,10 +5,19 @@ export type LogState = "in_progress" | "paused" | "done" | "missed" | "rest";
 
 export interface ITaskLog extends Document {
   companyId: string;
+  // Which store this happened at — see docs/features/locations.md. Part of
+  // the uniqueness key alongside companyId+taskId+date (not an attribute
+  // like performedByUserId): two locations both running the same
+  // shared-catalog task on the same day must each get their own log, not
+  // collide into one. Plain String, same convention as companyId — carries
+  // whatever the acting user's own locationId resolves to. Null only for
+  // logs written before Locations shipped, backfilled by the one-off
+  // migration (scripts/backfill-locations.mjs).
+  locationId: string | null;
   // Which specific user actually did the task — an attribute, not part of
   // the uniqueness key: any employee on shift might complete a given task,
   // so the meaningful uniqueness is one log per task per day for the whole
-  // company (see the index below), not per user.
+  // location (see the index below), not per user.
   performedByUserId: string;
   taskId: mongoose.Types.ObjectId;
   date: string;              // YYYY-MM-DD
@@ -46,6 +55,7 @@ export interface ITaskLog extends Document {
 const TaskLogSchema = new Schema<ITaskLog>(
   {
     companyId: { type: String, required: true, index: true },
+    locationId: { type: String, default: null },
     performedByUserId: { type: String, required: true },
     taskId: { type: Schema.Types.ObjectId, ref: "Task", required: true },
     date: { type: String, required: true },
@@ -64,10 +74,14 @@ const TaskLogSchema = new Schema<ITaskLog>(
 );
 
 TaskLogSchema.index({ companyId: 1, date: 1 });
-// One log per task per day for the whole company — not per user, since any
-// employee on shift might complete a given task (performedByUserId is
-// stored as an attribute on that single log, not part of this key).
-TaskLogSchema.index({ companyId: 1, taskId: 1, date: 1 }, { unique: true });
+// One log per task per day per LOCATION — not per user (performedByUserId
+// is an attribute, not part of this key) and, since the task catalog is
+// shared company-wide (see docs/features/locations.md's open questions),
+// not per company alone either: two locations both running the same
+// shared "Opening Checklist" on the same day must each get their own log.
+// Requires every row's locationId to be backfilled before this index is
+// created against existing data — see scripts/backfill-locations.mjs.
+TaskLogSchema.index({ companyId: 1, locationId: 1, taskId: 1, date: 1 }, { unique: true });
 // Supports the Reports Logs tab's per-employee date-range history query
 // (GET /api/task-logs/history) and lib/streak.ts's backward day-by-day
 // walk — neither existing index above covers performedByUserId, so either

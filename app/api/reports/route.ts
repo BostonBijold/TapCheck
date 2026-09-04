@@ -3,7 +3,8 @@ import { connectDB } from "@/lib/mongoose";
 import { getDates, elapsedDates as computeElapsedDates } from "@/lib/report-dates";
 import { computeWeeklyProgress } from "@/lib/task-progress";
 import { computeCurrentStreakForUser } from "@/lib/streak";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 import TaskList from "@/models/TaskList";
@@ -39,7 +40,13 @@ export async function GET(req: NextRequest) {
   // (taskListStats, taskStats, weeklyProgress) folds over `logs` without
   // ever touching performedByUserId itself, so this one filter personalizes
   // the whole response. Managers keep the unfiltered, company-wide query.
-  const logQuery: Record<string, unknown> = { companyId, date: { $in: dates } };
+  // Same location-scoping convention as GET /api/task-logs — an owner may
+  // pass ?locationId=<id> to view a specific store's reports; an
+  // employee/manager always sees only their own. See
+  // docs/features/locations.md.
+  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+  const logQuery: Record<string, unknown> = { companyId, locationId, date: { $in: dates } };
   if (role === "employee") logQuery.performedByUserId = userId;
   const logs = await TaskLog.find(logQuery).lean();
 

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
 import ProfileView from "@/components/ProfileView";
@@ -29,7 +29,7 @@ export default async function ProfilePage() {
       email={session?.user?.email ?? "dev@local"}
       today={today}
       skipAuth={skipAuth ?? false}
-      isManager={sessionUser?.role === "manager"}
+      isManager={!!sessionUser && isManagerOrAbove(sessionUser.role)}
       hasPassword={hasPassword}
     />
   );

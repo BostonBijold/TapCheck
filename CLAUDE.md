@@ -169,18 +169,49 @@ Company, and every other collection scopes its data either to the Company
 }
 ```
 
+### Location
+One physical store under a Company — see docs/features/locations.md.
+Scope is deliberately narrow: one company, many locations, never the other
+way around.
+```js
+{
+  _id,
+  companyId,          // ref Company — the only relationship; a Location never exists without a Company
+  name,                // e.g. "Salt Lake City"
+  address,             // string | null
+  timezone,            // IANA name | null — not yet read anywhere
+  isActive,            // bool, default true — soft-delete/close, same convention as TaskList.isActive
+  createdAt
+}
+```
+
 ### User
 ```js
 {
   _id, email, name,
   companyId,                   // ref Company — null until attached via an Invite redemption or (still supported)
                                // a developer manually attaching one in MongoDB
-  role: 'manager' | 'employee' | null, // defaults to 'manager' on signup; null after DELETE /api/team/[userId]
-                               // detaches a user from their company (see "Team & Invites" below) — a null role
-                               // never grants access on its own, every route gates on companyId first
+  role: 'manager' | 'employee' | 'owner' | null, // defaults to 'manager' on signup; null after
+                               // DELETE /api/team/[userId] detaches a user from their company (see "Team &
+                               // Invites" below) — a null role never grants access on its own, every route
+                               // gates on companyId first. 'owner' (see "Locations" below) is a strict
+                               // superset of 'manager' — sees/administers every Location under the company,
+                               // not just one — and is never assigned through any in-app flow, only by hand
+                               // in MongoDB, same as a company's very first manager.
   companyJoinedAt,             // Date | null — set at Invite redemption alongside companyId/role; null for
                                // anyone attached by hand in MongoDB. Distinct from account-creation createdAt
                                // so re-joining a *different* company later reflects current tenure there.
+  locationId,                  // ref Location | null — see "Locations" below. This user's PRIMARY location;
+                               // for 'employee'/'manager' it's also their ONLY visible location. For 'owner'
+                               // it's just their default context — an owner's actual visible-locations set is
+                               // computed (every active Location under companyId), never stored. Set at
+                               // Invite redemption from the invite's own locationId, or by an owner via
+                               // PATCH /api/team/[userId]. Null until the one-off backfill script runs
+                               // (scripts/backfill-locations.mjs) for any pre-Locations user.
+  jobTags,                     // string[], default [] — company-defined job function tags (server/cook/
+                               // busser/host/…), orthogonal to role (role = access, jobTags = task-list
+                               // assignment). Schema only — not yet read anywhere, see
+                               // docs/features/locations.md's "Job tags".
   liveActivityPushToken,      // iOS Live Activity push updates
   liveActivityPushEnvironment,// 'sandbox' | 'production'
   createdAt
@@ -197,6 +228,8 @@ Ownership-level, company-scoped join token — see "Team & Invites" below and
   token,             // crypto.randomBytes(24).toString("base64url") — unguessable, opening
                      //   /invite/<token> is what attaches a user to companyId
   role: 'employee' | 'manager', // preset by the manager who generated it; applied to the User on redemption
+  locationId,        // see "Locations" below — stamped from the creating manager's own User.locationId, or
+                     //   picked explicitly if an owner created it; applied to the User on redemption
   createdByUserId,   // attribution only, same convention as NfcTag.claimedByUserId
   expiresAt,         // Date — default now + 7 days
   maxUses,           // default 1; a "reusable link" invite sets a higher cap
@@ -284,14 +317,18 @@ these two collections server-side on every read.
 ```
 
 ### TaskLog
-Activity-level — scoped to the company for tenant isolation, with
-performedByUserId recording who actually did it. Any employee on shift can
-complete a given task, so uniqueness is one log per task per day for the
-whole company (`companyId + taskId + date`), not per user.
+Activity-level — scoped to the company AND location for tenant isolation
+(see docs/features/locations.md), with performedByUserId recording who
+actually did it. Any employee on shift can complete a given task, so
+uniqueness is one log per task per day for the whole location
+(`companyId + locationId + taskId + date`), not per user — and, since the
+task catalog stays shared company-wide, not per company alone either (two
+locations both running the same shared list get independent logs).
 ```js
 {
   _id,
   companyId,
+  locationId,       // string | null — see docs/features/locations.md; null only for pre-Locations rows
   performedByUserId,
   taskId,
   date,             // YYYY-MM-DD
@@ -667,6 +704,41 @@ model, both mechanisms, push payload shape, and failure handling — is in
 
 ---
 
+## Locations
+
+One company can now run multiple physical stores — a new `Location` model,
+one-to-many under `Company` (see "Data Models" above and
+`docs/features/locations.md`). Deliberately narrow scope: one company, many
+locations, never "one login, many companies" (a separate business still
+needs its own `Company`).
+
+Adds a third `User.role` tier, `owner` — a strict superset of `manager` that
+sees/administers every `Location` under their company rather than just
+one, computed at read time rather than stored. `owner` is assigned by hand
+in MongoDB only, never through any in-app flow. Every former
+`role !== "manager"` gate across the app now reads `!isManagerOrAbove(role)`
+(`lib/roles.ts`/`lib/session.ts`).
+
+`User.locationId` is an employee/manager's one and only visible location,
+stamped at invite redemption from the invite's own `locationId` (itself
+stamped from the inviting manager's `locationId`, or picked explicitly by
+an owner). `TaskLog`/`TaskListSession`/`InventoryLog`/`MissedListAlert` all
+gained a `locationId` field and their lookup/uniqueness indexes were
+updated to include it, so two locations running the same shared task-list
+catalog never collide into one location's data.
+
+Also adds a second, independent axis on `User` — `jobTags: string[]`
+(server/cook/busser/host/…), schema-only for now, for a future task-list-
+by-job-function assignment pass that isn't built yet.
+
+**Known gap**: no location-switcher UI yet — an owner's session defaults to
+their own location; every route that supports viewing another one accepts
+an optional `?locationId=`, but nothing renders a control to set it. Full
+detail — permissions audit, migration script, notification fan-out
+changes, and every other open gap — is in `docs/features/locations.md`.
+
+---
+
 ## Feature Build Order
 
 ### Phase 1 — Task Lists (built)
@@ -813,6 +885,7 @@ table is a quick reference, not authoritative.
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
+- Locations: BUILT (backend) — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, and locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert; migration script at `scripts/backfill-locations.mjs`. NOT built: an owner-facing location-switcher UI, per-location split of the start-time-reminder cron, and job-tags UI — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

@@ -32,7 +32,7 @@ export default async function TasksPage({
 
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
-  const { companyId, userId, role } = sessionUser;
+  const { companyId, userId, role, locationId } = sessionUser;
 
   const userName = session?.user?.name ?? "Developer";
 
@@ -116,9 +116,11 @@ export default async function TasksPage({
     };
   });
 
-  // Today's logs for initial state — company-wide, since any employee's
-  // completion of a shared task should show up for everyone.
-  const todayLogs = await TaskLog.find({ companyId, date: today }).lean();
+  // Today's logs for initial state — shared across everyone AT THIS
+  // LOCATION (any employee's completion of a shared task should show up for
+  // every teammate at their own store), not the whole company — see
+  // docs/features/locations.md.
+  const todayLogs = await TaskLog.find({ companyId, locationId, date: today }).lean();
   const initialLogs = todayLogs.map((l) => ({
     _id: l._id.toString(),
     taskId: l.taskId.toString(),
@@ -144,6 +146,7 @@ export default async function TasksPage({
   // 7-day streak logs
   const rawWeekLogs = await TaskLog.find({
     companyId,
+    locationId,
     date: { $in: weekDates },
   }).lean();
 

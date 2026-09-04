@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { getDates } from "@/lib/report-dates";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 import InventoryItemType from "@/models/InventoryItemType";
 import InventoryLog from "@/models/InventoryLog";
 
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const { searchParams } = req.nextUrl;
   const itemTypeId = searchParams.get("itemTypeId");
@@ -52,9 +53,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Item not found" }, { status: 404 });
   }
 
+  // Same location-scoping convention as GET /api/reports — an owner may
+  // pass ?locationId=<id> to view a specific store's trend; a manager always
+  // sees only their own. See docs/features/locations.md.
+  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
   const rawLogs = itemTypes.length > 0
     ? await InventoryLog.find({
         companyId,
+        locationId,
         itemTypeId: { $in: itemTypes.map((it) => it._id) },
         loggedAt: { $gte: start, $lte: end },
       })

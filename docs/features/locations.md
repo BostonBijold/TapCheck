@@ -1,0 +1,255 @@
+> **Keep this file updated after any code change in this area — do not let it drift from actual implementation.**
+
+# Locations (multi-location companies)
+
+**Status: BUILT** — schema, permissions, invite/team location assignment,
+Location CRUD, and TaskLog/InventoryLog/TaskListSession/MissedListAlert
+location-scoping described below are all implemented. The location
+**switcher UI** for an owner (a visual control to change which location's
+Today view/Reports/Inventory they're looking at) is **not yet built** — an
+owner's session defaults to their own `locationId`, and every read route
+that supports it accepts an optional `?locationId=` query param (validated
+against the company) as the mechanism a future switcher would call. See
+"Known gaps" at the end of this doc.
+
+Every `Company` was implicitly a single restaurant before this feature.
+`Location` is a new one-to-many child of `Company`, so one company (one
+legal business, one Ch'rps account) can run multiple physical stores — e.g.
+"Via 313 — Salt Lake City" and "Via 313 — Sugar House" both under one
+company. **Scope is deliberately narrow**: this is *one company with many
+locations*, not "one owner with many companies." An owner who wants to run
+two legally-separate businesses on Ch'rps still needs two separate
+`Company` accounts — that broader "one login, many companies" model was
+discussed and explicitly deferred, see [Open questions](#open-questions--deferred).
+
+This also introduces a third `User.role` tier (`owner`, alongside the
+existing `employee`/`manager`) and a second, independent axis on `User` —
+**job tags** (server/cook/busser/host/…) — for assigning different task
+lists to different job functions without overloading the permission role.
+The `jobTags` field exists on the schema; the tag-catalog/task-list-
+targeting UI is **not built** (see [Job tags](#job-tags)).
+
+## Data model
+
+### `models/Location.ts`
+
+```ts
+Location {
+  companyId,                    // ref Company (plain String, not ObjectId — same convention as
+                                 //   every other tenant-scoped collection)
+  name: string,                 // e.g. "Salt Lake City" — required
+  address: string | null,
+  timezone: string | null,      // IANA name, e.g. "America/Denver" — not yet read anywhere (see
+                                 //   Open questions re: per-location business hours)
+  isActive: boolean (default true),  // soft-delete/close a location without losing its historical logs
+  createdAt,
+}
+```
+
+Index: `{ companyId: 1, isActive: 1 }`.
+
+### `models/User.ts`
+
+- **`role`**: widened to `"employee" | "manager" | "owner" | null`. `owner`
+  is a strict superset of `manager` — every former `role !== "manager"` gate
+  now reads `!isManagerOrAbove(role)` (`lib/session.ts`/`lib/roles.ts`).
+  `owner` is never assigned through any in-app flow (invite redemption,
+  `PATCH /api/team/[userId]`) — only by hand in MongoDB, same as a
+  company's very first manager.
+- **`locationId`** (ref `Location`, nullable): this user's primary location.
+  Set at invite redemption from the invite's own `locationId`, or by an
+  owner via `PATCH /api/team/[userId]`. For `employee`/`manager` this is
+  also their *only* visible/actionable location. An owner's visible-
+  locations set is **computed**, not stored — every active `Location` under
+  their `companyId` (`lib/locations.ts`'s `listActiveLocations`) — their own
+  `locationId` is just their default context.
+- **`jobTags: string[]`** (default `[]`) — schema only, not yet read by any
+  route or UI.
+
+### `models/Invite.ts`
+
+- **`locationId`** (plain String, nullable — same convention as
+  `companyId`): stamped from the creating manager's own `User.locationId`
+  at `POST /api/invites` time. An **owner** creating an invite must pass
+  `locationId` explicitly in the request body (validated against the
+  company); `InviteSheet.tsx` shows a location picker only when the creator
+  is an owner. On redemption (`app/invite/[token]/page.tsx`), the invite's
+  `locationId` is written onto the redeeming `User.locationId`.
+
+### `models/TaskLog.ts`, `models/TaskListSession.ts`, `models/InventoryLog.ts`, `models/MissedListAlert.ts`
+
+Each gained a plain-String `locationId` field (nullable, for pre-migration
+rows) and their compound uniqueness/lookup indexes now include it:
+
+- `TaskLog`: `{ companyId, locationId, taskId, date }` unique — was
+  `{ companyId, taskId, date }`. Two locations running the same
+  shared-catalog task on the same day now get independent logs instead of
+  colliding.
+- `TaskListSession`: `{ companyId, locationId, taskListId, date, status }`
+  lookup index — a session opened at one store no longer reads as
+  "already open" at another.
+- `InventoryLog`: `{ companyId, locationId, itemTypeId, loggedAt }` — the
+  catalog (`InventoryItemType`) stays company-wide/shared (see
+  [Open questions](#open-questions--deferred)), but a "current count" is
+  now tracked independently per location.
+- `MissedListAlert` (not in the original spec — added during
+  implementation): `{ companyId, locationId, taskListId, date }` unique —
+  same collision reasoning as `TaskLog`, needed once the missed-list cron
+  sweep started iterating per-location (see
+  [Notifications](#notifications-fan-out) below).
+
+`Todo` is unchanged — still scoped by `companyId` + `userId` only, no
+`locationId` (see the original reasoning: a user belongs to exactly one
+location, so it'd be redundant).
+
+## Role tiers & permissions
+
+| Role | Sees | Administers |
+|---|---|---|
+| `employee` | Their own `locationId` only | Nothing |
+| `manager` | Their own `locationId` only | Their own location's catalog, team, invites, reports |
+| `owner` | Every active `Location` under their `companyId` | Everything a manager can, at any of their company's locations |
+
+`lib/roles.ts` (client-safe, no server-only imports) defines
+`isManagerOrAbove(role)`/`isOwner(role)`; `lib/session.ts` re-exports both
+for server call sites. Every API route and page that used to check
+`role === "manager"` / `role !== "manager"` now uses `isManagerOrAbove`.
+Two actions are gated tighter, **owner-only**:
+
+- `POST /api/locations` (creating a store) and `PATCH`/`DELETE
+  /api/locations/[id]` (rename/close it).
+- `PATCH /api/team/[userId]`'s `locationId` field (reassigning a teammate
+  between locations) — `role` changes on that same route stay manager-or-
+  above, but only an owner may act on a fellow **owner** row at all (change
+  their role or remove them), and the "last manager" lockout guard now also
+  checks for at least one owner before blocking a demotion/removal (a
+  company with an owner is never locked out even at zero managers).
+
+## Location assignment
+
+- **Invite-time stamping** (default): a manager's own `locationId` is baked
+  into every invite they create. An owner picks a location explicitly in
+  `InviteSheet.tsx`.
+- **Manual reassignment**: owner-only, via `PATCH /api/team/[userId]` (body:
+  `{ locationId }`), validated against the company's active locations.
+  `TeamMemberActionSheet.tsx` itself only ever toggles manager/employee —
+  location reassignment isn't wired into that sheet's UI yet (the API
+  supports it; no button calls it — see [Known gaps](#known-gaps)).
+- No self-serve "switch my own location" — always a manager/owner action on
+  someone else's account.
+
+## Location CRUD
+
+`app/api/locations/route.ts` — `GET` (any signed-in company user; the
+company's active locations, `{ _id, name, address, timezone }[]`) and
+`POST` (owner-only create). `app/api/locations/[id]/route.ts` — `PATCH`
+(owner-only rename/re-address/re-zone) and `DELETE` (owner-only soft-delete,
+`isActive: false`).
+
+## TaskLog/TaskListSession/Inventory write-path propagation
+
+`locationId` is threaded as a parameter alongside `companyId` through every
+function in `lib/task-log-actions.ts`, `lib/task-list-session-actions.ts`,
+and the relevant functions in `lib/inventory.ts`
+(`getLatestInventoryLogs`/`writeInventoryLogsForTaskCompletion`), and
+through `lib/task-trigger.ts`'s `triggerTask` (the NFC Universal Link entry
+point) and `lib/task-definitions.ts`'s `resolveMostRelevantPlacement`.
+Every route that calls into these resolves `locationId` from the caller's
+own session (`sessionUser.locationId`) for employee/manager, or via
+`pickActiveLocationId(sessionUser, validatedRequestedLocationId)` for an
+owner who passed `?locationId=`/body `locationId` (`lib/session.ts`,
+`lib/locations.ts`'s `validateLocationId`).
+
+A few queries are **deliberately not** location-scoped, on purpose:
+
+- `completeStrayInProgressLogs`/`startTask`'s "any other in_progress log for
+  this person" lookups, `GET /api/task-logs/active`, and `triggerTask`'s own
+  active-log lookup — the single-active-timer invariant is about the
+  *person*, not which location a log happens to carry.
+- `lib/streak.ts`'s `computeCurrentStreakForUser` — same reasoning, scoped
+  by `performedByUserId` already.
+
+### Notifications fan-out
+
+`app/api/cron/check-missed-lists/route.ts` now iterates every active
+`Location` under each company (falling back to a single `null`-location
+pass for a company with none yet), running the missed-check independently
+per location since the shared catalog means the same list can be missed at
+one store and not another on the same day. `lib/notifications.ts`'s
+`sendMissedListAlert`/`sendStartTimeReminder` both grew a `locationId`
+param: managers/employees are filtered to that location, owners always
+included regardless (they administer every location). `POST
+/api/cron/task-list-reminder` — **not** location-split**: a shift-window
+list has exactly one QStash schedule regardless of how many locations run
+it (no per-location schedule exists), so this fire still reaches everyone
+company-wide, and its own "already finished" skip-check is still evaluated
+company-wide too. Accepted simplification for this low-stakes nudge — see
+[Known gaps](#known-gaps).
+
+## Migration / backfill
+
+`scripts/backfill-locations.mjs` — one-off, manually run
+(`node --env-file=.env.local scripts/backfill-locations.mjs`), idempotent.
+In order:
+
+1. Creates one default `Location` ("Main Location") per existing `Company`.
+2. Sets every existing `User.locationId` to that company's default.
+3. Backfills `locationId` onto every existing `TaskLog`/`InventoryLog`/
+   `TaskListSession`/`MissedListAlert` row from the same default.
+
+**Must run before deploying app code that depends on `TaskLog`'s new
+unique `{companyId, locationId, taskId, date}` index** — an existing
+company's own `POST /api/invites` will also start failing (no valid
+`locationId` to stamp) until this has run, since invite creation now
+requires the creating manager to have a `locationId`.
+
+## Job tags
+
+Schema-only — `User.jobTags: string[]` exists, default `[]`, not read
+anywhere. The full design (company-level tag catalog, a
+`TaskList`/`Task.visibleToJobTags` field, assignment UI on
+`TeamMemberActionSheet.tsx`) is unbuilt — a distinct future pass, not part
+of this one.
+
+## Known gaps
+
+Deliberately left unbuilt or unresolved in this pass — flag before treating
+this feature as fully "done":
+
+- **No location switcher UI.** An owner's session always defaults to their
+  own `locationId`; every route that supports viewing another location
+  accepts `?locationId=` (or body `locationId` for writes), but nothing in
+  the app currently renders a control to set it. Until a switcher exists,
+  an owner's Today view/Reports/Inventory only ever show their own default
+  location, same as a manager.
+- **Offline SQLite cache (`lib/offline-db.ts`) has no `locationId` column.**
+  Harmless today (every company has exactly one location post-migration),
+  but the native cache schema needs its own migration before offline sync
+  is correct for a company running more than one location — see
+  `docs/features/offline.md`.
+- **`TeamMemberActionSheet.tsx` has no location-reassignment control** —
+  `PATCH /api/team/[userId]`'s `locationId` field is implemented and
+  owner-gated, but no UI button calls it yet.
+- **Start-time reminders (`task-list-reminder` cron) are not split per
+  location** — see [Notifications fan-out](#notifications-fan-out) above.
+- **`GET /api/team` returns the whole company roster**, not filtered by
+  location — a location-bound manager sees every teammate at every
+  location, not just their own. Not decided in the original spec either.
+- Everything already listed as deferred in the original design pass, still
+  true: restricting an owner to a subset of locations; the broader
+  "one person, many companies" model; a combined multi-location rollup
+  view in Reports; per-location business hours/timezone actually being
+  read anywhere; and the NFC/InventoryItemType "shared catalog vs.
+  per-location catalog" question — this implementation assumed **shared
+  catalog, per-location logs**, so a physical NFC tag still binds to one
+  company-wide `TaskDefinition`/`InventoryItemType`, not a per-location
+  variant. If a location ever needs its own distinct catalog, that's a
+  separate redesign, not covered here.
+
+## Depends on
+
+[`api/task-lists-api.md`](../api/task-lists-api.md), [`features/nfc.md`](nfc.md),
+[`features/inventory.md`](inventory.md), [`features/team-invites.md`](team-invites.md),
+and [`features/notifications.md`](notifications.md) — this feature adds a
+filtering dimension on top of all of these rather than replacing any of
+their existing auth/session-resolution patterns.

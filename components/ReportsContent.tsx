@@ -5,9 +5,10 @@ import ManagerOverview from "@/components/reports/ManagerOverview";
 import EmployeeOverview from "@/components/reports/EmployeeOverview";
 import LogsTab from "@/components/reports/LogsTab";
 import InventoryTab from "@/components/reports/InventoryTab";
+import { isManagerOrAbove } from "@/lib/roles";
 
 interface Props {
-  role: "manager" | "employee";
+  role: "manager" | "employee" | "owner";
 }
 
 type Tab = "overview" | "logs" | "inventory";
@@ -42,7 +43,7 @@ export default function ReportsContent({ role }: Props) {
           >
             Logs
           </button>
-          {role === "manager" && (
+          {isManagerOrAbove(role) && (
             <button
               onClick={() => setTab("inventory")}
               className={`font-mono text-xs px-3 py-1.5 rounded-pill transition-colors ${
@@ -55,9 +56,9 @@ export default function ReportsContent({ role }: Props) {
         </div>
       </div>
 
-      {tab === "overview" && (role === "manager" ? <ManagerOverview /> : <EmployeeOverview />)}
+      {tab === "overview" && (isManagerOrAbove(role) ? <ManagerOverview /> : <EmployeeOverview />)}
       {tab === "logs" && <LogsTab role={role} />}
-      {tab === "inventory" && role === "manager" && <InventoryTab />}
+      {tab === "inventory" && isManagerOrAbove(role) && <InventoryTab />}
     </>
   );
 }

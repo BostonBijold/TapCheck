@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import { unlockSession } from "@/lib/task-list-session-actions";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -17,9 +17,9 @@ export async function POST(
 ) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId, role } = sessionUser;
+  const { companyId, role, locationId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const { date } = (await req.json()) as { date?: string };
   if (!date) return NextResponse.json({ error: "date required" }, { status: 400 });
@@ -29,6 +29,6 @@ export async function POST(
   const taskList = await TaskList.findOne({ _id: params.taskListId, companyId }).select("_id").lean();
   if (!taskList) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  await unlockSession(companyId, params.taskListId, date);
+  await unlockSession(companyId, locationId, params.taskListId, date);
   return NextResponse.json({ ok: true });
 }

@@ -30,7 +30,7 @@ import { resolveTask } from "@/lib/task-definitions";
 // NFC Universal Link tap — see docs/features/nfc.md), so there's exactly
 // one query shape for "what does this list look like today," not a third
 // reimplementation of it.
-async function fetchTaskListTasksAndLogs(companyId: string, taskListId: string, date: string) {
+async function fetchTaskListTasksAndLogs(companyId: string, locationId: string | null, taskListId: string, date: string) {
   const tasks = await Task.find({ taskListId, companyId, isActive: true })
     .sort({ order: 1 })
     .lean();
@@ -38,6 +38,7 @@ async function fetchTaskListTasksAndLogs(companyId: string, taskListId: string, 
 
   const logs = await TaskLog.find({
     companyId,
+    locationId,
     date,
     taskId: { $in: tasks.map((t) => t._id) },
   }).lean();
@@ -48,8 +49,8 @@ async function fetchTaskListTasksAndLogs(companyId: string, taskListId: string, 
 // Used by the external trigger-task endpoint's "advance to next task in the
 // list" step (Case 2). Resolved (joined with its TaskDefinition) since
 // every caller immediately needs .taskType to decide how to start it.
-export async function findNextTaskInList(companyId: string, taskListId: string, date: string) {
-  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, taskListId, date);
+export async function findNextTaskInList(companyId: string, locationId: string | null, taskListId: string, date: string) {
+  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, locationId, taskListId, date);
   if (tasks.length === 0) return null;
   const loggedIds = new Set(logs.map((l) => l.taskId.toString()));
   const next = tasks.find((t) => !loggedIds.has(t._id.toString()));
@@ -59,8 +60,8 @@ export async function findNextTaskInList(companyId: string, taskListId: string, 
 // True once every active task in the list has a terminal (done/missed/
 // rest) log for date — what closes a TaskListSession. An empty/deleted list
 // is never "resolved" (nothing to close against).
-export async function isTaskListFullyResolved(companyId: string, taskListId: string, date: string): Promise<boolean> {
-  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, taskListId, date);
+export async function isTaskListFullyResolved(companyId: string, locationId: string | null, taskListId: string, date: string): Promise<boolean> {
+  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, locationId, taskListId, date);
   if (tasks.length === 0) return false;
   const terminalIds = new Set(
     logs.filter((l) => l.state === "done" || l.state === "missed" || l.state === "rest").map((l) => l.taskId.toString())
@@ -80,8 +81,8 @@ export async function isTaskListFullyResolved(companyId: string, taskListId: str
 // case it's up for grabs and whoever touches it next claims it, same as a
 // fresh session's first touch. See docs/features/task-lists.md's task list
 // locking section.
-export async function ensureOpenSession(companyId: string, performedByUserId: string, taskListId: string, date: string) {
-  const existing = await TaskListSession.findOne({ companyId, taskListId, date, status: "in_progress" });
+export async function ensureOpenSession(companyId: string, locationId: string | null, performedByUserId: string, taskListId: string, date: string) {
+  const existing = await TaskListSession.findOne({ companyId, locationId, taskListId, date, status: "in_progress" });
   if (existing) {
     if (!existing.performedByUserId) {
       existing.performedByUserId = performedByUserId;
@@ -91,6 +92,7 @@ export async function ensureOpenSession(companyId: string, performedByUserId: st
   }
   return TaskListSession.create({
     companyId,
+    locationId,
     performedByUserId,
     taskListId,
     date,
@@ -114,10 +116,11 @@ export interface SessionLock {
 // button to show "In progress by <name>" and gate the unlock icon. A
 // session a manager has already unlocked (performedByUserId: null) reports
 // no lock — it behaves like no open session for claiming purposes.
-export async function getOpenSessionLocks(companyId: string, taskListIds: string[], date: string): Promise<SessionLock[]> {
+export async function getOpenSessionLocks(companyId: string, locationId: string | null, taskListIds: string[], date: string): Promise<SessionLock[]> {
   if (taskListIds.length === 0) return [];
   const sessions = await TaskListSession.find({
     companyId,
+    locationId,
     taskListId: { $in: taskListIds },
     date,
     status: "in_progress",
@@ -147,9 +150,9 @@ export async function getOpenSessionLocks(companyId: string, taskListIds: string
 // this list/date. Nothing else about the session changes: not closed, not
 // duplicated, no reassignment step, already-completed tasks in it stay
 // exactly as they are. A no-op if there's no open session to unlock.
-export async function unlockSession(companyId: string, taskListId: string, date: string) {
+export async function unlockSession(companyId: string, locationId: string | null, taskListId: string, date: string) {
   await TaskListSession.updateOne(
-    { companyId, taskListId, date, status: "in_progress" },
+    { companyId, locationId, taskListId, date, status: "in_progress" },
     { $set: { performedByUserId: null } }
   );
 }
@@ -166,13 +169,13 @@ export async function unlockSession(companyId: string, taskListId: string, date:
 // delete it outright (whatever its status) so the list is claimable again,
 // exactly as if it had never been started. A no-op whenever some other
 // task in the list still has a log (something's still genuinely in play).
-export async function releaseSessionIfNowEmpty(companyId: string, taskId: string, date: string) {
+export async function releaseSessionIfNowEmpty(companyId: string, locationId: string | null, taskId: string, date: string) {
   const task = await Task.findById(taskId).select("taskListId").lean();
   if (!task) return;
   const taskListId = task.taskListId.toString();
-  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, taskListId, date);
+  const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, locationId, taskListId, date);
   if (tasks.length === 0 || logs.length > 0) return;
-  await TaskListSession.deleteOne({ companyId, taskListId, date });
+  await TaskListSession.deleteOne({ companyId, locationId, taskListId, date });
 }
 
 // Records a terminal completion against the open session for taskListId/
@@ -186,19 +189,20 @@ export async function releaseSessionIfNowEmpty(companyId: string, taskId: string
 // with a terminal log.
 export async function recordSessionCompletion(
   companyId: string,
+  locationId: string | null,
   taskListId: string,
   date: string,
   taskId: string,
   state: CompletionState,
   actualMinutes: number
 ) {
-  const session = await TaskListSession.findOne({ companyId, taskListId, date, status: "in_progress" });
+  const session = await TaskListSession.findOne({ companyId, locationId, taskListId, date, status: "in_progress" });
   if (!session) return;
 
   session.completionSequence.push({ taskId, completedAt: new Date(), state });
   if (state === "done") session.totalActualMinutes += actualMinutes;
 
-  if (await isTaskListFullyResolved(companyId, taskListId, date)) {
+  if (await isTaskListFullyResolved(companyId, locationId, taskListId, date)) {
     session.completedAt = new Date();
     session.status = "completed";
   }
@@ -212,9 +216,9 @@ export async function recordSessionCompletion(
 // trigger-task endpoint's Case 3 (a different task was active when this one
 // got tapped) call this, since both represent "attention moved to a
 // different task without that task being marked done."
-export async function incrementSessionPauseOrJump(companyId: string, taskListId: string, date: string) {
+export async function incrementSessionPauseOrJump(companyId: string, locationId: string | null, taskListId: string, date: string) {
   await TaskListSession.updateOne(
-    { companyId, taskListId, date, status: "in_progress" },
+    { companyId, locationId, taskListId, date, status: "in_progress" },
     { $inc: { pauseOrJumpCount: 1 } }
   );
 }
@@ -234,6 +238,7 @@ export type FabScanResolution =
 
 export async function resolveFabScanTarget(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskId: string,
   date: string
@@ -245,7 +250,7 @@ export async function resolveFabScanTarget(
   const list = await TaskList.findOne({ _id: taskListId, companyId }).select("startTime").lean();
   const isShiftWindow = !!list?.startTime;
 
-  const existingLog = await TaskLog.findOne({ companyId, taskId, date }).select("state").lean();
+  const existingLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).select("state").lean();
 
   // A task mid-run (in_progress/paused) inside a shift-window list's open
   // session isn't a dead end the way a terminal log is — the list's session
@@ -255,7 +260,7 @@ export async function resolveFabScanTarget(
   // locked out only if someone ELSE holds it. Never spawns a second
   // start/duplicate. See docs/features/nfc.md.
   if (existingLog && isShiftWindow && (existingLog.state === "in_progress" || existingLog.state === "paused")) {
-    const [lock] = await getOpenSessionLocks(companyId, [taskListId], date);
+    const [lock] = await getOpenSessionLocks(companyId, locationId, [taskListId], date);
     if (lock && lock.performedByUserId !== performedByUserId) {
       return { kind: "locked", taskId, taskListId, lockedByName: lock.performedByName };
     }
@@ -270,7 +275,7 @@ export async function resolveFabScanTarget(
 
   if (!isShiftWindow) return { kind: "anytime", taskId };
 
-  const [lock] = await getOpenSessionLocks(companyId, [taskListId], date);
+  const [lock] = await getOpenSessionLocks(companyId, locationId, [taskListId], date);
   if (lock && lock.performedByUserId !== performedByUserId) {
     return { kind: "locked", taskId, taskListId, lockedByName: lock.performedByName };
   }

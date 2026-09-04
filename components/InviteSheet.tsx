@@ -3,7 +3,14 @@
 import { useState } from "react";
 import { X, Copy, Check } from "lucide-react";
 
+interface LocationOption {
+  _id: string;
+  name: string;
+}
+
 interface Props {
+  isOwner: boolean;
+  locations: LocationOption[];
   onGenerated: () => void;
   onClose: () => void;
 }
@@ -16,22 +23,33 @@ const REUSABLE_MAX_USES = 50;
 // Step one of the "+ Invite" flow: pick a role and one-time-vs-reusable,
 // generate the link, then share it — see docs/features/team-invites.md's
 // "Redemption flow". Mirrors AddTaskListSheet.tsx's layout conventions.
-export default function InviteSheet({ onGenerated, onClose }: Props) {
+export default function InviteSheet({ isOwner, locations, onGenerated, onClose }: Props) {
   const [role, setRole] = useState<"employee" | "manager">("employee");
   const [reusable, setReusable] = useState(false);
+  const [locationId, setLocationId] = useState<string>(locations[0]?._id ?? "");
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState("");
   const [invite, setInvite] = useState<{ url: string } | null>(null);
   const [copied, setCopied] = useState(false);
 
   const handleGenerate = async () => {
+    if (isOwner && !locationId) {
+      setError("Pick a location for this invite.");
+      return;
+    }
     setGenerating(true);
     setError("");
     try {
       const res = await fetch("/api/invites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role, maxUses: reusable ? REUSABLE_MAX_USES : 1 }),
+        body: JSON.stringify({
+          role,
+          maxUses: reusable ? REUSABLE_MAX_USES : 1,
+          // Only meaningful for an owner — a location-bound manager's own
+          // locationId is always stamped server-side regardless of this.
+          ...(isOwner ? { locationId } : {}),
+        }),
       });
       if (!res.ok) throw new Error("Failed to create invite");
       const data = await res.json();
@@ -96,6 +114,29 @@ export default function InviteSheet({ onGenerated, onClose }: Props) {
                   </div>
                 </div>
 
+                {/* Only an owner needs this — a location-bound manager has
+                    no single "current" location, but their own is always
+                    stamped automatically, so there's nothing to pick. See
+                    docs/features/locations.md's "Invite changes". */}
+                {isOwner && (
+                  <div className="space-y-1.5">
+                    <label className="font-mono text-[10px] text-dim uppercase tracking-widest">Location</label>
+                    {locations.length === 0 ? (
+                      <p className="font-body text-xs text-dim">No locations yet — create one first.</p>
+                    ) : (
+                      <select
+                        value={locationId}
+                        onChange={(e) => setLocationId(e.target.value)}
+                        className="w-full py-3 px-3 rounded-card font-body text-sm border border-border bg-bg text-text min-h-[44px]"
+                      >
+                        {locations.map((l) => (
+                          <option key={l._id} value={l._id}>{l.name}</option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                )}
+
                 <div className="space-y-1.5">
                   <label className="font-mono text-[10px] text-dim uppercase tracking-widest">Uses</label>
                   <div className="flex gap-2">
@@ -126,7 +167,7 @@ export default function InviteSheet({ onGenerated, onClose }: Props) {
               <div className="px-5 pb-5 flex-shrink-0">
                 <button
                   onClick={handleGenerate}
-                  disabled={generating}
+                  disabled={generating || (isOwner && !locationId)}
                   className="w-full bg-olive text-text font-body font-medium py-3.5 rounded-card min-h-[48px] disabled:opacity-40 transition-opacity"
                 >
                   {generating ? "Generating…" : "Generate"}

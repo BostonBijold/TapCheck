@@ -91,11 +91,15 @@ export async function archiveInventoryGroup(companyId: string, groupId: string) 
 // resolveTasks.
 export async function getLatestInventoryLogs(
   companyId: string,
+  locationId: string | null,
   itemTypeIds: mongoose.Types.ObjectId[]
 ): Promise<Map<string, { count: number; loggedByUserId: string; loggedAt: Date }>> {
   if (itemTypeIds.length === 0) return new Map();
 
-  const logs = await InventoryLog.find({ companyId, itemTypeId: { $in: itemTypeIds } })
+  // The catalog (InventoryItemType) stays company-wide and shared across
+  // locations, but its count is tracked independently per location — see
+  // docs/features/locations.md's open questions.
+  const logs = await InventoryLog.find({ companyId, locationId, itemTypeId: { $in: itemTypeIds } })
     .sort({ loggedAt: -1 })
     .lean();
 
@@ -200,6 +204,7 @@ export async function removeInventoryLink(companyId: string, taskDefinitionId: s
 // claims that happen to reuse the same scanned UID when they line up.
 export async function writeInventoryLogsForTaskCompletion(
   companyId: string,
+  locationId: string | null,
   loggedByUserId: string,
   taskId: string,
   entries: Array<{ itemTypeId: string; count: number; verifiedNfcUid?: string | null }>
@@ -236,6 +241,7 @@ export async function writeInventoryLogsForTaskCompletion(
       return [
         {
           companyId,
+          locationId,
           itemTypeId: e.itemTypeId,
           count: e.count,
           loggedByUserId,

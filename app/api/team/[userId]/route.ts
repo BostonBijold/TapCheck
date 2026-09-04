@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
-import { resolveSessionUser } from "@/lib/session";
+import Location from "@/models/Location";
+import { resolveSessionUser, isManagerOrAbove, isOwner } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +28,23 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role: sessionRole } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (sessionRole !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(sessionRole)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
-  const { role } = (await req.json()) as { role?: string };
-  if (role !== "employee" && role !== "manager") {
+  const { role, locationId } = (await req.json()) as { role?: string; locationId?: string };
+  // Both fields are optional independently — a request may carry just role,
+  // just locationId, or (rarely) both — but at least one must be present.
+  if (role === undefined && locationId === undefined) {
+    return NextResponse.json({ error: "role or locationId required" }, { status: 400 });
+  }
+  if (role !== undefined && role !== "employee" && role !== "manager") {
     return NextResponse.json({ error: "role must be 'employee' or 'manager'" }, { status: 400 });
+  }
+  // Reassigning a teammate between locations is owner-only (see
+  // docs/features/locations.md's "Location assignment") — a location-bound
+  // manager has no visibility into other locations by definition, so they
+  // can't meaningfully be the one to move someone into one.
+  if (locationId !== undefined && !isOwner(sessionRole)) {
+    return NextResponse.json({ error: "Owners only" }, { status: 403 });
   }
 
   if (!isAddressable(companyId, params.userId)) {
@@ -43,14 +56,34 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   const target = await User.findOne({ _id: params.userId, companyId }, "role").lean<{ role?: string }>();
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  if (locationId !== undefined) {
+    const location = await Location.findOne({ _id: locationId, companyId, isActive: true }).lean();
+    if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  }
+
+  // An owner is a strict superset of manager (see docs/features/locations.md)
+  // and can't be created or changed through this employee/manager-only
+  // toggle — only an owner may touch a fellow owner's role at all.
+  if (target.role === "owner" && sessionRole !== "owner") {
+    return NextResponse.json({ error: "Owners only" }, { status: 403 });
+  }
+
   if (role === "employee" && target.role === "manager") {
-    const managerCount = await User.countDocuments({ companyId, role: "manager" });
-    if (managerCount <= 1) {
+    // A company with at least one owner is never locked out even at zero
+    // managers — an owner already administers everything a manager can.
+    const [managerCount, ownerCount] = await Promise.all([
+      User.countDocuments({ companyId, role: "manager" }),
+      User.countDocuments({ companyId, role: "owner" }),
+    ]);
+    if (managerCount <= 1 && ownerCount === 0) {
       return NextResponse.json({ error: "Can't demote the last manager" }, { status: 400 });
     }
   }
 
-  await User.findOneAndUpdate({ _id: params.userId, companyId }, { $set: { role } });
+  const updates: Record<string, unknown> = {};
+  if (role !== undefined) updates.role = role;
+  if (locationId !== undefined) updates.locationId = locationId;
+  await User.findOneAndUpdate({ _id: params.userId, companyId }, { $set: updates });
 
   return NextResponse.json({ ok: true });
 }
@@ -65,7 +98,7 @@ export async function DELETE(req: Request, { params }: { params: { userId: strin
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role: sessionRole } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (sessionRole !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(sessionRole)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   if (!isAddressable(companyId, params.userId)) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -76,16 +109,29 @@ export async function DELETE(req: Request, { params }: { params: { userId: strin
   const target = await User.findOne({ _id: params.userId, companyId }, "role").lean<{ role?: string }>();
   if (!target) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
+  if (target.role === "owner" && sessionRole !== "owner") {
+    return NextResponse.json({ error: "Owners only" }, { status: 403 });
+  }
+
   if (target.role === "manager") {
-    const managerCount = await User.countDocuments({ companyId, role: "manager" });
-    if (managerCount <= 1) {
+    // Same owner-covers-the-lockout reasoning as PATCH above.
+    const [managerCount, ownerCount] = await Promise.all([
+      User.countDocuments({ companyId, role: "manager" }),
+      User.countDocuments({ companyId, role: "owner" }),
+    ]);
+    if (managerCount <= 1 && ownerCount === 0) {
       return NextResponse.json({ error: "Can't remove the last manager" }, { status: 400 });
+    }
+  } else if (target.role === "owner") {
+    const ownerCount = await User.countDocuments({ companyId, role: "owner" });
+    if (ownerCount <= 1) {
+      return NextResponse.json({ error: "Can't remove the last owner" }, { status: 400 });
     }
   }
 
   await User.findOneAndUpdate(
     { _id: params.userId, companyId },
-    { $set: { companyId: null, role: null, companyJoinedAt: null } }
+    { $set: { companyId: null, role: null, companyJoinedAt: null, locationId: null } }
   );
 
   return NextResponse.json({ ok: true });

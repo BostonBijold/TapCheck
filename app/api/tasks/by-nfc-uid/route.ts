@@ -40,7 +40,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId, userId } = sessionUser;
+  const { companyId, userId, locationId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const uid = req.nextUrl.searchParams.get("uid");
@@ -57,9 +57,9 @@ export async function GET(req: NextRequest) {
   await connectDB();
 
   const resolveTaskDefinitionTarget = async (definitionId: string) => {
-    const taskId = await resolveMostRelevantPlacement(companyId, definitionId, date, nowMinutes);
+    const taskId = await resolveMostRelevantPlacement(companyId, locationId, definitionId, date, nowMinutes);
     if (!taskId) return null;
-    const resolution = await resolveFabScanTarget(companyId, userId, taskId.toString(), date);
+    const resolution = await resolveFabScanTarget(companyId, locationId, userId, taskId.toString(), date);
     if (!resolution) return null;
     const { kind, ...rest } = resolution;
     return NextResponse.json({ mode: kind, ...rest });

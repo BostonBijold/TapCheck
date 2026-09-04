@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Receiver } from "@upstash/qstash";
 import { connectDB } from "@/lib/mongoose";
 import Company from "@/models/Company";
+import Location from "@/models/Location";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
@@ -79,56 +80,70 @@ export async function POST(req: NextRequest) {
         { companyId, isActive: true, startTime: { $ne: null } },
         "_id name startTime"
       ).lean<{ _id: { toString(): string }; name: string; startTime: string }[]>();
+      if (lists.length === 0) continue;
 
-      for (const list of lists) {
-        const taskListId = list._id.toString();
-        try {
-          const rawTasks = await Task.find({ taskListId, companyId, isActive: true }).lean();
-          const resolved = await resolveTasks(rawTasks);
-          const visible = resolved.filter((t) => isTaskVisibleOn(t, today));
-          // Nothing was expected on this list today — nothing can be missed.
-          if (visible.length === 0) continue;
+      // The task catalog stays company-wide/shared (see
+      // docs/features/locations.md's open questions), so the same list can
+      // independently be missed at more than one location on the same day —
+      // this sweep runs the check once per active location, not once per
+      // company. A company with no locations yet (pre-migration, or one
+      // whose backfill hasn't run) falls back to a single null-location
+      // pass, matching this route's pre-Locations behavior exactly.
+      const locations = await Location.find({ companyId, isActive: true }, "_id").lean<{ _id: { toString(): string } }[]>();
+      const locationIds: (string | null)[] = locations.length > 0 ? locations.map((l) => l._id.toString()) : [null];
 
-          const timedVisible = visible.filter((t) => t.taskType !== "checkbox");
-          const totalProjected = timedVisible.reduce((s, t) => s + t.projectedMinutes, 0);
-          const collapseAfter = deriveCollapseAfter(list.startTime, totalProjected);
-          if (!isPastGraceWindow(nowMinutes, collapseAfter)) continue;
-
-          const logs = await TaskLog.find(
-            { companyId, date: today, taskId: { $in: visible.map((t) => t._id) } },
-            "taskId state"
-          ).lean<{ taskId: { toString(): string }; state: string }[]>();
-          const stateByTaskId = new Map(logs.map((l) => [l.taskId.toString(), l.state]));
-
-          const outstanding = visible.filter((t) => {
-            const state = stateByTaskId.get(t._id.toString());
-            return !state || !TERMINAL_STATES.has(state);
-          });
-          if (outstanding.length === 0) continue;
-
-          // Atomic "insert only if not already alerted today" — the unique
-          // index on {companyId, taskListId, date} is the real dedup guard,
-          // this insert is written BEFORE the push fan-out (write-then-send)
-          // so a crash mid-send, or a QStash retry of this whole
-          // invocation, can't cause a duplicate alert.
+      for (const locationId of locationIds) {
+        for (const list of lists) {
+          const taskListId = list._id.toString();
           try {
-            await MissedListAlert.create({ companyId, taskListId, date: today });
-          } catch (err: unknown) {
-            if ((err as { code?: number }).code === 11000) continue; // already alerted
-            throw err;
-          }
+            const rawTasks = await Task.find({ taskListId, companyId, isActive: true }).lean();
+            const resolved = await resolveTasks(rawTasks);
+            const visible = resolved.filter((t) => isTaskVisibleOn(t, today));
+            // Nothing was expected on this list today — nothing can be missed.
+            if (visible.length === 0) continue;
 
-          await sendMissedListAlert({
-            companyId,
-            taskListId,
-            taskListName: list.name,
-            outstandingCount: outstanding.length,
-            windowEndLabel: collapseAfter ? fmtTime(collapseAfter) : fmtTime(list.startTime),
-            date: today,
-          });
-          alertsSent += 1;
-        } catch (err) {
-          console.error(`check-missed-lists: list ${taskListId} failed`, err);
+            const timedVisible = visible.filter((t) => t.taskType !== "checkbox");
+            const totalProjected = timedVisible.reduce((s, t) => s + t.projectedMinutes, 0);
+            const collapseAfter = deriveCollapseAfter(list.startTime, totalProjected);
+            if (!isPastGraceWindow(nowMinutes, collapseAfter)) continue;
+
+            const logs = await TaskLog.find(
+              { companyId, locationId, date: today, taskId: { $in: visible.map((t) => t._id) } },
+              "taskId state"
+            ).lean<{ taskId: { toString(): string }; state: string }[]>();
+            const stateByTaskId = new Map(logs.map((l) => [l.taskId.toString(), l.state]));
+
+            const outstanding = visible.filter((t) => {
+              const state = stateByTaskId.get(t._id.toString());
+              return !state || !TERMINAL_STATES.has(state);
+            });
+            if (outstanding.length === 0) continue;
+
+            // Atomic "insert only if not already alerted today" — the unique
+            // index on {companyId, locationId, taskListId, date} is the real
+            // dedup guard, this insert is written BEFORE the push fan-out
+            // (write-then-send) so a crash mid-send, or a QStash retry of
+            // this whole invocation, can't cause a duplicate alert.
+            try {
+              await MissedListAlert.create({ companyId, locationId, taskListId, date: today });
+            } catch (err: unknown) {
+              if ((err as { code?: number }).code === 11000) continue; // already alerted
+              throw err;
+            }
+
+            await sendMissedListAlert({
+              companyId,
+              locationId,
+              taskListId,
+              taskListName: list.name,
+              outstandingCount: outstanding.length,
+              windowEndLabel: collapseAfter ? fmtTime(collapseAfter) : fmtTime(list.startTime),
+              date: today,
+            });
+            alertsSent += 1;
+          } catch (err) {
+            console.error(`check-missed-lists: list ${taskListId} (location ${locationId}) failed`, err);
+          }
         }
       }
     } catch (err) {

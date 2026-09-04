@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import AppIcon from "@/components/AppIcon";
 import { BADGE, LABEL } from "@/components/TaskRow";
 import type { LogState } from "@/models/TaskLog";
+import { isManagerOrAbove } from "@/lib/roles";
 
 interface HistoryLog {
   _id: string;
@@ -70,7 +71,7 @@ function fmtMins(mins: number) {
 // sees every employee's logs by default; employee always sees only their
 // own (enforced server-side, not just hidden UI — see
 // app/api/task-logs/history/route.ts). See docs/features/reports.md.
-export default function LogsTab({ role }: { role: "manager" | "employee" }) {
+export default function LogsTab({ role }: { role: "manager" | "employee" | "owner" }) {
   const initialWindow = trailingWindow(14);
   const [startDate, setStartDate] = useState(initialWindow.startDate);
   const [endDate, setEndDate] = useState(initialWindow.endDate);
@@ -85,7 +86,7 @@ export default function LogsTab({ role }: { role: "manager" | "employee" }) {
   const [loadingMore, setLoadingMore] = useState(false);
 
   useEffect(() => {
-    if (role !== "manager") return;
+    if (!isManagerOrAbove(role)) return;
     fetch("/api/team").then((r) => r.json()).then((users: TeamMember[]) => setTeamMembers(users));
   }, [role]);
 
@@ -97,7 +98,7 @@ export default function LogsTab({ role }: { role: "manager" | "employee" }) {
 
   const fetchPage = (targetPage: number, replace: boolean) => {
     const params = new URLSearchParams({ startDate, endDate, page: String(targetPage) });
-    if (role === "manager" && selectedUserId) params.set("userId", selectedUserId);
+    if (isManagerOrAbove(role) && selectedUserId) params.set("userId", selectedUserId);
     if (selectedTaskListId) params.set("taskListId", selectedTaskListId);
 
     if (replace) setLoading(true); else setLoadingMore(true);
@@ -139,7 +140,7 @@ export default function LogsTab({ role }: { role: "manager" | "employee" }) {
           />
         </div>
         <div className="flex gap-2">
-          {role === "manager" && (
+          {isManagerOrAbove(role) && (
             <select
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
@@ -189,7 +190,7 @@ export default function LogsTab({ role }: { role: "manager" | "employee" }) {
                 <p className="font-body text-sm text-text leading-tight truncate">{log.taskName}</p>
                 <p className="font-mono text-[10px] text-dim mt-0.5 truncate">
                   {log.taskListName}
-                  {role === "manager" && ` · ${log.performedByName}`}
+                  {isManagerOrAbove(role) && ` · ${log.performedByName}`}
                   {log.isBackEntry && " · back-entry"}
                 </p>
               </div>

@@ -4,7 +4,8 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Invite from "@/models/Invite";
 import User from "@/models/User";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, isOwner } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,7 @@ export async function GET() {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   await connectDB();
 
@@ -57,14 +58,18 @@ export async function GET() {
 export async function POST(req: Request) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId, role: sessionRole, userId } = sessionUser;
+  const { companyId, role: sessionRole, userId, locationId: sessionLocationId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (sessionRole !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(sessionRole)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
-  const { role, maxUses, expiresInDays } = (await req.json()) as {
+  const { role, maxUses, expiresInDays, locationId: requestedLocationId } = (await req.json()) as {
     role?: string;
     maxUses?: number;
     expiresInDays?: number;
+    // Only meaningful for an owner (see below) — a location-bound manager
+    // always gets their own locationId stamped instead, same as `role`
+    // itself is preset by the inviter rather than picked by the redeemer.
+    locationId?: string;
   };
 
   if (role !== "employee" && role !== "manager") {
@@ -73,6 +78,17 @@ export async function POST(req: Request) {
 
   await connectDB();
 
+  // An owner has no single "current" location the way a location-bound
+  // manager does, so they must pick one explicitly — see
+  // docs/features/locations.md's "Invite changes". A manager's own
+  // locationId is stamped regardless of what (if anything) the client sent.
+  const locationId = isOwner(sessionRole)
+    ? await validateLocationId(companyId, requestedLocationId)
+    : sessionLocationId;
+  if (!locationId) {
+    return NextResponse.json({ error: "A valid locationId is required" }, { status: 400 });
+  }
+
   const expiresAt = new Date();
   expiresAt.setDate(expiresAt.getDate() + (expiresInDays && expiresInDays > 0 ? expiresInDays : DEFAULT_EXPIRES_IN_DAYS));
 
@@ -80,6 +96,7 @@ export async function POST(req: Request) {
     companyId,
     token: crypto.randomBytes(24).toString("base64url"),
     role,
+    locationId,
     createdByUserId: userId,
     expiresAt,
     maxUses: maxUses && maxUses > 0 ? maxUses : DEFAULT_MAX_USES,

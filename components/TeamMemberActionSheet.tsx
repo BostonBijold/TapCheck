@@ -4,7 +4,7 @@ import { useState } from "react";
 import { X } from "lucide-react";
 
 interface Props {
-  member: { _id: string; name: string; role: "manager" | "employee" };
+  member: { _id: string; name: string; role: "manager" | "employee" | "owner" };
   isLastManager: boolean;
   onChangeRole: (userId: string, role: "manager" | "employee") => Promise<void>;
   onRemove: (userId: string) => Promise<void>;
@@ -18,7 +18,11 @@ interface Props {
 // docs/features/team-invites.md.
 export default function TeamMemberActionSheet({ member, isLastManager, onChangeRole, onRemove, onClose }: Props) {
   const [busy, setBusy] = useState(false);
-  const guardBlocks = member.role === "manager" && isLastManager;
+  // Owner assignment is manual-only (see docs/features/locations.md) — this
+  // sheet only ever toggles between manager/employee, so an owner's role is
+  // never touchable here at all, same treatment as the last-manager guard.
+  const isOwnerRow = member.role === "owner";
+  const guardBlocks = isOwnerRow || (member.role === "manager" && isLastManager);
   const nextRole = member.role === "manager" ? "employee" : "manager";
 
   const handleChangeRole = async () => {
@@ -67,7 +71,9 @@ export default function TeamMemberActionSheet({ member, isLastManager, onChangeR
             </button>
             {guardBlocks && (
               <p className="px-3 pt-1 font-mono text-[10px] text-dim">
-                {member.name} is the last manager — promote someone else first.
+                {isOwnerRow
+                  ? `${member.name} is an owner — owner role changes aren't made from this screen.`
+                  : `${member.name} is the last manager — promote someone else first.`}
               </p>
             )}
           </div>

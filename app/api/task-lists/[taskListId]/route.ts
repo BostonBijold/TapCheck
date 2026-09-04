@@ -3,7 +3,7 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import Company from "@/models/Company";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import { upsertStartTimeSchedule, deleteStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export async function PATCH(
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await req.json() as {
     name?: string;
@@ -109,7 +109,7 @@ export async function DELETE(
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   await connectDB();
 

@@ -131,6 +131,7 @@ export async function unbindNfcTag(companyId: string, definitionId: string) {
 // selection logic and rationale.
 export async function resolveMostRelevantPlacement(
   companyId: string,
+  locationId: string | null,
   definitionId: string,
   localDate: string,
   nowMinutesLocal: number | null
@@ -145,6 +146,7 @@ export async function resolveMostRelevantPlacement(
 
   const logs = await TaskLog.find({
     companyId,
+    locationId,
     date: localDate,
     taskId: { $in: placements.map((p) => p._id) },
   }).lean();

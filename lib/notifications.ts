@@ -59,16 +59,30 @@ async function sendPushToUsers(params: {
 // sendStartTimeReminder below, which also reaches employees.
 export async function sendMissedListAlert(params: {
   companyId: string;
+  // Which store this list's window closed at — see
+  // docs/features/locations.md. Reaches managers at that specific location
+  // plus every owner (an owner administers every location, so they get the
+  // escalation regardless of which store it's for); null (a pre-Locations
+  // company, or one that never got a default location backfilled) falls
+  // back to every manager/owner company-wide, same as before this feature.
+  locationId: string | null;
   taskListId: string;
   taskListName: string;
   outstandingCount: number;
   windowEndLabel: string; // e.g. "10:30pm" — already formatted, this module doesn't know time-of-day formatting
   date: string; // YYYY-MM-DD
 }): Promise<void> {
-  const { companyId, taskListId, taskListName, outstandingCount, windowEndLabel, date } = params;
+  const { companyId, locationId, taskListId, taskListName, outstandingCount, windowEndLabel, date } = params;
 
   await connectDB();
-  const managers = await User.find({ companyId, role: "manager" }, "_id").lean<{ _id: { toString(): string } }[]>();
+  const managers = await User.find(
+    {
+      companyId,
+      role: { $in: ["manager", "owner"] },
+      ...(locationId ? { $or: [{ locationId }, { role: "owner" }] } : {}),
+    },
+    "_id"
+  ).lean<{ _id: { toString(): string } }[]>();
 
   await sendPushToUsers({
     companyId,
@@ -88,14 +102,21 @@ export async function sendMissedListAlert(params: {
 // window has actually closed with tasks still outstanding.
 export async function sendStartTimeReminder(params: {
   companyId: string;
+  // Same reasoning as sendMissedListAlert above — reaches everyone at this
+  // specific location plus every owner; null falls back to the whole
+  // company, same as before this feature.
+  locationId: string | null;
   taskListId: string;
   taskListName: string;
   date: string; // YYYY-MM-DD
 }): Promise<void> {
-  const { companyId, taskListId, taskListName, date } = params;
+  const { companyId, locationId, taskListId, taskListName, date } = params;
 
   await connectDB();
-  const everyone = await User.find({ companyId }, "_id").lean<{ _id: { toString(): string } }[]>();
+  const everyone = await User.find(
+    { companyId, ...(locationId ? { $or: [{ locationId }, { role: "owner" }] } : {}) },
+    "_id"
+  ).lean<{ _id: { toString(): string } }[]>();
 
   await sendPushToUsers({
     companyId,

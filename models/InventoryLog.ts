@@ -8,6 +8,10 @@ import mongoose, { Schema, Document, model, models } from "mongoose";
 // (highest loggedAt) — nothing computes or derives it any other way.
 export interface IInventoryLog extends Document {
   companyId: string;
+  // Which store this count was logged at — see docs/features/locations.md.
+  // Null only for logs predating Locations, backfilled by the one-off
+  // migration; every new log stamps the logging user's own locationId.
+  locationId: string | null;
   itemTypeId: mongoose.Types.ObjectId;
   count: number;
   loggedByUserId: string;
@@ -23,6 +27,7 @@ export interface IInventoryLog extends Document {
 const InventoryLogSchema = new Schema<IInventoryLog>(
   {
     companyId: { type: String, required: true, index: true },
+    locationId: { type: String, default: null },
     itemTypeId: { type: Schema.Types.ObjectId, ref: "InventoryItemType", required: true },
     count: { type: Number, required: true },
     loggedByUserId: { type: String, required: true },
@@ -34,7 +39,11 @@ const InventoryLogSchema = new Schema<IInventoryLog>(
 
 // Supports "most recent log per item type" (Inventory tab list view's
 // current-count column) and the item detail screen's recent-history list —
-// both are always "latest N for this itemTypeId," never a range scan.
-InventoryLogSchema.index({ companyId: 1, itemTypeId: 1, loggedAt: -1 });
+// both are always "latest N for this itemTypeId at this location," never a
+// range scan. The catalog (InventoryItemType) stays company-wide and
+// shared across locations — see docs/features/locations.md's open
+// questions — so the same item type's count is tracked independently per
+// location via this compound key.
+InventoryLogSchema.index({ companyId: 1, locationId: 1, itemTypeId: 1, loggedAt: -1 });
 
 export default models.InventoryLog || model<IInventoryLog>("InventoryLog", InventoryLogSchema);

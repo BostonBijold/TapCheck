@@ -93,7 +93,15 @@ export default async function InvitePage({
   }
 
   await User.findByIdAndUpdate(userId, {
-    $set: { companyId: redeemed.companyId, role: redeemed.role, companyJoinedAt: new Date() },
+    $set: {
+      companyId: redeemed.companyId,
+      role: redeemed.role,
+      companyJoinedAt: new Date(),
+      // Stamped from the invite, never picked by whoever redeems it — see
+      // docs/features/locations.md's "Location assignment". Null only for
+      // an invite created before Locations shipped.
+      locationId: redeemed.locationId ?? null,
+    },
   });
 
   redirect("/welcome");

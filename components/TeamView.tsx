@@ -9,7 +9,7 @@ interface Member {
   _id: string;
   name: string;
   image: string | null;
-  role: "manager" | "employee";
+  role: "manager" | "employee" | "owner";
   joinedAt: string | null;
 }
 
@@ -23,11 +23,17 @@ interface Invite {
   createdByName: string;
 }
 
+interface Location {
+  _id: string;
+  name: string;
+}
+
 interface Props {
   userName: string;
   today: string;
   skipAuth: boolean;
   isManager: boolean;
+  isOwner: boolean;
   currentUserId: string;
 }
 
@@ -48,21 +54,22 @@ function Avatar({ name }: { name: string }) {
   );
 }
 
-function RoleBadge({ role }: { role: "manager" | "employee" }) {
+function RoleBadge({ role }: { role: "manager" | "employee" | "owner" }) {
   return (
     <span
       className={`font-mono text-[10px] uppercase tracking-widest px-2 py-1 rounded-pill flex-shrink-0 ${
-        role === "manager" ? "bg-olive/10 text-olive" : "bg-card-hover text-muted"
+        role === "owner" ? "bg-gold/10 text-gold" : role === "manager" ? "bg-olive/10 text-olive" : "bg-card-hover text-muted"
       }`}
     >
-      {role === "manager" ? "Manager" : "Employee"}
+      {role === "owner" ? "Owner" : role === "manager" ? "Manager" : "Employee"}
     </span>
   );
 }
 
-export default function TeamView({ userName, today, skipAuth, isManager, currentUserId }: Props) {
+export default function TeamView({ userName, today, skipAuth, isManager, isOwner, currentUserId }: Props) {
   const [team, setTeam] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [actionSheetFor, setActionSheetFor] = useState<Member | null>(null);
   const [revokingId, setRevokingId] = useState<string | null>(null);
@@ -87,7 +94,22 @@ export default function TeamView({ userName, today, skipAuth, isManager, current
     fetchInvites();
   }, [fetchTeam, fetchInvites]);
 
+  // Only an owner needs the location picker in the invite sheet — a
+  // location-bound manager's invite always stamps their own locationId
+  // server-side, no picker needed. See docs/features/locations.md.
+  useEffect(() => {
+    if (!isOwner) return;
+    fetch("/api/locations")
+      .then((r) => r.json())
+      .then(setLocations)
+      .catch(() => setLocations([]));
+  }, [isOwner]);
+
   const managerCount = team?.filter((m) => m.role === "manager").length ?? 0;
+  // A company with at least one owner is never locked out even at zero
+  // managers — matches the same reasoning PATCH/DELETE /api/team/[userId]
+  // enforce server-side.
+  const hasOwner = team?.some((m) => m.role === "owner") ?? false;
 
   const handleChangeRole = async (userId: string, role: "manager" | "employee") => {
     await fetch(`/api/team/${userId}`, {
@@ -198,13 +220,18 @@ export default function TeamView({ userName, today, skipAuth, isManager, current
       </div>
 
       {showInviteSheet && (
-        <InviteSheet onGenerated={fetchInvites} onClose={() => setShowInviteSheet(false)} />
+        <InviteSheet
+          isOwner={isOwner}
+          locations={locations}
+          onGenerated={fetchInvites}
+          onClose={() => setShowInviteSheet(false)}
+        />
       )}
 
       {actionSheetFor && (
         <TeamMemberActionSheet
           member={actionSheetFor}
-          isLastManager={managerCount <= 1}
+          isLastManager={managerCount <= 1 && !hasOwner}
           onChangeRole={handleChangeRole}
           onRemove={handleRemove}
           onClose={() => setActionSheetFor(null)}

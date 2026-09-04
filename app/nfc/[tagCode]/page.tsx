@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import { connectDB } from "@/lib/mongoose";
 import { triggerTask } from "@/lib/task-trigger";
 import { resolveTask, resolveTasks } from "@/lib/task-definitions";
@@ -40,7 +40,7 @@ export default async function NfcTagPage({
   if (!sessionUser) {
     redirect(`/login?callbackUrl=/nfc/${tagCode}`);
   }
-  const { userId, companyId, role } = sessionUser;
+  const { userId, companyId, role, locationId } = sessionUser;
 
   if (!companyId) {
     return (
@@ -82,7 +82,7 @@ export default async function NfcTagPage({
   // picker if the tag was tapped cold with nothing armed. Linking is
   // manager-only, same gate as the /api/nfc-tags routes.
   if (!tag.companyId) {
-    if (role !== "manager") {
+    if (!isManagerOrAbove(role)) {
       return (
         <Shell>
           <h1 className="font-heading text-2xl text-text mb-2">Not linked yet</h1>
@@ -148,6 +148,7 @@ export default async function NfcTagPage({
   try {
     ({ completed, started } = await triggerTask(
       companyId,
+      locationId,
       userId,
       task._id.toString(),
       task.taskType,

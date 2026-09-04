@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Company from "@/models/Company";
 import TaskList from "@/models/TaskList";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import { upsertStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
@@ -35,7 +35,7 @@ export async function PATCH(req: NextRequest) {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = (await req.json()) as {
     notificationSound?: string;

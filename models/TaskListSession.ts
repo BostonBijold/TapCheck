@@ -15,6 +15,12 @@ export interface ITaskListSession extends Document {
   // SKIP_AUTH's local dev company isn't a valid ObjectId at all, so it must
   // stay a plain string here too.
   companyId: string;
+  // Which store this session run belongs to — see docs/features/locations.md.
+  // Part of the "find the open session for this list/date" lookup below,
+  // same reasoning as TaskLog.locationId: otherwise a session opened at one
+  // store would incorrectly appear "already open" at another. Null only for
+  // sessions predating Locations, backfilled by the one-off migration.
+  locationId: string | null;
   // Who started this particular session run — an attribute, not part of the
   // lookup key: the list/date lookup below is company-wide (any employee
   // can pick up an already-open session), same reasoning as
@@ -47,6 +53,7 @@ const CompletionEntrySchema = new Schema<ICompletionEntry>(
 const TaskListSessionSchema = new Schema<ITaskListSession>(
   {
     companyId: { type: String, required: true },
+    locationId: { type: String, default: null },
     performedByUserId: { type: String, default: null },
     taskListId: { type: Schema.Types.ObjectId, ref: "TaskList", required: true },
     date: { type: String, required: true },
@@ -63,8 +70,9 @@ const TaskListSessionSchema = new Schema<ITaskListSession>(
 // No unique index — a list can legitimately be started, finished, and
 // started again the same day (e.g. redoing it), and each run gets its own
 // session record rather than colliding with the last one. This index just
-// makes "find the open session for this company/list/date" (the lookup
-// every write path below needs) cheap.
-TaskListSessionSchema.index({ companyId: 1, taskListId: 1, date: 1, status: 1 });
+// makes "find the open session for this company/location/list/date" (the
+// lookup every write path below needs) cheap — locationId is part of it so
+// a session opened at one store never reads as "already open" at another.
+TaskListSessionSchema.index({ companyId: 1, locationId: 1, taskListId: 1, date: 1, status: 1 });
 
 export default models.TaskListSession || model<ITaskListSession>("TaskListSession", TaskListSessionSchema);

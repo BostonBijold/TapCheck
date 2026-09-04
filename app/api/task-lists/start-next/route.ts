@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId } = sessionUser;
+  const { companyId, locationId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   const date = req.nextUrl.searchParams.get("date") ?? new Date().toISOString().split("T")[0];
@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const taskListIds = taskLists.map((g) => g._id);
   const [tasks, logs] = await Promise.all([
     Task.find({ taskListId: { $in: taskListIds }, companyId, isActive: true }).lean(),
-    TaskLog.find({ companyId, date }).lean(),
+    TaskLog.find({ companyId, locationId, date }).lean(),
   ]);
 
   const hasLogs = logs.length > 0;

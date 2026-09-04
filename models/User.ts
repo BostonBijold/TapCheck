@@ -21,7 +21,12 @@ const UserSchema = new Schema(
     // company-scoped route already gates on companyId being non-null first,
     // so a null role never grants access on its own — see lib/session.ts's
     // resolveSessionUser(), which only reads role once companyId is known.
-    role: { type: String, enum: ["manager", "employee", null], default: "manager" },
+    // Widened to a third tier, "owner" (see docs/features/locations.md) — a
+    // strict superset of "manager": every location under this owner's
+    // companyId, not just one. `owner` is never the invite-redemption
+    // default (Invite.role stays "employee" | "manager") — it's assigned by
+    // hand in MongoDB, same as a company's very first manager.
+    role: { type: String, enum: ["manager", "employee", "owner", null], default: "manager" },
     // Set alongside companyId/role at invite redemption (see
     // app/invite/[token]/page.tsx and docs/features/team-invites.md) —
     // distinct from the adapter-owned account-creation timestamp, so
@@ -53,6 +58,25 @@ const UserSchema = new Schema(
     // existing User queries elsewhere all project specific fields rather
     // than returning the raw doc, keep that pattern.
     passwordHash: { type: String, default: null },
+    // This user's primary Location (see docs/features/locations.md) — set
+    // once, at invite redemption, never client-supplied. For
+    // employee/manager this is also their ONLY visible location, by design
+    // — there is no separate "accessible locations" list for these two
+    // roles. For an owner, this is just their default location context
+    // (which location's Today view opens to first); an owner's actual
+    // visible-locations set is computed at read time (every active Location
+    // under their companyId), not stored here or anywhere else. Null for
+    // every pre-Locations user until the one-off backfill script runs (see
+    // scripts/backfill-locations.mjs) and for anyone hand-attached to a
+    // company without a location assigned.
+    locationId: { type: Schema.Types.ObjectId, ref: "Location", default: null },
+    // Company-defined job function tags (server/cook/busser/host/…) for
+    // task-list assignment — orthogonal to `role`, which governs access.
+    // Optional: a company that never sets any tag keeps every task list
+    // visible to everyone, unchanged from today. Not yet read anywhere —
+    // the tag-catalog/task-list-targeting UI is a separate, unbuilt pass,
+    // see docs/features/locations.md's "Job tags".
+    jobTags: { type: [String], default: [] },
   },
   {
     strict: false, // allow adapter-owned fields to coexist without declaring them

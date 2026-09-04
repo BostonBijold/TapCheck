@@ -18,6 +18,7 @@ import FABTodoSheet from "@/components/FABTodoSheet";
 import type { LogState } from "@/models/TaskLog";
 import type { FormFieldDef, FormFieldValue } from "@/models/TaskDefinition";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
+import { isManagerOrAbove } from "@/lib/roles";
 import { useTodoActions } from "@/lib/useTodoActions";
 import { emitTaskLogChanged, TASK_LOG_CHANGED_EVENT } from "@/lib/task-log-events";
 import { startRoutineActivity, endRoutineActivity } from "@/lib/native/routine-activity";
@@ -62,7 +63,7 @@ interface Props {
   today: string;
   userName: string;
   userId: string;
-  userRole: "manager" | "employee";
+  userRole: "manager" | "employee" | "owner";
   companyId: string; // scopes the offline SQLite cache/queue — see docs/features/offline.md
   skipAuth?: boolean;
   autoStartNext?: boolean;
@@ -1146,7 +1147,7 @@ export default function TasksView({
             {/* Manage Tasks entry point (managers only) — moved down here from
                 the top nav so it reads as a deliberate destination rather than
                 a small icon competing with the profile avatar. */}
-            {userRole === "manager" && (
+            {isManagerOrAbove(userRole) && (
               <Link
                 href="/tasks/manage"
                 className="mt-10 w-full flex items-center justify-center gap-2 bg-card border border-border-light text-text font-body text-sm font-medium py-4 rounded-card hover:border-olive/40 hover:text-olive transition-colors min-h-[44px]"

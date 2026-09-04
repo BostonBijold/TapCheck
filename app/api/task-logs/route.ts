@@ -15,7 +15,8 @@ import {
 } from "@/lib/task-log-actions";
 import { recordSessionCompletion, releaseSessionIfNowEmpty } from "@/lib/task-list-session-actions";
 import { writeInventoryLogsForTaskCompletion } from "@/lib/inventory";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,12 @@ export async function GET(req: NextRequest) {
 
   const date = req.nextUrl.searchParams.get("date") ?? todayString();
   await connectDB();
-  const logs = await TaskLog.find({ companyId, date }).lean();
+  // An owner may pass ?locationId=<id> to view a specific store (validated
+  // against their own company); an employee/manager always sees only their
+  // own — see docs/features/locations.md.
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+  const logs = await TaskLog.find({ companyId, locationId, date }).lean();
   return NextResponse.json(logs.map(serializeLog));
 }
 
@@ -43,7 +49,7 @@ export async function POST(req: NextRequest) {
   const { companyId, userId: performedByUserId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
-  const { taskId, date, actualMinutes, state, isBackEntry, sessionTaskListId, sessionNav } = (await req.json()) as {
+  const { taskId, date, actualMinutes, state, isBackEntry, sessionTaskListId, sessionNav, locationId: requestedLocationId } = (await req.json()) as {
     taskId: string;
     date: string;
     actualMinutes?: number;
@@ -58,6 +64,10 @@ export async function POST(req: NextRequest) {
     // session isn't "I've started doing something else." See
     // switchActiveLog in lib/task-log-actions.ts.
     sessionNav?: boolean;
+    // Only meaningful for an owner acting on a location other than their
+    // default (see docs/features/locations.md) — an employee/manager
+    // always writes against their own locationId regardless of this.
+    locationId?: string;
   };
 
   if (!taskId || !date || !state) {
@@ -65,6 +75,7 @@ export async function POST(req: NextRequest) {
   }
 
   await connectDB();
+  const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
 
   if (state === "in_progress") {
     // A shift-list task can only ever start running anchored to its own
@@ -79,8 +90,8 @@ export async function POST(req: NextRequest) {
       throw err;
     }
     const log = sessionNav
-      ? await switchActiveLog(companyId, performedByUserId, taskId, date, sessionTaskListId ?? null)
-      : await startInProgressLog(companyId, performedByUserId, taskId, date, sessionTaskListId ?? null);
+      ? await switchActiveLog(companyId, locationId, performedByUserId, taskId, date, sessionTaskListId ?? null)
+      : await startInProgressLog(companyId, locationId, performedByUserId, taskId, date, sessionTaskListId ?? null);
     return NextResponse.json(serializeLog(log));
   }
 
@@ -92,7 +103,7 @@ export async function POST(req: NextRequest) {
   // TaskListSessionView's own advance()/handleMissed/handleRest (via
   // saveLog), which write terminal states through this route rather than
   // PATCH.
-  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const priorLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
 
   // Same shift-list gate as above: a terminal write only carries this
@@ -124,7 +135,7 @@ export async function POST(req: NextRequest) {
   }
 
   const log = await TaskLog.findOneAndUpdate(
-    { companyId, taskId, date },
+    { companyId, locationId, taskId, date },
     {
       $set: {
         state,
@@ -139,7 +150,7 @@ export async function POST(req: NextRequest) {
   ).lean();
 
   if (priorSessionTaskListId && (state === "done" || state === "missed" || state === "rest")) {
-    await recordSessionCompletion(companyId, priorSessionTaskListId, date, taskId, state, actualMinutes ?? 0);
+    await recordSessionCompletion(companyId, locationId, priorSessionTaskListId, date, taskId, state, actualMinutes ?? 0);
   }
 
   return NextResponse.json(serializeLog(log));
@@ -162,6 +173,7 @@ export async function PATCH(req: NextRequest) {
     formData,
     verifiedNfcUid,
     inventoryCounts,
+    locationId: requestedLocationId,
   } = (await req.json()) as {
     taskId: string;
     date: string;
@@ -189,9 +201,13 @@ export async function PATCH(req: NextRequest) {
     // whether a required link actually got a count (that gate is
     // client-side only, same as this route's existing formData trust).
     inventoryCounts?: Array<{ itemTypeId: string; count: number; verifiedNfcUid?: string | null }>;
+    // Only meaningful for an owner acting on a location other than their
+    // default — see docs/features/locations.md.
+    locationId?: string;
   };
 
   await connectDB();
+  const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
 
   // Read the prior sessionTaskListId up front — that's the only record of
   // which TaskListSession (if any) this completion belongs to (see
@@ -201,7 +217,7 @@ export async function PATCH(req: NextRequest) {
   // session (the per-task in_progress start stamps it before Done/Missed
   // becomes reachable) — a direct call bypassing the session has nothing to
   // match and is rejected.
-  const priorLog = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const priorLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
 
   try {
@@ -219,10 +235,10 @@ export async function PATCH(req: NextRequest) {
     // with the external trigger-task endpoint's complete-the-active-task half.
     try {
       const log = await completeInProgressLog(
-        companyId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null, verifiedNfcUid ?? null
+        companyId, locationId, performedByUserId, taskId, date, fallbackMins ?? 1, formData ?? null, verifiedNfcUid ?? null
       );
       if (inventoryCounts && inventoryCounts.length > 0) {
-        await writeInventoryLogsForTaskCompletion(companyId, performedByUserId, taskId, inventoryCounts);
+        await writeInventoryLogsForTaskCompletion(companyId, locationId, performedByUserId, taskId, inventoryCounts);
       }
       return NextResponse.json(serializeLog(log));
     } catch (err) {
@@ -274,13 +290,13 @@ export async function PATCH(req: NextRequest) {
   }
 
   const log = await TaskLog.findOneAndUpdate(
-    { companyId, taskId, date },
+    { companyId, locationId, taskId, date },
     { $set: setData },
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
   if (priorSessionTaskListId) {
-    await recordSessionCompletion(companyId, priorSessionTaskListId, date, taskId, state, (setData.actualMinutes as number | undefined) ?? 0);
+    await recordSessionCompletion(companyId, locationId, priorSessionTaskListId, date, taskId, state, (setData.actualMinutes as number | undefined) ?? 0);
   }
 
   return NextResponse.json(serializeLog(log));
@@ -297,19 +313,21 @@ export async function DELETE(req: NextRequest) {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
-  const { taskId, date } = (await req.json()) as {
+  const { taskId, date, locationId: requestedLocationId } = (await req.json()) as {
     taskId: string;
     date: string;
+    locationId?: string;
   };
 
   await connectDB();
-  await TaskLog.deleteOne({ companyId, taskId, date });
+  const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
+  await TaskLog.deleteOne({ companyId, locationId, taskId, date });
   // See lib/task-list-session-actions.ts's releaseSessionIfNowEmpty — Undo
   // alone can leave a shift-list session locked to whoever last touched it
   // with nothing actually running; this releases it once nothing's left.
-  await releaseSessionIfNowEmpty(companyId, taskId, date);
+  await releaseSessionIfNowEmpty(companyId, locationId, taskId, date);
   return NextResponse.json({ ok: true });
 }
 

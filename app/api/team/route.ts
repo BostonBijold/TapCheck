@@ -6,7 +6,7 @@ import { resolveSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-const ROLE_RANK: Record<string, number> = { manager: 0, employee: 1 };
+const ROLE_RANK: Record<string, number> = { owner: 0, manager: 1, employee: 2 };
 
 // GET /api/team — the read-only roster, open to any signed-in company
 // member (not manager-gated). Managers first, then alphabetical by name.

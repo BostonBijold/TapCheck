@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, isOwner } from "@/lib/session";
 import NoCompanyMessage from "@/components/NoCompanyMessage";
 import TeamView from "@/components/TeamView";
 
@@ -29,7 +29,8 @@ export default async function TeamPage() {
       userName={userName}
       today={today}
       skipAuth={skipAuth}
-      isManager={sessionUser.role === "manager"}
+      isManager={isManagerOrAbove(sessionUser.role)}
+      isOwner={isOwner(sessionUser.role)}
       currentUserId={sessionUser.userId}
     />
   );

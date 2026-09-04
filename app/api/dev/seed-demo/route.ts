@@ -4,7 +4,7 @@ import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
 import { resolveTasks } from "@/lib/task-definitions";
-import { DEV_USER_ID, DEV_COMPANY_ID } from "@/lib/session";
+import { DEV_USER_ID, DEV_COMPANY_ID, DEV_LOCATION_ID } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -105,7 +105,7 @@ export async function GET() {
 
   // Wipe existing logs for the past 30 days so this is idempotent
   const dates = Array.from({ length: 30 }, (_, i) => getDate(29 - i));
-  await TaskLog.deleteMany({ companyId: DEV_COMPANY_ID, date: { $in: dates } });
+  await TaskLog.deleteMany({ companyId: DEV_COMPANY_ID, locationId: DEV_LOCATION_ID, date: { $in: dates } });
 
   const logs: object[] = [];
 
@@ -124,6 +124,7 @@ export async function GET() {
 
         logs.push({
           companyId: DEV_COMPANY_ID,
+          locationId: DEV_LOCATION_ID,
           performedByUserId: DEV_USER_ID,
           taskId: task._id,
           date,
@@ -153,6 +154,7 @@ export async function GET() {
 
       logs.push({
         companyId: DEV_COMPANY_ID,
+        locationId: DEV_LOCATION_ID,
         performedByUserId: DEV_USER_ID,
         taskId: task._id,
         date,

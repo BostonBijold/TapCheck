@@ -2,7 +2,8 @@ import mongoose from "mongoose";
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import { getDates, elapsedDates as computeElapsedDates } from "@/lib/report-dates";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 import User from "@/models/User";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
@@ -27,7 +28,7 @@ export async function GET(req: NextRequest) {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const { searchParams } = req.nextUrl;
   const days = Math.min(30, Math.max(7, parseInt(searchParams.get("days") ?? "7")));
@@ -37,10 +38,19 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
+  // Same location-scoping convention as GET /api/reports — an owner may
+  // pass ?locationId=<id> to view a specific store's leaderboard; a manager
+  // always sees only their own. See docs/features/locations.md.
+  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
   // Same defensive guard app/api/team/route.ts uses — SKIP_AUTH's dev
   // sentinel company id isn't a valid ObjectId and would otherwise throw.
+  // A location-bound manager only ranks their own store's roster; an owner
+  // without locationId set (a company with no locations yet) sees everyone,
+  // matching this route's pre-Locations behavior.
   const roster = mongoose.isValidObjectId(companyId)
-    ? await User.find({ companyId }, "name").lean()
+    ? await User.find({ companyId, ...(locationId ? { locationId } : {}) }, "name").lean()
     : [];
 
   const rawTasks = await Task.find({ companyId, isActive: true }).lean();
@@ -49,6 +59,7 @@ export async function GET(req: NextRequest) {
 
   const logs = await TaskLog.find({
     companyId,
+    locationId,
     date: { $in: dateWindow },
     state: { $in: ["done", "missed"] }, // rest is an intentional, protected skip — not an "attempt" (see Story 1's resolved denominator)
   }).lean();

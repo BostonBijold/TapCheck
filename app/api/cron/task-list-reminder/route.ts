@@ -90,8 +90,16 @@ export async function POST(req: NextRequest) {
   });
   if (allTerminal) return NextResponse.json({ ok: true, skipped: "already finished" });
 
+  // A shift-window list has exactly one QStash schedule regardless of how
+  // many locations run it (see docs/features/locations.md's open questions
+  // — no per-location schedule split exists yet), so this fire reaches
+  // every location's staff, same as company-wide behavior before this
+  // feature. The "already finished" check above is similarly company-wide,
+  // not per-location — a known, accepted simplification for this low-stakes
+  // nudge (see the doc's "Deferred beyond v1").
   await sendStartTimeReminder({
     companyId: taskList.companyId,
+    locationId: null,
     taskListId,
     taskListName: taskList.name,
     date: today,

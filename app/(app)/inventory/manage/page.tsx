@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import ManageInventoryView from "@/components/ManageInventoryView";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ export default async function ManageInventoryPage() {
   if (!sessionUser) redirect("/login");
   const { companyId } = sessionUser;
   if (!companyId) redirect("/inventory");
-  if (sessionUser.role !== "manager") redirect("/inventory");
+  if (!isManagerOrAbove(sessionUser.role)) redirect("/inventory");
 
   const today = new Date().toISOString().split("T")[0];
   const userName = session?.user?.name ?? "Developer";

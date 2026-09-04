@@ -4,7 +4,7 @@ import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import { resolveTasks } from "@/lib/task-definitions";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import ManageTasksView from "@/components/ManageTasksView";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export default async function ManageTasksPage() {
   if (!sessionUser) redirect("/login");
   const { companyId } = sessionUser;
   if (!companyId) redirect("/tasks");
-  if (sessionUser.role !== "manager") redirect("/tasks");
+  if (!isManagerOrAbove(sessionUser.role)) redirect("/tasks");
 
   await connectDB();
 

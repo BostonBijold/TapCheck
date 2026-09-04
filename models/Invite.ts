@@ -13,6 +13,13 @@ const InviteSchema = new Schema(
     // derivable from this doc's own _id.
     token: { type: String, required: true, unique: true, index: true },
     role: { type: String, enum: ["employee", "manager"], required: true },
+    // Stamped from the creating manager's own User.locationId at POST
+    // /api/invites time (an owner has no single "current" location, so they
+    // pick one explicitly instead — see docs/features/locations.md). Never
+    // client-supplied by whoever redeems the link. Nullable only for
+    // invites created before Locations shipped; every new invite requires
+    // one.
+    locationId: { type: String, default: null },
     // Attribution only, same pattern as NfcTag.claimedByUserId — not an
     // access restriction on who can redeem the invite.
     createdByUserId: { type: String, required: true },

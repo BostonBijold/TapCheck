@@ -36,6 +36,13 @@ export class NfcTagRequiredError extends Error {
 // above any single list placement — see models/TaskDefinition.ts — so this
 // always resolves through the placement's definitionId rather than reading
 // a field off Task itself.
+// locationId is threaded as a parameter alongside companyId through every
+// function below (same convention as performedByUserId) — see
+// docs/features/locations.md. Every TaskLog lookup/write is now keyed by
+// companyId+locationId+taskId+date, not just companyId+taskId+date, so two
+// locations both running the same shared-catalog task on the same day each
+// get their own log rather than colliding into one.
+
 export async function assertNfcVerified(taskId: string, verifiedNfcUid?: string | null) {
   const task = await Task.findById(taskId).select("definitionId").lean();
   if (!task) return;
@@ -187,6 +194,7 @@ export async function completeStrayInProgressLogs(companyId: string, performedBy
 // List Session for that list — see models/TaskLog.ts.
 export async function startInProgressLog(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskId: string,
   date: string,
@@ -197,12 +205,12 @@ export async function startInProgressLog(
   // actually starts running — see lib/task-list-session-actions.ts. No-op
   // when sessionTaskListId is null (a bare standalone-timer start, not
   // anchored to any list/session).
-  if (sessionTaskListId) await ensureOpenSession(companyId, performedByUserId, sessionTaskListId, date);
+  if (sessionTaskListId) await ensureOpenSession(companyId, locationId, performedByUserId, sessionTaskListId, date);
 
-  const existing = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const existing = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
 
   const log = await TaskLog.findOneAndUpdate(
-    { companyId, taskId, date },
+    { companyId, locationId, taskId, date },
     {
       $set: {
         state: "in_progress",
@@ -245,6 +253,7 @@ export async function startInProgressLog(
 // log (e.g. opening straight into it), it's returned untouched.
 export async function switchActiveLog(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskId: string,
   date: string,
@@ -253,7 +262,7 @@ export async function switchActiveLog(
   // Same creation rule as startInProgressLog: the first call for a list/
   // date (nothing to pause yet, see below) is what actually opens the
   // TaskListSession; every later call for the same list/date just reuses it.
-  if (sessionTaskListId) await ensureOpenSession(companyId, performedByUserId, sessionTaskListId, date);
+  if (sessionTaskListId) await ensureOpenSession(companyId, locationId, performedByUserId, sessionTaskListId, date);
 
   const others = await TaskLog.find({
     companyId,
@@ -267,7 +276,7 @@ export async function switchActiveLog(
   // away from, so that opening move isn't attention moving away from
   // anything and shouldn't inflate the count.
   if (sessionTaskListId && others.length > 0) {
-    await incrementSessionPauseOrJump(companyId, sessionTaskListId, date);
+    await incrementSessionPauseOrJump(companyId, locationId, sessionTaskListId, date);
   }
 
   for (const o of others) {
@@ -285,13 +294,13 @@ export async function switchActiveLog(
     );
   }
 
-  const existing = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const existing = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   if (existing?.state === "in_progress") {
     return existing;
   }
 
   const log = await TaskLog.findOneAndUpdate(
-    { companyId, taskId, date },
+    { companyId, locationId, taskId, date },
     {
       $set: {
         state: "in_progress",
@@ -326,6 +335,7 @@ export async function switchActiveLog(
 // a later, real-timer task starts one.
 export async function startImmediateLog(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskId: string,
   date: string,
@@ -336,7 +346,7 @@ export async function startImmediateLog(
   await completeStrayInProgressLogs(companyId, performedByUserId, taskId);
 
   const log = await TaskLog.findOneAndUpdate(
-    { companyId, taskId, date },
+    { companyId, locationId, taskId, date },
     {
       $set: {
         state: "done",
@@ -352,7 +362,7 @@ export async function startImmediateLog(
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
-  if (taskListId) await recordSessionCompletion(companyId, taskListId, date, taskId, "done", 0);
+  if (taskListId) await recordSessionCompletion(companyId, locationId, taskListId, date, taskId, "done", 0);
 
   return log;
 }
@@ -368,6 +378,7 @@ export async function startImmediateLog(
 // which may differ from whoever started it (someone else picked it up).
 export async function completeInProgressLog(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskId: string,
   date: string,
@@ -376,7 +387,7 @@ export async function completeInProgressLog(
   verifiedNfcUid: string | null = null
 ) {
   await assertNfcVerified(taskId, verifiedNfcUid);
-  const existing = await TaskLog.findOne({ companyId, taskId, date }).lean();
+  const existing = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const startedAt = existing?.startedAt ? new Date(existing.startedAt) : null;
   const banked = existing?.pausedSeconds ?? 0;
   const actualMinutes = startedAt
@@ -389,7 +400,7 @@ export async function completeInProgressLog(
   const sessionTaskListId = existing?.sessionTaskListId ? existing.sessionTaskListId.toString() : null;
 
   const log = await TaskLog.findOneAndUpdate(
-    { companyId, taskId, date },
+    { companyId, locationId, taskId, date },
     {
       $set: {
         state: "done",
@@ -404,7 +415,7 @@ export async function completeInProgressLog(
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
-  if (sessionTaskListId) await recordSessionCompletion(companyId, sessionTaskListId, date, taskId, "done", actualMinutes);
+  if (sessionTaskListId) await recordSessionCompletion(companyId, locationId, sessionTaskListId, date, taskId, "done", actualMinutes);
 
   return log;
 }

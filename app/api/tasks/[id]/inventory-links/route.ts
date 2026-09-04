@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Task from "@/models/Task";
 import { getInventoryLinksForTaskDefinition, addOrUpdateInventoryLink } from "@/lib/inventory";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -41,7 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await req.json();
   const itemTypeId = typeof body.itemTypeId === "string" ? body.itemTypeId : null;

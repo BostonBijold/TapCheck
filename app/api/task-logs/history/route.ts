@@ -7,7 +7,8 @@ import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
 import User from "@/models/User";
 import { resolveTasks } from "@/lib/task-definitions";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +40,14 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const logFilter: Record<string, unknown> = { companyId, date: { $gte: startDate, $lte: endDate } };
+  // Same location-scoping convention as GET /api/task-logs — an owner may
+  // pass ?locationId=<id> to browse a specific store's history (validated
+  // against their own company); an employee/manager always sees only their
+  // own. See docs/features/locations.md.
+  const requestedLocationId = await validateLocationId(companyId, searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
+  const logFilter: Record<string, unknown> = { companyId, locationId, date: { $gte: startDate, $lte: endDate } };
   if (role === "employee") {
     // Always self — an employee can never see a teammate's history, even if
     // they hand-append ?userId=<someone-else> to the request themselves.

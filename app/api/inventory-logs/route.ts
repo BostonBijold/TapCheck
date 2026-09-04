@@ -5,7 +5,8 @@ import InventoryItemType from "@/models/InventoryItemType";
 import InventoryLog from "@/models/InventoryLog";
 import User from "@/models/User";
 import { assertInventoryNfcVerified, InventoryNfcRequiredError } from "@/lib/inventory";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +29,10 @@ export async function GET(req: NextRequest) {
 
   await connectDB();
 
-  const logs = await InventoryLog.find({ companyId, itemTypeId })
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
+  const logs = await InventoryLog.find({ companyId, locationId, itemTypeId })
     .sort({ loggedAt: -1 })
     .limit(limit)
     .lean();
@@ -79,8 +83,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "itemTypeId and count are required" }, { status: 400 });
   }
   const claimedUid = typeof body.verifiedNfcUid === "string" ? body.verifiedNfcUid.toLowerCase() : null;
+  const requestedLocationId = typeof body.locationId === "string" ? body.locationId : null;
 
   await connectDB();
+  const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
 
   const itemType = await InventoryItemType.findOne({ _id: itemTypeId, companyId, isActive: true }).lean();
   if (!itemType) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -98,6 +104,7 @@ export async function POST(req: NextRequest) {
 
   const log = await InventoryLog.create({
     companyId,
+    locationId,
     itemTypeId,
     count,
     loggedByUserId: userId,

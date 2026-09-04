@@ -13,6 +13,14 @@ import {
   isPastWindow as isPastWindowAt,
   isBeforeWindow as isBeforeWindowAt,
 } from "@/lib/task-list-window";
+import { isManagerOrAbove } from "@/lib/roles";
+
+// userRole is optional here (see the Task List Locking note below), so
+// every call site guards the undefined case before deferring to the shared
+// role-tier check.
+function canManage(userRole: "manager" | "employee" | "owner" | undefined) {
+  return !!userRole && isManagerOrAbove(userRole);
+}
 
 export interface TaskListCardTaskList {
   _id: string;
@@ -41,7 +49,7 @@ interface Props {
   // Task List Locking — see docs/features/task-lists.md. All optional so the
   // anytime-list call site (no session concept there) doesn't need them.
   currentUserId?: string;
-  userRole?: "manager" | "employee";
+  userRole?: "manager" | "employee" | "owner";
   sessionLock?: SessionLockInfo | null; // who currently holds this list's open session, if anyone
   onUnlockSession?: () => void; // manager-only — clears the lock so someone else can pick it up
 }
@@ -317,7 +325,7 @@ export default function TaskListCard({
                   isBackEntry={isBackEntry}
                   onStartTimer={() => onStartTimer(task)}
                   onStateChange={(s, opts) => onStateChange(task._id, s, opts)}
-                  canUndo={userRole === "manager"}
+                  canUndo={canManage(userRole)}
                 />
               ))}
             </div>
@@ -336,7 +344,7 @@ export default function TaskListCard({
                   onToggleExpand={() =>
                     setExpandedTaskId((prev) => (prev === task._id ? null : task._id))
                   }
-                  canUndo={userRole === "manager"}
+                  canUndo={canManage(userRole)}
                   onUndo={() => onStateChange(task._id, null)}
                 />
               ))}
@@ -394,7 +402,7 @@ export default function TaskListCard({
                 <div className="flex-1 flex items-center justify-center gap-2 bg-card-hover border border-border-light text-dim font-body text-sm py-3.5 rounded-card min-h-[48px]">
                   In progress by {sessionLock!.performedByName}
                 </div>
-                {userRole === "manager" && (
+                {canManage(userRole) && (
                   <button
                     onClick={() => setConfirmingUnlock(true)}
                     aria-label={`Remove ${sessionLock!.performedByName} from this task list`}

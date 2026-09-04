@@ -4,7 +4,8 @@ import { connectDB } from "@/lib/mongoose";
 import InventoryItemType from "@/models/InventoryItemType";
 import User from "@/models/User";
 import { getLatestInventoryLogs } from "@/lib/inventory";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, pickActiveLocationId } from "@/lib/session";
+import { validateLocationId } from "@/lib/locations";
 
 export const dynamic = "force-dynamic";
 
@@ -14,7 +15,9 @@ export const dynamic = "force-dynamic";
 // rest of Inventory — see docs/features/inventory.md. Each row is joined
 // with its most recent InventoryLog (the "current count") and that log's
 // author's display name, so the list view needs no further round trips.
-export async function GET() {
+// The catalog itself is company-wide/shared, but the "current count" is
+// tracked independently per location — see docs/features/locations.md.
+export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId } = sessionUser;
@@ -22,8 +25,11 @@ export async function GET() {
 
   await connectDB();
 
+  const requestedLocationId = await validateLocationId(companyId, req.nextUrl.searchParams.get("locationId"));
+  const locationId = pickActiveLocationId(sessionUser, requestedLocationId);
+
   const itemTypes = await InventoryItemType.find({ companyId, isActive: true }).sort({ name: 1 }).lean();
-  const latestLogs = await getLatestInventoryLogs(companyId, itemTypes.map((it) => it._id));
+  const latestLogs = await getLatestInventoryLogs(companyId, locationId, itemTypes.map((it) => it._id));
 
   // Excludes SKIP_AUTH's non-ObjectId dev sentinel (same filter as
   // app/api/task-logs/history/route.ts's identical join) — User._id is a
@@ -67,7 +73,7 @@ export async function POST(req: NextRequest) {
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   const { companyId, role, userId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await req.json();
   const name = typeof body.name === "string" ? body.name.trim() : "";

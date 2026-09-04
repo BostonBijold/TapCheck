@@ -3,7 +3,7 @@ import { auth } from "@/lib/auth";
 import { connectDB } from "@/lib/mongoose";
 import Company from "@/models/Company";
 import InventoryItemType from "@/models/InventoryItemType";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 import InventoryItemDetailView from "@/components/InventoryItemDetailView";
 
 export const dynamic = "force-dynamic";
@@ -51,7 +51,7 @@ export default async function InventoryItemDetailPage({
       userName={userName}
       today={today}
       skipAuth={skipAuth}
-      isManager={sessionUser.role === "manager"}
+      isManager={isManagerOrAbove(sessionUser.role)}
       notificationSound={notificationSound}
       preVerifiedNfcUid={searchParams.verifiedNfcUid ?? null}
       itemType={{

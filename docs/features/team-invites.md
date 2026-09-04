@@ -19,6 +19,10 @@ Invite {
   companyId,
   token: string,             // crypto.randomBytes(24).toString("base64url") — unguessable, never derivable from the Invite's own _id
   role: "employee" | "manager",   // preset by the manager at creation time; applied to the User on redemption
+  locationId,                // string | null — see docs/features/locations.md. Stamped from the creating
+                              // manager's own User.locationId, or picked explicitly if an owner created it.
+                              // Applied to User.locationId on redemption. Required going forward — POST
+                              // /api/invites 400s without a valid one.
   createdByUserId,           // attribution only, same pattern as NfcTag.claimedByUserId
   createdAt,
   expiresAt: Date,           // default now + 7 days
@@ -32,7 +36,10 @@ Indexes: `{ token: 1 }` (unique), `{ companyId: 1, revokedAt: 1 }` (for the mana
 
 `models/User.ts` gained one field: `companyJoinedAt: Date | null`, set alongside `companyId`/`role` at redemption time — distinct from the adapter-owned account-creation timestamp, so re-joining a *different* company later reflects current tenure there, not original account creation. Null for anyone hand-attached to a company directly in MongoDB rather than through an invite (every pre-existing user).
 
-`User.role`'s enum was widened to also allow `null` — the state `DELETE /api/team/[userId]` leaves a removed teammate in, alongside `companyId: null`, "not yet attached to any company," same as a brand-new sign-up. This is safe because every company-scoped route already gates on `companyId` being non-null before ever reading `role` (see `lib/session.ts`'s `resolveSessionUser()`); a null role never grants access on its own, it just avoids a stale role value surviving a company detach.
+`User.role`'s enum was later widened again to add a third tier, `owner` —
+see docs/features/locations.md. Every "manager-only" gate below is,
+strictly, "manager-or-above": `owner` passes the same checks, since it's a
+strict superset of `manager`. Separately, the enum also allows `null` — the state `DELETE /api/team/[userId]` leaves a removed teammate in, alongside `companyId: null`, "not yet attached to any company," same as a brand-new sign-up. This is safe because every company-scoped route already gates on `companyId` being non-null before ever reading `role` (see `lib/session.ts`'s `resolveSessionUser()`); a null role never grants access on its own, it just avoids a stale role value surviving a company detach.
 
 ## Redemption flow — "share a link, then open it"
 
@@ -52,22 +59,22 @@ The atomic increment-with-filter is what keeps a `maxUses: 1` link from being re
 Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSessionUser()`, `SKIP_AUTH`-gated dev fallback, `401` otherwise. `companyId`/`role` read fresh from the `User` document on every call, never trusted from the client.
 
 ### `POST /api/invites`
-**Manager-only** (`403` for an employee). Body: `{ role: "employee" | "manager", maxUses?: number, expiresInDays?: number }` — `400` if `role` is missing or not one of the two values. Defaults: `maxUses: 1`, `expiresInDays: 7`. Response: `{ _id, token, url, role, maxUses, expiresAt }`.
+**Manager-or-above** (`403` for an employee). Body: `{ role: "employee" | "manager", maxUses?: number, expiresInDays?: number, locationId?: string }` — `400` if `role` is missing or not one of the two values. `locationId` is only read from the body for an **owner** creator (validated against the company's active locations); a manager's own `locationId` is always stamped instead, regardless of what's sent. `400` ("A valid locationId is required") if the resolved locationId is still empty — an owner with no location picked, or a manager with no `locationId` on their own `User` doc yet (see docs/features/locations.md's migration script). Defaults: `maxUses: 1`, `expiresInDays: 7`. Response: `{ _id, token, url, role, maxUses, expiresAt }`.
 
 ### `GET /api/invites`
-**Manager-only**. This company's non-revoked invites, newest first: `{ _id, role, maxUses, useCount, expiresAt, createdAt, createdByName }`. Excludes `revokedAt: { $ne: null }` entirely — a revoked invite just disappears from this list, no "revoked" state ever shown.
+**Manager-or-above**. This company's non-revoked invites, newest first: `{ _id, role, maxUses, useCount, expiresAt, createdAt, createdByName }`. Excludes `revokedAt: { $ne: null }` entirely — a revoked invite just disappears from this list, no "revoked" state ever shown.
 
 ### `DELETE /api/invites/[id]`
-**Manager-only**. Sets `revokedAt: new Date()` — `404` if not found or not this company's. Soft-delete, not a hard remove, so a redemption already in flight still fails cleanly against the revoked state rather than a missing document.
+**Manager-or-above**. Sets `revokedAt: new Date()` — `404` if not found or not this company's. Soft-delete, not a hard remove, so a redemption already in flight still fails cleanly against the revoked state rather than a missing document.
 
 ### `GET /api/team`
-**Any signed-in company member** (not manager-gated — this is the read-only roster everyone sees). Every `User` with this `companyId`: `{ _id, name, image, role, joinedAt }`, managers first then alphabetical by name. `joinedAt` is `companyJoinedAt ?? createdAt` (falls back for anyone attached before this feature existed). `image` is returned but not currently rendered anywhere — the Team tab uses the same initials-only avatar convention as `Header.tsx`/`ProfileView.tsx`, kept for design consistency rather than introducing photo rendering as a one-off.
+**Any signed-in company member** (not manager-gated — this is the read-only roster everyone sees), **not filtered by location** — returns every `User` in the company regardless of `locationId`, a location-bound manager included (not decided/changed by docs/features/locations.md — see that doc's "Known gaps"). Every `User` with this `companyId`: `{ _id, name, image, role, joinedAt }`, owners first, then managers, then alphabetical by name within each. `joinedAt` is `companyJoinedAt ?? createdAt` (falls back for anyone attached before this feature existed). `image` is returned but not currently rendered anywhere — the Team tab uses the same initials-only avatar convention as `Header.tsx`/`ProfileView.tsx`, kept for design consistency rather than introducing photo rendering as a one-off.
 
 ### `PATCH /api/team/[userId]`
-**Manager-only**. Body: `{ role: "employee" | "manager" }` — `404` if not found or not this company's member. **Guard**: `400` if this would demote the company's last remaining manager (`User.countDocuments({ companyId, role: "manager" })` checked first) — a company with zero managers is a lockout state nobody can recover from through the UI.
+**Manager-or-above** for `role`; **owner-only** for `locationId` (see docs/features/locations.md's "Location assignment"). Body: `{ role?: "employee" | "manager", locationId?: string }` — at least one of the two must be present; `403` if `locationId` is sent by a non-owner; `404` if the resolved `locationId` doesn't name an active Location under this company; `404` if the target user isn't found or isn't this company's member. `403` ("Owners only") if the target's own role is `owner` and the caller isn't — a plain manager can't touch a fellow owner's role at all. **Guard**: `400` if changing `role` to `employee` would demote the company's last remaining manager AND the company has zero owners (`owner` alone is enough to avoid the lockout, since it administers everything a manager can) — a company with zero managers AND zero owners is a lockout state nobody can recover from through the UI.
 
 ### `DELETE /api/team/[userId]`
-**Manager-only**. `$set: { companyId: null, role: null, companyJoinedAt: null }` — the same "not yet attached" state a brand-new sign-in sees (`components/NoCompanyMessage.tsx`). Soft company-detach, not an account deletion — historical `TaskLog`s etc. stay scoped to the company they belonged to at the time. Same last-manager guard as `PATCH` above.
+**Manager-or-above**. `$set: { companyId: null, role: null, companyJoinedAt: null, locationId: null }` — the same "not yet attached" state a brand-new sign-in sees (`components/NoCompanyMessage.tsx`). Soft company-detach, not an account deletion — historical `TaskLog`s etc. stay scoped to the company (and location) they belonged to at the time. Same last-manager-or-owner guard as `PATCH` above; also `403` ("Owners only") if the target is an `owner` and the caller isn't, and `400` if the target is the company's last remaining `owner`.
 
 ## Team tab UI
 
@@ -77,8 +84,8 @@ Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSession
 
 - **Roster** (everyone): rows from `GET /api/team` — initials avatar, name (current user tagged "(you)"), joined date, role badge. Read-only for an employee; tapping a row for a manager opens `components/TeamMemberActionSheet.tsx`.
 - **Pending Invites** (managers only, below the roster): rows from `GET /api/invites` — role badge, uses-remaining, expiry, creator name, a **Revoke** button per row (`DELETE /api/invites/[id]`).
-- **+ Invite** button (managers only): opens `components/InviteSheet.tsx` — pick role, pick "Just this person" vs "Reusable link", tap Generate → `POST /api/invites` → Web Share API (falls back to a visible Copy Link button).
-- **`TeamMemberActionSheet.tsx`** (managers only): "Make Manager"/"Make Employee" (single toggle button, since there are only two roles) and "Remove from team" (`window.confirm()` first — same destructive-confirmation convention `TaskListEditView.tsx`'s delete-list button already uses, not a custom multi-step confirmation UI). Both actions disable, with an inline explanation, rather than round-tripping to the API and failing, whenever this row is the company's last remaining manager (computed client-side from the already-fetched roster's manager count) — this applies to *any* row that would trip the guard, including the acting manager's own, not specifically "your own row" in general.
+- **+ Invite** button (managers-or-above): opens `components/InviteSheet.tsx` — pick role, pick "Just this person" vs "Reusable link", and (**owner only**) pick a location from a fetched `GET /api/locations` list — required before Generate is enabled; a manager never sees this picker at all, their own `locationId` is stamped server-side. Tap Generate → `POST /api/invites` → Web Share API (falls back to a visible Copy Link button).
+- **`TeamMemberActionSheet.tsx`** (managers-or-above): "Make Manager"/"Make Employee" (single toggle button, since there are only two roles this sheet can assign) and "Remove from team" (`window.confirm()` first — same destructive-confirmation convention `TaskListEditView.tsx`'s delete-list button already uses, not a custom multi-step confirmation UI). Both actions disable, with an inline explanation, whenever this row is the company's last remaining manager with no owner to cover it (computed client-side from the already-fetched roster's manager/owner counts), or whenever the row itself is an `owner` (its role is never touchable from this sheet at all — owner assignment is manual-only, see docs/features/locations.md). **Not yet built**: a location-reassignment control on this sheet — `PATCH /api/team/[userId]`'s owner-only `locationId` field has no UI caller yet.
 
 ## Open questions / deferred
 
@@ -88,4 +95,4 @@ Auth follows the existing pattern throughout: `lib/session.ts`'s `resolveSession
 
 ## Depends on
 
-[`api/task-lists-api.md`](../api/task-lists-api.md) and [`features/nfc.md`](nfc.md) for the established auth/session-resolution and public-deep-link patterns this feature reuses.
+[`api/task-lists-api.md`](../api/task-lists-api.md) and [`features/nfc.md`](nfc.md) for the established auth/session-resolution and public-deep-link patterns this feature reuses. [`features/locations.md`](locations.md) layers the `owner` role tier and location-scoping on top of everything in this doc without replacing any of it.

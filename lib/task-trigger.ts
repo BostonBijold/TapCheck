@@ -23,6 +23,7 @@ import { computeTimeline } from "@/lib/task-timeline";
 // timeline of. See docs/features/live-activity.md's "Push-driven updates".
 async function buildTaskListTimeline(
   companyId: string,
+  locationId: string | null,
   taskListId: string,
   date: string,
   activeTaskId: string,
@@ -35,7 +36,7 @@ async function buildTaskListTimeline(
   if (listTasks.length === 0) return null;
 
   const taskIds = listTasks.map((t) => t._id.toString());
-  const logs = await TaskLog.find({ companyId, date, taskId: { $in: taskIds } }).lean();
+  const logs = await TaskLog.find({ companyId, locationId, date, taskId: { $in: taskIds } }).lean();
   const logByTaskId = new Map(logs.map((l) => [l.taskId.toString(), l]));
 
   const projectionItems: TaskProjection[] = listTasks.map((t) => {
@@ -104,6 +105,7 @@ async function buildTaskListTimeline(
 // Task/TaskList-shaped.
 async function notifyLiveActivity(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   started: ReturnType<typeof serializeLog> | null,
   completed: ReturnType<typeof serializeLog> | null
@@ -150,6 +152,7 @@ async function notifyLiveActivity(
     if (taskList && target.sessionTaskListId) {
       const taskListTimeline = await buildTaskListTimeline(
         companyId,
+        locationId,
         target.sessionTaskListId,
         target.date,
         target.taskId,
@@ -217,6 +220,7 @@ function isTimerTask(taskType: TaskType): boolean {
 // timer sweep internally (startInProgressLog / startImmediateLog).
 async function startTask(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskType: TaskType,
   taskId: string,
@@ -224,12 +228,13 @@ async function startTask(
   taskListId: string | null
 ) {
   return isTimerTask(taskType)
-    ? startInProgressLog(companyId, performedByUserId, taskId, date, taskListId)
-    : startImmediateLog(companyId, performedByUserId, taskId, date, taskListId);
+    ? startInProgressLog(companyId, locationId, performedByUserId, taskId, date, taskListId)
+    : startImmediateLog(companyId, locationId, performedByUserId, taskId, date, taskListId);
 }
 
 export async function triggerTask(
   companyId: string,
+  locationId: string | null,
   performedByUserId: string,
   taskId: string,
   taskType: TaskType,
@@ -238,7 +243,9 @@ export async function triggerTask(
 ) {
   // Only one log is ever in_progress at a time per person by invariant, but
   // sort defensively in case more than one ever exists transiently — same
-  // defensiveness as GET /api/task-logs/active.
+  // defensiveness as GET /api/task-logs/active. Not scoped by locationId —
+  // the single-active-timer invariant is about the PERSON, not which
+  // location a given log happens to be stamped with.
   const activeLog = await TaskLog.findOne({ companyId, performedByUserId, state: "in_progress" })
     .sort({ startedAt: -1 })
     .lean();
@@ -248,14 +255,15 @@ export async function triggerTask(
 
   if (activeLog && activeLog.taskId.toString() === taskId) {
     // Case 2 — tapped task is the currently active one: complete it.
-    const completedLog = await completeInProgressLog(companyId, performedByUserId, taskId, activeLog.date);
+    const completedLog = await completeInProgressLog(companyId, locationId, performedByUserId, taskId, activeLog.date);
     completed = serializeLog(completedLog);
 
     if (taskListId) {
-      const next = await findNextTaskInList(companyId, taskListId, activeLog.date);
+      const next = await findNextTaskInList(companyId, locationId, taskListId, activeLog.date);
       if (next) {
         const startedLog = await startTask(
           companyId,
+          locationId,
           performedByUserId,
           next.taskType,
           next._id.toString(),
@@ -272,23 +280,23 @@ export async function triggerTask(
     // supplied on this call for the completed task or not.
     const otherTaskId = activeLog.taskId.toString();
     const otherSessionTaskListId = activeLog.sessionTaskListId ? activeLog.sessionTaskListId.toString() : null;
-    const completedLog = await completeInProgressLog(companyId, performedByUserId, otherTaskId, activeLog.date);
+    const completedLog = await completeInProgressLog(companyId, locationId, performedByUserId, otherTaskId, activeLog.date);
     completed = serializeLog(completedLog);
     // This is the jump this counter exists for — attention moved to a
     // different task without the one that was running getting marked done
     // by the user themselves. Counted against the session the left-behind
     // task belonged to (see lib/task-list-session-actions.ts).
-    if (otherSessionTaskListId) await incrementSessionPauseOrJump(companyId, otherSessionTaskListId, activeLog.date);
+    if (otherSessionTaskListId) await incrementSessionPauseOrJump(companyId, locationId, otherSessionTaskListId, activeLog.date);
 
-    const startedLog = await startTask(companyId, performedByUserId, taskType, taskId, date, taskListId);
+    const startedLog = await startTask(companyId, locationId, performedByUserId, taskType, taskId, date, taskListId);
     started = serializeLog(startedLog);
   } else {
     // Case 1 — nothing active anywhere: start the tapped task.
-    const startedLog = await startTask(companyId, performedByUserId, taskType, taskId, date, taskListId);
+    const startedLog = await startTask(companyId, locationId, performedByUserId, taskType, taskId, date, taskListId);
     started = serializeLog(startedLog);
   }
 
-  await notifyLiveActivity(companyId, performedByUserId, started, completed);
+  await notifyLiveActivity(companyId, locationId, performedByUserId, started, completed);
   return { completed, started };
 }
 

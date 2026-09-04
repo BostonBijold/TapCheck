@@ -6,7 +6,7 @@ import ReportsContent from "@/components/ReportsContent";
 interface Props {
   userName: string;
   today: string;
-  role: "manager" | "employee";
+  role: "manager" | "employee" | "owner";
   skipAuth?: boolean;
 }
 
