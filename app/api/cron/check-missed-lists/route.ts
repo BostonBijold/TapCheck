@@ -6,31 +6,20 @@ import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
 import TaskLog from "@/models/TaskLog";
 import MissedListAlert from "@/models/MissedListAlert";
-import NotStartedAlert from "@/models/NotStartedAlert";
 import { resolveTasks } from "@/lib/task-definitions";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
-import {
-  deriveCollapseAfter,
-  isBeforeWindow,
-  isPastGraceWindow,
-  isPastStartGrace,
-  minutesNowInZone,
-  todayInZone,
-} from "@/lib/task-list-window";
-import { sendMissedListAlert, sendNotStartedAlert } from "@/lib/notifications";
+import { deriveCollapseAfter, isPastGraceWindow, minutesNowInZone, todayInZone } from "@/lib/task-list-window";
+import { sendMissedListAlert } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
 
-// The QStash-scheduled sweep behind both shift-window alert types — see
-// docs/features/notifications.md. Checks two independent conditions per
-// list every run: "time to start" (nobody's logged anything
-// NOT_STARTED_GRACE_MINUTES after startTime — managers AND employees) and
-// "missed" (the window closed with tasks still outstanding — managers
-// only). Kept on this one route/URL rather than split into two, since a
-// live QStash schedule already targets this path — see
-// docs/features/notifications.md's "The QStash job" for why the route
-// name stayed narrower than its actual scope. Unauthenticated (no user
-// session): this route's only auth boundary is the QStash request
+// The QStash-scheduled sweep behind missed-shift-list alerts — see
+// docs/features/notifications.md. This is one of TWO alert types the
+// notifications feature sends: the other, start-time reminders, is a
+// structurally different mechanism (a precise per-list QStash schedule,
+// see lib/qstash-schedules.ts and app/api/cron/task-list-reminder), not a
+// polling sweep — the two don't share a route or a schedule. Unauthenticated
+// (no user session): this route's only auth boundary is the QStash request
 // signature, same conceptual role assertNfcVerified plays for a scan. Runs
 // every company in one invocation — fine at current scale, revisit only if
 // company count grows enough that this risks the function's max duration
@@ -94,50 +83,23 @@ export async function POST(req: NextRequest) {
       for (const list of lists) {
         const taskListId = list._id.toString();
         try {
-          // Window hasn't even opened yet — neither check below can fire.
-          if (isBeforeWindow(nowMinutes, list.startTime)) continue;
-
           const rawTasks = await Task.find({ taskListId, companyId, isActive: true }).lean();
           const resolved = await resolveTasks(rawTasks);
           const visible = resolved.filter((t) => isTaskVisibleOn(t, today));
-          // Nothing was expected on this list today — nothing can be missed
-          // or "not started."
+          // Nothing was expected on this list today — nothing can be missed.
           if (visible.length === 0) continue;
 
-          const logs = await TaskLog.find(
-            { companyId, date: today, taskId: { $in: visible.map((t) => t._id) } },
-            "taskId state"
-          ).lean<{ taskId: { toString(): string }; state: string }[]>();
-
-          // ── "Time to start": nobody's logged anything against this list
-          // yet, and its own grace period past startTime has elapsed.
-          // Independent of, and typically fires well before, the "missed"
-          // check below — a list can trip this one, get started a minute
-          // later, and never trip the other.
-          if (isPastStartGrace(nowMinutes, list.startTime) && logs.length === 0) {
-            try {
-              await NotStartedAlert.create({ companyId, taskListId, date: today });
-              await sendNotStartedAlert({
-                companyId,
-                taskListId,
-                taskListName: list.name,
-                startLabel: fmtTime(list.startTime),
-                date: today,
-              });
-              alertsSent += 1;
-            } catch (err: unknown) {
-              if ((err as { code?: number }).code !== 11000) throw err; // already alerted
-            }
-          }
-
-          // ── "Missed": the window (+ grace) closed with tasks still
-          // outstanding, regardless of whether the list was ever started.
           const timedVisible = visible.filter((t) => t.taskType !== "checkbox");
           const totalProjected = timedVisible.reduce((s, t) => s + t.projectedMinutes, 0);
           const collapseAfter = deriveCollapseAfter(list.startTime, totalProjected);
           if (!isPastGraceWindow(nowMinutes, collapseAfter)) continue;
 
+          const logs = await TaskLog.find(
+            { companyId, date: today, taskId: { $in: visible.map((t) => t._id) } },
+            "taskId state"
+          ).lean<{ taskId: { toString(): string }; state: string }[]>();
           const stateByTaskId = new Map(logs.map((l) => [l.taskId.toString(), l.state]));
+
           const outstanding = visible.filter((t) => {
             const state = stateByTaskId.get(t._id.toString());
             return !state || !TERMINAL_STATES.has(state);

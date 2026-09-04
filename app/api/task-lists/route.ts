@@ -2,7 +2,9 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
+import Company from "@/models/Company";
 import { resolveSessionUser } from "@/lib/session";
+import { upsertStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +103,23 @@ export async function POST(req: Request) {
     isDefault: false,
     scheduledDays: days,
   });
+
+  // Best-effort — a QStash hiccup shouldn't fail list creation itself, the
+  // same "accepted tradeoff" reasoning as a missed push being lower-stakes
+  // than a missed task elsewhere in this feature. See
+  // docs/features/notifications.md's "Start-time reminders".
+  try {
+    const company = await Company.findById(companyId, "timezone").lean<{ timezone?: string | null }>();
+    taskList.qstashScheduleId = await upsertStartTimeSchedule({
+      taskListId: taskList._id.toString(),
+      startTime: taskList.startTime,
+      scheduledDays: taskList.scheduledDays,
+      timezone: company?.timezone ?? null,
+    });
+    await taskList.save();
+  } catch (err) {
+    console.error(`POST /api/task-lists: schedule upsert failed for ${taskList._id}`, err);
+  }
 
   return NextResponse.json({
     _id: taskList._id.toString(),

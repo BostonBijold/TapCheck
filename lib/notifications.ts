@@ -48,7 +48,7 @@ async function sendPushToUsers(params: {
 // company — see docs/features/notifications.md's "Push payload" and
 // "Failure handling". Manager-only: this is the escalation alert (the
 // window closed with tasks still outstanding), distinct from
-// sendNotStartedAlert below, which also reaches employees.
+// sendStartTimeReminder below, which also reaches employees.
 export async function sendMissedListAlert(params: {
   companyId: string;
   taskListId: string;
@@ -71,20 +71,20 @@ export async function sendMissedListAlert(params: {
   });
 }
 
-// Fans a "time to start" nudge out to EVERY company user (managers and
-// employees both) — see docs/features/notifications.md's "What counts as
-// not started." A quick reminder that a shift-window list's start time has
-// arrived and nobody's logged anything yet, distinct from
+// Fans a "start-time reminder" out to EVERY company user (managers and
+// employees both) — see docs/features/notifications.md's "Start-time
+// reminders." A lightweight nudge fired at a shift-window list's exact
+// startTime via its own QStash schedule (app/api/cron/task-list-reminder),
+// not conditioned on anything being late — distinct from
 // sendMissedListAlert above, which is the manager-only escalation once the
-// window has actually closed.
-export async function sendNotStartedAlert(params: {
+// window has actually closed with tasks still outstanding.
+export async function sendStartTimeReminder(params: {
   companyId: string;
   taskListId: string;
   taskListName: string;
-  startLabel: string; // e.g. "6:00am" — already formatted
   date: string; // YYYY-MM-DD
 }): Promise<void> {
-  const { companyId, taskListId, taskListName, startLabel, date } = params;
+  const { companyId, taskListId, taskListName, date } = params;
 
   await connectDB();
   const everyone = await User.find({ companyId }, "_id").lean<{ _id: { toString(): string } }[]>();
@@ -93,7 +93,7 @@ export async function sendNotStartedAlert(params: {
     companyId,
     userIds: everyone.map((u) => u._id.toString()),
     title: taskListName,
-    body: `Was due to start at ${startLabel} — nothing logged yet`,
-    data: { taskListId, date, alertType: "not_started" },
+    body: `Time to start ${taskListName}`,
+    data: { taskListId, date, alertType: "start_time" },
   });
 }

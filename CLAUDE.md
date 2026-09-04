@@ -224,6 +224,9 @@ soft-delete these directly from the app — see "Task Lists" below.
   isDefault: bool,
   isActive: bool,   // soft-delete flag — same convention as Task.isActive
   scheduledDays,    // 0=Sun..6=Sat — a default pushed down onto every Task in the list when changed
+  qstashScheduleId, // string | null — the QStash schedule backing this list's start-time reminder push
+                    // (see "Notifications" below); deterministic (`tasklist-<_id>`), re-upserted
+                    // whenever startTime/scheduledDays/the company's timezone changes, null = none
 }
 ```
 
@@ -387,8 +390,8 @@ see "Task ↔ Inventory Linking" in `docs/features/inventory.md`.
 }
 ```
 
-### PushToken / MissedListAlert / NotStartedAlert
-Back the two shift-window alert sweeps — see "Notifications" below and
+### PushToken / MissedListAlert
+Back the two shift-window alert types — see "Notifications" below and
 `docs/features/notifications.md`.
 ```js
 // PushToken — one row per device (not per user), a standing registration
@@ -408,10 +411,10 @@ Back the two shift-window alert sweeps — see "Notifications" below and
   lastSeenAt,
 }
 
-// MissedListAlert / NotStartedAlert — identical shape, separate collections (one row per (company,
-// list, day) that alert type actually fired); each exists purely to make its own sweep idempotent
-// (unique index on companyId+taskListId+date) and doubles as an audit trail. Kept as two collections
-// rather than one with a `type` field since the two alerts are otherwise fully independent.
+// MissedListAlert — one row per (company, list, day) the MISSED alert actually fired; exists purely
+// to make the missed-list sweep idempotent (unique index on companyId+taskListId+date) and doubles
+// as an audit trail. Start-time reminders (see "Notifications" below) need no equivalent table — each
+// fire of a list's own QStash schedule is already a distinct, non-repeating occurrence by construction.
 {
   _id,
   companyId,
@@ -420,6 +423,9 @@ Back the two shift-window alert sweeps — see "Notifications" below and
   sentAt,
 }
 ```
+`TaskList.qstashScheduleId` (see the TaskList model above) is the other
+half of start-time reminders' own dedup-equivalent — the QStash schedule
+ID itself, not a per-fire row.
 
 ---
 
@@ -595,52 +601,65 @@ questions (par-level alerting, Reports integration) — is in
 
 ## Notifications
 
-Two independent push alerts, both computed against a shift-window
-`TaskList`'s own schedule by the same sweep:
+Two independent push alerts, structurally different mechanisms:
 
-- **Time to start** — `startTime` + a flat 5-minute grace period has
-  passed and zero `TaskLog` rows exist for the list's tasks today (nobody
-  logged anything at all). Reaches **managers and employees** — a
-  reminder to whoever's on shift.
+- **Start-time reminders** — fires at a shift-window `TaskList`'s exact
+  `startTime`, via its own standing **per-list QStash schedule** (a cron
+  expression with a `CRON_TZ=<company.timezone>` prefix, deterministically
+  IDed `tasklist-<listId>` and stored on `TaskList.qstashScheduleId`) —
+  not a poll. Skips silently if nothing's scheduled that day or everything's
+  already done. Reaches **managers and employees** — a nudge to whoever's
+  on shift.
 - **Missed** — the list's derived end time (`startTime` + today's
   projected minutes) + a flat 30-minute grace period has passed with any
   of today's scheduled tasks still not in a terminal state (`done`/
-  `missed`/`rest`). Reaches **managers only** — an escalation.
+  `missed`/`rest`). Driven by a single **shared recurring QStash sweep**
+  (`POST /api/cron/check-missed-lists`, every 5 minutes — a poll, since
+  "closed *around* 30 minutes ago" doesn't need to-the-minute precision).
+  Reaches **managers only** — an escalation.
 
-One digest push per list per day per alert type, not one per task. Driven
-by an external **Upstash QStash** schedule (not Vercel Cron — the Hobby
-plan's once-a-day cron is useless for this) hitting `POST
-/api/cron/check-missed-lists` every 5 minutes — that route checks both
-alert types on every invocation; its only auth boundary is verifying
-QStash's own request signature, since it has no user session.
-`Company.timezone` (see "Data Models" above) is what lets the sweep ask
-"has this actually happened yet?" independent of server UTC or any
-device's own offset — a company with no timezone set is skipped entirely.
-`Company.notificationsEnabled` is a single company-wide kill switch
-covering both alert types (no per-alert-type or per-user mute in v1). Any
-signed-in company user's device registers a standing `PushToken`
-(distinct from `User.liveActivityPushToken`'s ephemeral, single-timer
-token) via `@capacitor/push-notifications` — registration itself isn't
-role-gated, since "time to start" reaches employees too; "missed" stays
-manager-only via its own query filter, not a registration-time
-restriction. `MissedListAlert`/`NotStartedAlert` (one each, same shape,
-kept separate since the two alerts are otherwise fully independent) make
-the sweep idempotent per alert type (write-then-send: the dedup row is
-written before the push fan-out, so a crash mid-send can't duplicate an
-alert on retry) and double as an audit trail.
+These use genuinely different QStash primitives on purpose: a poll rounds
+to its own interval, and "starts now" read oddly arriving several minutes
+early or late, so start-time reminders get one exact schedule per list
+instead (`lib/qstash-schedules.ts`'s `upsertStartTimeSchedule`/
+`deleteStartTimeSchedule`, wired into task-list create/update/delete/
+duplicate and into a company-timezone change on Company Settings, since
+every existing schedule's `CRON_TZ` goes stale otherwise). Both routes'
+only auth boundary is verifying QStash's own request signature, since
+neither has a user session. `Company.timezone` (see "Data Models" above)
+is what lets both mechanisms ask "has this actually happened yet?"
+independent of server UTC or any device's own offset — a company with no
+timezone set is skipped by the sweep, and `upsertStartTimeSchedule`
+refuses to create a schedule without one. `Company.notificationsEnabled`
+is a single company-wide kill switch: the sweep filters disabled companies
+out entirely, while `task-list-reminder` checks the flag at send time
+instead (schedules keep firing regardless — not worth the QStash churn of
+deleting/recreating every list's schedule on every toggle). Any signed-in
+company user's device registers a standing `PushToken` (distinct from
+`User.liveActivityPushToken`'s ephemeral, single-timer token) via
+`@capacitor/push-notifications` — registration itself isn't role-gated,
+since start-time reminders reach employees too; "missed" stays
+manager-only via its own query filter at send time, not a
+registration-time restriction. `MissedListAlert` makes the sweep
+idempotent (write-then-send: the dedup row is written before the push
+fan-out) and doubles as an audit trail — start-time reminders need no
+equivalent table, since each QStash fire of a per-list schedule is
+already a distinct, non-repeating occurrence by construction.
 
-The window math (`deriveCollapseAfter` plus both grace periods) lives in
-`lib/task-list-window.ts`, shared between this server-side sweep and
-`components/TaskListCard.tsx`'s own client-side collapse logic — one pure
-function, two callers, same pattern as `lib/task-progress.ts`/
-`lib/placement-resolution.ts` — so the two can never diverge on "is this
-list's window actually open/over."
+The missed-list window math (`deriveCollapseAfter`, `isPastGraceWindow`/
+`MISSED_LIST_GRACE_MINUTES`) lives in `lib/task-list-window.ts`, shared
+between the sweep and `components/TaskListCard.tsx`'s own client-side
+collapse logic — one pure function, two callers, same pattern as
+`lib/task-progress.ts`/`lib/placement-resolution.ts`.
 
-Deferred beyond v1: par-level inventory alerts (same QStash infra, a
-different trigger — natural fast-follow), per-list configurable grace
-periods, email fallback for a user who never grants push permission, and
-per-user/per-alert-type mute. Full detail — data model, the QStash job,
-push payload shape, and failure handling — is in
+Deferred beyond v1: par-level inventory alerts (same missed-list QStash
+infra, a different trigger — natural fast-follow), a configurable grace
+period for the missed alert, email fallback for a user who never grants
+push permission, per-user/per-alert-type mute, and reconciling schedule
+drift (nothing re-verifies a list's `qstashScheduleId` still matches a
+live QStash schedule). QStash's free-tier 10-active-schedule cap is also
+worth watching — every shift-window list consumes one. Full detail — data
+model, both mechanisms, push payload shape, and failure handling — is in
 `docs/features/notifications.md`.
 
 ---
@@ -670,7 +689,7 @@ push payload shape, and failure handling — is in
 - [x] Inventory tab (top-up count tracker, not a decrement ledger) — see "Inventory" above and docs/features/inventory.md
 - [x] Task ↔ Inventory Linking (a task can capture one or more Inventory counts as part of its own form, with shared NFC verification when a tag backs both) — see "Inventory" above and docs/features/inventory.md's "Task ↔ Inventory Linking"
 - [x] Inventory grouping, par-level red-tint/warning cascade, per-item `nfcRequiredToLog` enforcement, and the manager-only "Manage Inventory" hub — see "Inventory" above and docs/features/inventory.md
-- [x] Shift-window alert push notifications — "time to start" (managers+employees) and "missed" (managers) — QStash-scheduled sweep, device registration for any company user, Company timezone/notificationsEnabled — see "Notifications" above and docs/features/notifications.md
+- [x] Shift-window alert push notifications — "start-time reminders" (per-list QStash schedule, managers+employees) and "missed" (shared QStash sweep, managers) — device registration for any company user, Company timezone/notificationsEnabled — see "Notifications" above and docs/features/notifications.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -790,7 +809,7 @@ table is a quick reference, not authoritative.
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
-- Notifications: BUILT — QStash-scheduled sweep sends two independent digests per shift-window task list per day: "time to start" (5min grace past startTime with nothing logged, reaches managers+employees) and "missed" (30min grace past the window's end with tasks still outstanding, managers only); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive the sweep, see "Notifications" above and `docs/features/notifications.md`
+- Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

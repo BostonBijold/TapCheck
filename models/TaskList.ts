@@ -18,6 +18,14 @@ export interface ITaskList extends Document {
   // hard lock. Defaults to every day so existing lists are unaffected until
   // a manager opts in.
   scheduledDays: number[];
+  // The QStash schedule ID backing this list's own start-time reminder
+  // push (see docs/features/notifications.md's "Start-time reminders") —
+  // deterministic (`tasklist-<this list's _id>`), so this field is really
+  // a cache/audit trail rather than the source of truth, but storing it
+  // avoids callers having to recompute or guess the ID, and lets a delete
+  // skip calling QStash at all for a list that never had one (an anytime
+  // list, or one with an empty scheduledDays). null = no live schedule.
+  qstashScheduleId: string | null;
 }
 
 const TaskListSchema = new Schema<ITaskList>(
@@ -35,6 +43,7 @@ const TaskListSchema = new Schema<ITaskList>(
     isDefault: { type: Boolean, default: false },
     isActive: { type: Boolean, default: true },
     scheduledDays: { type: [Number], default: [0, 1, 2, 3, 4, 5, 6] },
+    qstashScheduleId: { type: String, default: null },
   },
   { timestamps: true }
 );

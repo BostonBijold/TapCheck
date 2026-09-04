@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import Company from "@/models/Company";
+import TaskList from "@/models/TaskList";
 import { resolveSessionUser } from "@/lib/session";
+import { upsertStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -72,6 +74,33 @@ export async function PATCH(req: NextRequest) {
     notificationsEnabled?: boolean;
   }>();
   if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  // Every shift-window list's own QStash schedule has this company's OLD
+  // timezone baked into its CRON_TZ prefix (see lib/qstash-schedules.ts) —
+  // a timezone correction needs to re-upsert all of them, not just take
+  // effect for the next list a manager happens to edit. Best-effort: a
+  // QStash hiccup here shouldn't fail the settings save itself.
+  if (update.timezone !== undefined) {
+    try {
+      const lists = await TaskList.find(
+        { companyId, isActive: true, startTime: { $ne: null } },
+        "_id startTime scheduledDays"
+      ).lean<{ _id: { toString(): string }; startTime: string; scheduledDays: number[] }[]>();
+      await Promise.all(
+        lists.map(async (list) => {
+          const scheduleId = await upsertStartTimeSchedule({
+            taskListId: list._id.toString(),
+            startTime: list.startTime,
+            scheduledDays: list.scheduledDays,
+            timezone: company.timezone ?? null,
+          });
+          await TaskList.updateOne({ _id: list._id }, { $set: { qstashScheduleId: scheduleId } });
+        })
+      );
+    } catch (err) {
+      console.error(`PATCH /api/company/settings: schedule re-upsert failed for company ${companyId}`, err);
+    }
+  }
 
   return NextResponse.json({
     notificationSound: company.notificationSound ?? "standard",

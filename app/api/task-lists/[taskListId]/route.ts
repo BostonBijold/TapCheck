@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
+import Company from "@/models/Company";
 import { resolveSessionUser } from "@/lib/session";
+import { upsertStartTimeSchedule, deleteStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -69,6 +71,25 @@ export async function PATCH(
     );
   }
 
+  // Only re-upsert the QStash schedule when startTime/scheduledDays
+  // actually changed — a pure rename doesn't affect the cron expression or
+  // destination. Best-effort, same reasoning as POST /api/task-lists: a
+  // QStash hiccup shouldn't fail the list update itself.
+  if (body.startTime !== undefined || body.scheduledDays !== undefined) {
+    try {
+      const company = await Company.findById(companyId, "timezone").lean<{ timezone?: string | null }>();
+      const qstashScheduleId = await upsertStartTimeSchedule({
+        taskListId: taskList._id.toString(),
+        startTime: taskList.startTime ?? null,
+        scheduledDays: taskList.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
+        timezone: company?.timezone ?? null,
+      });
+      await TaskList.updateOne({ _id: taskList._id }, { $set: { qstashScheduleId } });
+    } catch (err) {
+      console.error(`PATCH /api/task-lists/${params.taskListId}: schedule upsert failed`, err);
+    }
+  }
+
   return NextResponse.json({
     _id: taskList._id.toString(),
     name: taskList.name,
@@ -96,7 +117,18 @@ export async function DELETE(
   if (!taskList) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   taskList.isActive = false;
+  taskList.qstashScheduleId = null;
   await taskList.save();
+
+  // Deletes the QStash schedule outright, not soft — nothing reads a
+  // deleted schedule's history the way TaskLog/TaskListSession preserve
+  // this list's own soft-deleted state. Best-effort: a QStash hiccup
+  // shouldn't block the (already-applied) soft delete.
+  try {
+    await deleteStartTimeSchedule(params.taskListId);
+  } catch (err) {
+    console.error(`DELETE /api/task-lists/${params.taskListId}: schedule delete failed`, err);
+  }
 
   return NextResponse.json({ ok: true });
 }

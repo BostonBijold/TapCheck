@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskList from "@/models/TaskList";
 import Task from "@/models/Task";
+import Company from "@/models/Company";
 import { resolveSessionUser } from "@/lib/session";
+import { upsertStartTimeSchedule } from "@/lib/qstash-schedules";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +65,22 @@ export async function POST(
         successThreshold: t.successThreshold ?? 7,
       }))
     );
+  }
+
+  // The duplicate inherits the source's startTime/scheduledDays, so it
+  // gets its own independent QStash schedule too — best-effort, same
+  // reasoning as POST /api/task-lists.
+  try {
+    const company = await Company.findById(companyId, "timezone").lean<{ timezone?: string | null }>();
+    newList.qstashScheduleId = await upsertStartTimeSchedule({
+      taskListId: newList._id.toString(),
+      startTime: newList.startTime,
+      scheduledDays: newList.scheduledDays,
+      timezone: company?.timezone ?? null,
+    });
+    await newList.save();
+  } catch (err) {
+    console.error(`POST /api/task-lists/${params.taskListId}/duplicate: schedule upsert failed`, err);
   }
 
   return NextResponse.json({

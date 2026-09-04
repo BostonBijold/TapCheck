@@ -200,8 +200,8 @@ export default function CompanySettingsView({
           <div className="min-w-0 flex-1">
             <p className="font-body text-sm text-text">Push notifications</p>
             <p className="font-mono text-[10px] text-dim mt-0.5">
-              A nudge to everyone if a shift checklist hasn&rsquo;t started a few minutes after it was
-              due, and a heads-up to managers if its window closes with tasks still outstanding.
+              A nudge to everyone right when a shift checklist is due to start, and a heads-up to
+              managers if its window closes with tasks still outstanding.
             </p>
           </div>
           <button

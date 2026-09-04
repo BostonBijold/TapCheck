@@ -2,77 +2,108 @@
 
 # Notifications (shift-window alerts)
 
-**Status: BUILT.** Two independent push alerts, both driven by the same
-QStash sweep against a shift-window task list's own schedule:
+**Status: BUILT.** Two independent push alerts, structurally different
+mechanisms, both landing on the same devices:
 
-- **Time to start** — nobody's logged anything against the list a few
-  minutes after its `startTime`. Reaches **managers and employees** (a
-  reminder to whoever's on shift).
-- **Missed** — the list's window closed with tasks still outstanding.
-  Reaches **managers only** (an escalation).
+- **Start-time reminders** — fires at a shift-window list's exact
+  `startTime`, via its own standing **per-list QStash schedule** (not a
+  poll). A nudge, not an escalation. Reaches **managers and employees**.
+- **Missed** — fires when a list's window closes (derived end time + a
+  flat 30-minute grace period) with tasks still outstanding, via a single
+  **shared recurring QStash sweep** (a poll, every 5 minutes). An
+  escalation. Reaches **managers only**.
 
 See CLAUDE.md's "Notifications" section for a short summary; this doc has
 the full detail.
 
-**v1 scope**: push-only, one digest alert per list per day per alert type.
+**v1 scope**: push-only, one alert per list per day per type (start-time
+reminders: naturally one per scheduled day, since each is a distinct
+non-repeating QStash occurrence; missed: deduped via `MissedListAlert`).
 
 **Explicitly out of scope for v1** (see "Deferred / open questions" below):
-par-level inventory alerts (same infra, different trigger — a fast-follow),
-email fallback, per-manager mute, per-list configurable grace periods, time
-clock (not built at all yet, unrelated).
+par-level inventory alerts (same missed-list infra, different trigger — a
+fast-follow), email fallback, per-manager mute, per-list configurable
+grace period for the missed alert, time clock (not built at all yet,
+unrelated).
+
+## Two mechanisms, on purpose
+
+These aren't the same shape of problem, so they don't share one:
+
+- **Missed** only needs to know "has enough time passed that this is now
+  late?" — a coarse poll (every 5 minutes) is fine, since the alert itself
+  is inherently fuzzy ("closed *around* 30 minutes ago").
+- **Start-time reminders** are explicitly about firing *at* a specific
+  moment — "starts now" read oddly arriving up to several minutes early or
+  late, which is what an earlier version of this feature did (a shared
+  poll with its own grace period, checking "has nothing been logged N
+  minutes after startTime"). That version was scrapped in favor of giving
+  **each shift-window list its own QStash schedule**, evaluated by QStash
+  itself at the exact minute — see "Start-time reminders" below.
 
 ## Why QStash, not Vercel Cron
 
 This needs a background job that runs independent of any user request —
 Vercel's own Cron Jobs are the obvious first thought, but the Hobby plan
 caps cron at once-per-day, fired sometime within an hour window, which is
-useless for "alert within a few minutes of a checklist not being started."
-Pro lifts that to per-minute cadence, but only via a $20/mo/seat upgrade.
+useless for either alert type here. Pro lifts that to per-minute cadence,
+but only via a $20/mo/seat upgrade — and even Pro is still a *poll*,
+which isn't precise enough for start-time reminders regardless (see
+above).
 
 **Upstash QStash** decouples the trigger from Vercel's plan entirely: it's
-an external HTTP scheduler that calls one of our own API routes on a cron
-schedule, free up to 1,000 messages/day and 10 active schedules — more
-than enough at current and near-term scale (the live schedule fires every
-5 minutes, 288 messages/day total, regardless of how many companies exist
-or how many alert types get checked per run, since the job itself fans out
-to every company server-side — standard cron's finest granularity is 1
-minute, but that alone would consume the entire free-tier daily budget, so
-5 minutes was picked as comfortably within it while still well under
-either alert's own grace period).
+an external HTTP scheduler that calls one of our own API routes, free up
+to 1,000 messages/day and 10 active schedules — comfortably covers the
+missed-list sweep (one shared schedule, 288 messages/day at its 5-minute
+cadence) plus one schedule per shift-window list for start-time reminders
+(each list fires at most once per scheduled day, so message volume scales
+with company/list count, not with polling frequency).
 
-The tradeoff: one more third-party account/dependency, and the receiving
+The tradeoff: one more third-party account/dependency, and any receiving
 route needs to verify QStash's request signature (`Upstash-Signature`
 header) rather than trusting Vercel's own cron auth pattern
-(`CRON_SECRET` bearer token) — see "The QStash job" below.
+(`CRON_SECRET` bearer token).
+
+**Growing past the free tier is a good problem.** Both the sweep's message
+volume and the per-list schedule count scale with how many paying
+companies/lists exist — by the time that crosses QStash's free limits
+(10 active schedules total today — see "Deferred" below), the business
+should comfortably support QStash's usage-based pricing.
 
 ## `Company.timezone`
 
 **`models/Company.ts` has `timezone: string | null`** — an IANA zone name
-(`"America/Chicago"`), not a raw UTC offset, so DST is handled for free by
-the platform `Intl` API (`lib/task-list-window.ts`'s `minutesNowInZone`/
-`todayInZone`) — no new date-library dependency added.
+(`"America/Chicago"`), not a raw UTC offset. Used two ways:
+
+- The missed-list sweep's own `Intl`-based math (`lib/task-list-window.ts`'s
+  `minutesNowInZone`/`todayInZone`).
+- Baked directly into each start-time reminder schedule's cron expression
+  as a `CRON_TZ=<zone>` prefix (`lib/qstash-schedules.ts`) — QStash
+  evaluates the schedule against that zone itself, so DST is handled for
+  free without this app doing any offset math for that path at all.
 
 - **No self-serve company *creation* UI exists in this codebase** (see
   CLAUDE.md's "Multi-Tenancy" — a company's first manager is still attached
   by hand in MongoDB), so there is no signup-time form field to capture a
-  browser-guessed timezone from — that part of the original spec doesn't
-  apply until a real company-creation flow exists. **What's actually
-  built**: `timezone` is a plain manager-editable field on Company
-  Settings (`components/CompanySettingsView.tsx`, `GET`/`PATCH
+  browser-guessed timezone from. **What's actually built**: `timezone` is a
+  plain manager-editable field on Company Settings
+  (`components/CompanySettingsView.tsx`, `GET`/`PATCH
   /api/company/settings`), including a "Detect" button that reads
   `Intl.DateTimeFormat().resolvedOptions().timeZone` from whichever
-  manager's browser clicks it — the same detection the original spec
-  wanted, just triggered manually from Settings instead of automatically
-  at signup.
-- **A company with `timezone: null` is skipped entirely by the sweep** (see
-  "The QStash job" below) — never guessed at, never defaulted silently.
+  manager's browser clicks it.
+- **A company with `timezone: null` is skipped entirely by the missed-list
+  sweep**, and `upsertStartTimeSchedule` refuses to create/update a
+  schedule without one (deleting any existing schedule instead) — never
+  guessed at, never defaulted silently.
+- **Changing a company's timezone re-upserts every one of its shift-window
+  lists' schedules** (`app/api/company/settings/route.ts`'s `PATCH`) —
+  each schedule has the OLD timezone baked into its own `CRON_TZ` prefix,
+  so a correction needs to propagate to all of them immediately, not wait
+  for the next time each list happens to be edited.
 - **Existing companies** (pre-dating this field being load-bearing) are
-  backfilled by `scripts/backfill-company-timezone.mjs` — same one-off,
-  manually-run pattern as `scripts/migrate-task-definitions.mjs`. It
-  defaults every company with a null timezone to `America/Chicago` and
-  logs each one so a developer can correct it by hand (or point the
-  manager at Company Settings) once its real zone is known — not run
-  automatically, and not a guess anyone should trust without follow-up.
+  backfilled by `scripts/backfill-company-timezone.mjs` — defaults every
+  company with a null timezone to `America/Chicago` and logs each one so a
+  developer can correct it by hand once its real zone is known.
 
 ## Data model
 
@@ -84,29 +115,35 @@ the platform `Intl` API (`lib/task-list-window.ts`'s `minutesNowInZone`/
   notifications. Registered by any signed-in company user, manager or
   employee (see "Device registration" below) — this route/model doesn't
   know or care which alert type(s) a given token ends up receiving.
-  Index: `{ token: 1 }` unique (a reinstalled app re-registers the same
-  physical device under a fresh token via an upsert-on-token write; the
-  old row is simply orphaned and pruned lazily on a `BadDeviceToken`/
-  `Unregistered` APNs response — see "Failure handling" below),
-  `{ companyId: 1 }` (the alert fan-out query).
-- **`models/MissedListAlert.ts`** — `{ companyId, taskListId, date, sentAt
-  }`. Dedup guard for the **missed** alert. Unique index on `{ companyId:
-  1, taskListId: 1, date: 1 }`, enforced via a `try`/`catch` on the Mongo
-  duplicate-key error (`code 11000`) around `create()` in the cron route,
-  not a separate find-then-write. Doubles as a lightweight audit trail
-  ("did the alert fire, and when") for free.
-- **`models/NotStartedAlert.ts`** — same shape and same dedup convention as
-  `MissedListAlert`, in a separate collection rather than a `type` field on
-  that one model — the two alerts have independent triggers, timing, and
-  audiences, and each fires once per list per day completely independently
-  of the other.
+  Index: `{ token: 1 }` unique, `{ companyId: 1 }` (the alert fan-out
+  query).
+- **`models/MissedListAlert.ts`** — `{ companyId, taskListId, date,
+  sentAt }`. Dedup guard for the **missed** sweep only — unique index on
+  `{ companyId: 1, taskListId: 1, date: 1 }`, enforced via a `try`/`catch`
+  on the Mongo duplicate-key error (`code 11000`) around `create()`, not a
+  separate find-then-write. Doubles as a lightweight audit trail. **No
+  equivalent table exists for start-time reminders** — each QStash fire of
+  a per-list schedule is already a distinct, non-repeating occurrence by
+  construction, so there's no "did we already send today" to check.
+- **`TaskList.qstashScheduleId: string | null`** — the QStash schedule ID
+  backing this list's own start-time reminder. Deterministic
+  (`tasklist-<this list's _id>`, see `lib/qstash-schedules.ts`), so this
+  field is really a cache/audit trail rather than the source of truth —
+  but storing it means a delete can skip calling QStash at all for a list
+  that never had one. `null` = no live schedule (an anytime list, a list
+  with an empty `scheduledDays`, or a company with no timezone set).
 - **`Company.notificationsEnabled: boolean`** (default `true`) — a single
-  company-wide kill switch covering **both** alert types, editable from
-  Company Settings alongside `timezone` above. No per-alert-type or
-  per-manager mute in v1 (see "Deferred" below).
+  company-wide kill switch covering **both** alert types. For missed-list
+  alerts this is checked by the sweep itself (a disabled company is
+  filtered out before any list is even evaluated). For start-time
+  reminders, schedules keep firing regardless of this flag (deleting/
+  recreating every list's schedule on every toggle wasn't worth the
+  churn) — `app/api/cron/task-list-reminder` checks the flag at send
+  time instead and no-ops if it's off. No per-alert-type or per-manager
+  mute in v1 (see "Deferred" below).
 
-No changes to `TaskList`/`Task`/`TaskDefinition`/`TaskLog` — this reads
-existing state, it doesn't add fields to the things it's checking.
+No changes to `Task`/`TaskDefinition`/`TaskLog` — this reads existing
+state, it doesn't add fields to the things it's checking.
 
 ## Device registration (client side)
 
@@ -125,13 +162,11 @@ notifications need their own explicit permission grant:
    called from `components/NativeBootstrap.tsx` on every native cold
    start. It first checks `GET /api/session/role` for a non-null
    `companyId` — a small, deliberately narrow endpoint kept just for this
-   gate (see that route's own comment: no other client code should grow a
-   habit of polling it instead of receiving role/companyId as a page prop,
-   the way every other gated screen already does) — and bails silently for
-   anyone not attached to a company. **Both managers and employees are
-   prompted** — this broadened from an earlier manager-only version once
-   the "time to start" alert (which reaches employees too) was added; see
-   "History" below.
+   gate — and bails silently for anyone not attached to a company. **Both
+   managers and employees are prompted**, since start-time reminders reach
+   employees too; missed-list alerts stay manager-only via a filter at
+   send time (`lib/notifications.ts`), not a registration-time
+   restriction.
 3. It checks/requests permission (`PushNotifications.checkPermissions()` /
    `requestPermissions()`). iOS shows its own system permission prompt —
    not skippable, not customizable, same category of OS-owned prompt as
@@ -141,64 +176,108 @@ notifications need their own explicit permission grant:
    **Deviation from the original spec**: `environment` is not sent by the
    client at all — `app/api/push-tokens/route.ts` infers it server-side
    from `process.env.NODE_ENV`, the closest available proxy to
-   `LiveActivityPlugin.swift`'s own `#if DEBUG` tagging (a real Xcode
-   build-config flag isn't visible to this endpoint the way it is to
-   native Swift code). Known imperfection, documented inline in the
-   route: a TestFlight (Distribution-signed, real APNs *sandbox*) build
-   talking to this same production Vercel deployment would still be
+   `LiveActivityPlugin.swift`'s own `#if DEBUG` tagging. Known
+   imperfection: a TestFlight (Distribution-signed, real APNs *sandbox*)
+   build talking to this same production Vercel deployment would still be
    tagged `"production"` — accepted for v1, revisit if it causes real
    missed pushes.
 5. A denied/undetermined permission is not re-prompted automatically on
-   every launch (respecting the OS's own "don't be naggy" norms). **Not
-   yet built**: the original spec's dismissible in-app banner for a
+   every launch. **Not yet built**: a dismissible in-app banner for a
    manager whose company has `notificationsEnabled: true` but no
    registered token — deferred, see "Deferred / open questions" below.
 
 **Native rebuild required**: adding `@capacitor/push-notifications` means
-`npx cap sync ios` alone (already run) isn't enough to actually get this
-running on a device — that only updates the iOS project's Swift Package
-references. The plugin's native code has to be compiled into the app
-binary via Xcode (Clean Build Folder, then Build & Run to a **physical
-device** — the Simulator can't receive real APNs pushes, same constraint
-as Live Activity) before the permission prompt can appear at all.
+`npx cap sync ios` alone isn't enough to actually get this running on a
+device — the plugin's native code has to be compiled into the app binary
+via Xcode (Clean Build Folder, then Build & Run to a **physical device** —
+the Simulator can't receive real APNs pushes) before the permission
+prompt can appear at all.
 
-## What counts as "not started"
+## Start-time reminders
 
-Only **shift-window lists** (`startTime` non-null) are eligible — an
-anytime list never has a start time to be late against. The condition,
-evaluated per `(company, list, today)` in
-`app/api/cron/check-missed-lists/route.ts`, alongside "missed" below:
+An earlier version of this feature considered a nightly batch job that
+pre-schedules the next day's reminders as one-off delayed messages.
+**Rejected**: anything created or edited *after* that night's run — a
+company signing up mid-morning, a manager adding or rescheduling a list at
+10am for an 11am start — would silently get no reminder until the
+following day. A shared polling sweep (checked next) was also considered
+and briefly built, then scrapped: a poll rounds to its own interval, and
+"starts now" read oddly arriving several minutes early or late.
 
-1. The window has opened: now (via `minutesNowInZone(company.timezone)`)
-   is at or past `startTime`.
-2. **Grace period**: `startTime` + a flat **5 minutes**
-   (`NOT_STARTED_GRACE_MINUTES` in `lib/task-list-window.ts`) has passed.
-   Deliberately much shorter than the missed alert's 30 minutes — this is
-   a quick nudge that the window opened, not an escalation.
-3. **Zero** `TaskLog` rows exist for `(companyId, today, any of this
-   list's visible tasks)` — i.e. truly nothing has been logged, not
-   "started but incomplete" (that's the missed alert's job, evaluated
-   independently and possibly later the same run).
-4. A list with **zero** tasks scheduled today (every task's
-   `scheduledDays` excludes today) is skipped entirely — same as "missed."
-5. No `NotStartedAlert` row already exists for `(companyId, taskListId,
-   today's date)`.
+**What's actually built: each shift-window list gets its own standing
+QStash schedule**, created/updated the moment the list's `startTime`/
+`scheduledDays` (or its company's `timezone`) changes — never batched:
 
-Because this check only needs to know "does at least one `TaskLog` row
-exist," and the missed check (below) needs the exact same `TaskLog` query
-to compute its own outstanding count, the cron route fetches that query
-once per list and reuses it for both checks.
+- **`lib/qstash-schedules.ts`**'s `upsertStartTimeSchedule({ taskListId,
+  startTime, scheduledDays, timezone })` builds a `CRON_TZ=<timezone> M H
+  * * <days>` cron expression from the list's `startTime`/`scheduledDays`
+  (`M`/`H` from splitting `"HH:MM"`; `<days>` is `scheduledDays.join(",")`
+  — `0=Sun..6=Sat`, exactly matching standard cron day-of-week syntax) and
+  `POST`s to QStash's `/v2/schedules/{destination}` with an
+  `Upstash-Schedule-Id: tasklist-<taskListId>` header — a deterministic,
+  self-chosen ID. **QStash overwrites in place when a schedule with that
+  ID already exists**, so "upsert" is genuinely just "call create again" —
+  no separate read-then-decide-update-or-create step needed. Returns
+  `null` (deleting any existing schedule instead) for an anytime list, an
+  empty `scheduledDays`, or a company with no `timezone` yet.
+- **`deleteStartTimeSchedule(taskListId)`** — `DELETE`s the deterministic
+  schedule ID. Best-effort: swallows any error (missing schedule, missing
+  `QSTASH_TOKEN`, network hiccup) rather than letting it block the caller.
+- **Wired into every place a list's schedule-relevant fields can change**:
+  - `POST /api/task-lists` (create) — upserts after the list is created,
+    stores the returned ID.
+  - `PATCH /api/task-lists/[taskListId]` — re-upserts only when
+    `startTime` and/or `scheduledDays` was actually part of the request
+    body (a pure rename skips this entirely).
+  - `DELETE /api/task-lists/[taskListId]` (soft delete) — deletes the
+    schedule outright (not soft — nothing reads a deleted schedule's
+    history) and clears `qstashScheduleId`.
+  - `POST /api/task-lists/[taskListId]/duplicate` — the duplicate inherits
+    the source's `startTime`/`scheduledDays`, so it gets its own
+    independent schedule too.
+  - `PATCH /api/company/settings` (timezone change) — re-upserts every
+    active shift-window list's schedule for that company, since each
+    schedule's `CRON_TZ` prefix is now stale otherwise.
+  - Every one of these is **best-effort**: a QStash failure is logged, not
+    thrown — it shouldn't block the underlying task-list/settings mutation
+    itself, same "accepted tradeoff" reasoning as a missed push being
+    lower-stakes than a missed task.
+- **Because a schedule computes its own next occurrence from whenever it's
+  created**, a list made at 10am for an 11am start fires correctly at
+  11am *today* — no batch run to have missed, no special-casing for "is
+  this happening today."
 
-## What counts as "missed"
+### Route + payload
+
+- **Route**: `app/api/cron/task-list-reminder/route.ts`. Verifies the
+  QStash signature (same `Receiver.verify()` pattern as the sweep). The
+  request body carries `{ taskListId }` (set once at schedule-creation
+  time, not derived at fire time) — so this route just looks that list up,
+  it doesn't need to figure out "which list is this" from a timestamp.
+  Skips silently (still `200`, so QStash doesn't retry a legitimate
+  no-op) when: the list is missing/inactive, its company has
+  `notificationsEnabled: false` or no `timezone`, nothing's scheduled on
+  the list today (`isTaskVisibleOn`), or every visible task already has a
+  terminal `TaskLog` (`done`/`missed`/`rest`) for today — an early-arriving
+  employee may have already worked through everything before the
+  scheduled time, and a reminder to start something already finished would
+  read as a bug, not a nudge.
+- **Payload**: title = list name, body = `"Time to start <list name>"`,
+  `{ taskListId, date, alertType: "start_time" }` custom data.
+- **Audience**: `lib/notifications.ts`'s `sendStartTimeReminder()` — every
+  company user, managers and employees both (via the shared
+  `sendPushToUsers` helper, same one `sendMissedListAlert` uses).
+- **No dedup table** — see "Data model" above.
+
+## Missed-list alerts
+
+### What counts as "missed"
 
 Only **shift-window lists** (`startTime` non-null) are eligible — an
 anytime list never closes, so "missed by the window" has no meaning for
 it (see [task-lists.md](task-lists.md)'s "Time-aware collapse"). The
-condition, evaluated per `(company, list, today)`, independently of and
-usually after "not started" above (a list can trip "not started," get
-going a minute later, and never trip this one — or trip both, in the rare
-case it's started late enough to blow through its own window on the same
-run):
+condition, evaluated per `(company, list, today)` in
+`app/api/cron/check-missed-lists/route.ts`:
 
 1. Compute the list's derived end time via `lib/task-list-window.ts`'s
    `deriveCollapseAfter(startTime, totalProjectedMinutes)` — the exact
@@ -211,11 +290,13 @@ run):
    applied before the sum — unlike the client's own inline computation in
    `TaskListCard.tsx`, which currently sums over every task regardless of
    today's visibility; a known, pre-existing divergence between the two,
-   not introduced by this feature — see that file's comments).
+   not introduced by this feature).
 2. **Grace period**: end time + a flat **30 minutes**
    (`MISSED_LIST_GRACE_MINUTES` in `lib/task-list-window.ts`). Before
    that, nothing fires, even if the list is behind.
-3. Now must be past that grace-adjusted time.
+3. Now (via `minutesNowInZone(company.timezone)`, **not** server UTC or
+   any requesting device's own offset) must be past that grace-adjusted
+   time.
 4. At least one task scheduled today (`isTaskVisibleOn`) on that list is
    **not** in a terminal state (`done`/`missed`/`rest`) — i.e. still
    `pending`/`in_progress`/`paused`, or has no `TaskLog` row at all for
@@ -224,123 +305,128 @@ run):
 6. No `MissedListAlert` row already exists for `(companyId, taskListId,
    today's date)`.
 
-**One alert per list per day per type, a digest, not one push per missed
-task** — "Closing Checklist not finished — 3 tasks outstanding" is more
-actionable and far less spammy than three separate pushes.
+**One alert per list per day, a digest, not one push per missed task.**
 
-## The QStash job
+### The sweep job
 
 - **Schedule**: `*/5 * * * *` (every 5 minutes — 288 messages/day, well
-  within QStash's free-tier 1,000/day cap; tightened from the original
-  15-minute proposal once free-tier headroom was confirmed), targeting
-  `POST https://chrps.vercel.app/api/cron/check-missed-lists`. Created via
-  the `@upstash/qstash` schedule API — see "Setting it up" below for the
-  actual schedule id.
-- **Route**: `app/api/cron/check-missed-lists/route.ts` — the name
-  predates the "not started" alert and stayed as-is rather than being
-  renamed, since a live QStash schedule already targets this exact URL and
-  migrating it (create new schedule, delete old, redeploy) wasn't worth
-  the risk for a naming nicety; the route's own header comment flags this.
-  Verifies the request came from QStash via `@upstash/qstash`'s
-  `Receiver.verify()` against the `Upstash-Signature` header, using
-  `QSTASH_CURRENT_SIGNING_KEY`/`QSTASH_NEXT_SIGNING_KEY` (both, since
-  Upstash rotates signing keys). Rejects (`401`) anything that doesn't
-  verify — this route is otherwise unauthenticated (no user session), so
-  signature verification **is** the auth boundary here, same conceptual
-  role `assertNfcVerified` plays for a scan.
+  within QStash's free-tier 1,000/day cap), targeting `POST
+  https://chrps.vercel.app/api/cron/check-missed-lists`. Created via the
+  `@upstash/qstash` schedule API — schedule id
+  `scd_78Le9ufNBjK2MwErCFtrNz4nsfXH` (see "Setting it up" below). This is
+  the ONE shared schedule this alert type needs — start-time reminders
+  above are a structurally separate mechanism with their own
+  per-list schedules, not additional cadence on this one.
+- **Route**: `app/api/cron/check-missed-lists/route.ts`. Verifies the
+  request came from QStash via `@upstash/qstash`'s `Receiver.verify()`
+  against the `Upstash-Signature` header, using `QSTASH_CURRENT_SIGNING_KEY`
+  / `QSTASH_NEXT_SIGNING_KEY` (both, since Upstash rotates signing keys).
+  Rejects (`401`) anything that doesn't verify — this route is otherwise
+  unauthenticated, so signature verification **is** the auth boundary
+  here, same conceptual role `assertNfcVerified` plays for a scan.
 - **Logic**: for every `Company` with `notificationsEnabled !== false` and
   a non-empty `timezone` — filtered in application code, not via an exact
   Mongo match, since every Company in this app is hand-inserted directly
   in MongoDB and can easily be missing either field entirely; an exact
   `{ notificationsEnabled: true }` query would silently exclude those,
   same reasoning as the `?? true` fallback used elsewhere — compute "now"
-  in that company's zone, find its shift-window lists, and for each one:
-  skip immediately if the window hasn't even opened yet
-  (`isBeforeWindow`), otherwise fetch its visible tasks and today's
-  `TaskLog` rows once and apply BOTH the "not started" and "missed"
-  conditions above, independently. Each qualifying condition writes its
-  own dedup row **first** (write-then-send — a crash mid-send can't cause
-  a duplicate on the next run) before fanning out its own push
-  (`lib/notifications.ts`'s `sendNotStartedAlert()` or
-  `sendMissedListAlert()`). Each company and each list is wrapped in its
-  own `try`/`catch` (logged, not thrown) so one bad list/company can't
-  abort the whole sweep.
+  in that company's zone, find its shift-window lists, apply the "what
+  counts as missed" conditions above, and for every list that qualifies:
+  write the `MissedListAlert` row **first** (write-then-send — a crash
+  mid-send can't cause a duplicate on the next run), then fan out a push
+  (`lib/notifications.ts`'s `sendMissedListAlert()`) to every registered
+  `PushToken` belonging to that company's managers. Each company and each
+  list is wrapped in its own `try`/`catch` (logged, not thrown) so one bad
+  list/company can't abort the whole sweep.
 - **Batching**: one job run processes every company in a single request —
-  fine at current scale, revisit (chunking, a QStash fan-out-per-company
-  pattern) only if company count grows enough that one route invocation
-  risks the function's max duration.
+  fine at current scale, revisit only if company count grows enough that
+  one route invocation risks the function's max duration.
 
-## Push payload
+### Push payload
 
-- **Title**: the task list's own name (e.g. "Closing Shift") for both
-  alert types.
-- **Body**:
-  - Not started: `"Was due to start at H:MMam/pm — nothing logged yet"`.
-  - Missed: `"N task(s) not finished — window closed at H:MMam/pm"`.
-- **Custom data**: `{ taskListId, date, alertType: "not_started" |
-  "missed" }` for deep-linking (`alertType` added alongside the second
-  alert type so a future tap handler can distinguish them).
-- **Tap behavior**: **not yet built.** The original spec called for a
-  `pushNotificationActionPerformed` listener navigating to
-  `/tasks?openTaskListId=<id>&date=<date>`; this doc records that as the
-  intended behavior, but no listener wiring it up currently exists in
-  `lib/native/push-notifications.ts` or elsewhere — a tap today just opens
-  the app to wherever it would normally land. Flagged in "Deferred / open
-  questions" below since it's a real gap, not a deliberate v1 cut like the
-  others in that list.
+- **Title**: the task list's own name (e.g. "Closing Shift").
+- **Body**: `"N task(s) not finished — window closed at H:MMam/pm"`.
+- **Custom data**: `{ taskListId, date, alertType: "missed" }`.
+- **Tap behavior**: **not yet built.** A `pushNotificationActionPerformed`
+  listener navigating to `/tasks?openTaskListId=<id>&date=<date>` would
+  expand straight to the relevant list; no such listener wiring exists in
+  `lib/native/push-notifications.ts` or elsewhere yet — a tap today just
+  opens the app to wherever it would normally land. Flagged in "Deferred /
+  open questions" below since it's a real gap, not a deliberate v1 cut.
 
 ## Failure handling
 
 - **APNs `BadDeviceToken` / `Unregistered`** response for a given token →
   `lib/apns.ts`'s `sendAlertPush` throws an `ApnsPushError` carrying the
   parsed `reason`; `lib/notifications.ts`'s shared `sendPushToUsers` send
-  loop (used by both `sendNotStartedAlert` and `sendMissedListAlert`)
+  loop (used by both `sendStartTimeReminder` and `sendMissedListAlert`)
   deletes that `PushToken` row inline when it matches either reason. A
   stale token (uninstalled app, reissued token) stops being retried rather
   than accumulating as dead weight.
-- **QStash's own retry**: if `check-missed-lists` itself errors or times
-  out, QStash retries the whole invocation on its own schedule — the
-  write-then-send ordering above means a retried run won't re-alert a
-  list/type pair that already got its dedup row written (the
-  `create()` call's duplicate-key error is caught and treated as "already
-  alerted, skip"), even if the *push send* itself is what failed
-  originally. Accepted tradeoff: a send failure after the dedup row is
-  written means that list silently doesn't get a retry push this run —
-  fine for v1 given how low-stakes a missed push (vs. a missed *task*) is.
+- **QStash's own retry, missed-list sweep**: if `check-missed-lists`
+  itself errors or times out, QStash retries the whole invocation on its
+  own schedule — the write-then-send ordering means a retried run won't
+  re-alert a list that already got its dedup row written, even if the
+  *push send* itself is what failed originally. Accepted tradeoff: a send
+  failure after the dedup row is written means that list silently doesn't
+  get a retry push this run.
+- **QStash's own retry, start-time reminders**: there's no dedup row here
+  at all — a retried delivery is exactly QStash's documented
+  at-least-once behavior, and could in rare cases double-send the same
+  reminder. Harmless enough for a "starts now" nudge to not be worth
+  guarding against in v1.
+- **`upsertStartTimeSchedule`/`deleteStartTimeSchedule` failures** — every
+  call site (task-list CRUD, company settings) wraps these in its own
+  `try`/`catch` and only logs; a QStash outage means that particular list's
+  schedule doesn't get created/updated/deleted, but the underlying
+  mutation (the list itself, the settings change) still succeeds.
 
 ## API routes
 
 | Route | Method | Gate | Purpose |
 |---|---|---|---|
 | `/api/push-tokens` | POST | any signed-in company user | register/refresh this device's token |
-| `/api/session/role` | GET | any signed-in user | tiny session lookup, used only to gate the native permission prompt to signed-in company users — see "Device registration" above |
-| `/api/cron/check-missed-lists` | POST | QStash signature only | the sweep — checks both alert types, see "The QStash job" above |
-| `/api/company/settings` | GET/PATCH | any signed-in user (GET) / manager (PATCH) | gains `timezone`/`notificationsEnabled` fields alongside the existing `notificationSound` |
+| `/api/session/role` | GET | any signed-in user | tiny session lookup, used only to gate the native permission prompt to signed-in company users |
+| `/api/cron/check-missed-lists` | POST | QStash signature only | the missed-list sweep |
+| `/api/cron/task-list-reminder` | POST | QStash signature only | one list's exact-startTime fire |
+| `/api/company/settings` | GET/PATCH | any signed-in user (GET) / manager (PATCH) | gains `timezone`/`notificationsEnabled`; a timezone change re-upserts every list's schedule |
+| `/api/task-lists` | POST | manager (existing route) | gains the schedule-upsert side effect |
+| `/api/task-lists/[taskListId]` | PATCH / DELETE | manager (existing route) | gains the schedule upsert / delete side effect |
+| `/api/task-lists/[taskListId]/duplicate` | POST | manager (existing route) | gains the schedule-upsert side effect |
 
 ## Files
 
-- `models/PushToken.ts`, `models/MissedListAlert.ts`, `models/NotStartedAlert.ts` — new.
+- `models/PushToken.ts`, `models/MissedListAlert.ts` — new.
 - `models/Company.ts` — gained `notificationsEnabled`; `timezone` already
   existed (stubbed) and is now load-bearing.
-- `lib/task-list-window.ts` — new. The extracted, shared window math —
-  `deriveCollapseAfter`, the missed alert's 30-minute grace
-  (`isPastGraceWindow`/`MISSED_LIST_GRACE_MINUTES`), and the not-started
-  alert's 5-minute grace (`isPastStartGrace`/`NOT_STARTED_GRACE_MINUTES`).
-  `components/TaskListCard.tsx` was refactored to call the shared
-  `deriveCollapseAfter`/`isPastWindow`/`isBeforeWindow` instead of its own
-  local copies.
+- `models/TaskList.ts` — gained `qstashScheduleId`.
+- `lib/task-list-window.ts` — new. The extracted, shared window math for
+  the missed-list sweep — `deriveCollapseAfter`, `isPastGraceWindow`/
+  `MISSED_LIST_GRACE_MINUTES`. (An earlier version of this file also had
+  `isPastStartGrace`/`NOT_STARTED_GRACE_MINUTES` for a polling-based
+  start-time check — removed when that approach was replaced by per-list
+  QStash schedules.) `components/TaskListCard.tsx` was refactored to call
+  the shared `deriveCollapseAfter`/`isPastWindow`/`isBeforeWindow` instead
+  of its own local copies.
+- `lib/qstash-schedules.ts` — new. `upsertStartTimeSchedule()`/
+  `deleteStartTimeSchedule()`, the per-list QStash schedule management
+  backing start-time reminders.
 - `lib/notifications.ts` — new. A shared `sendPushToUsers()` send loop plus
-  two thin callers, `sendNotStartedAlert()` (fans out to every company
+  two thin callers, `sendStartTimeReminder()` (fans out to every company
   user) and `sendMissedListAlert()` (managers only) — both wrap
   `lib/apns.ts`'s signing/HTTP2 send with their own payload shape.
 - `lib/apns.ts` — gained `sendAlertPush()` and the `ApnsPushError` class,
   alongside the pre-existing `sendLiveActivityPush()`.
 - `lib/native/push-notifications.ts` — new. `registerAlertPushNotifications()`,
-  gated on having a company (not on role — see "History" below).
-- `app/api/cron/check-missed-lists/route.ts`, `app/api/push-tokens/route.ts`,
-  `app/api/session/role/route.ts` — new.
+  gated on having a company (not on role).
+- `app/api/cron/check-missed-lists/route.ts`, `app/api/cron/task-list-reminder/route.ts`,
+  `app/api/push-tokens/route.ts`, `app/api/session/role/route.ts` — new.
 - `app/api/company/settings/route.ts` — gained `timezone`/
-  `notificationsEnabled` on both `GET` and `PATCH`.
+  `notificationsEnabled` on `GET`/`PATCH`, plus the schedule re-upsert side
+  effect on a timezone change.
+- `app/api/task-lists/route.ts`, `app/api/task-lists/[taskListId]/route.ts`,
+  `app/api/task-lists/[taskListId]/duplicate/route.ts` — gained the
+  schedule upsert/delete side effects.
 - `components/CompanySettingsView.tsx` — gained a timezone `<select>` (plus
   a browser-detect button) and a single "Checklist Alerts" toggle switch
   covering both alert types, alongside the existing `notificationSound`
@@ -355,62 +441,40 @@ actionable and far less spammy than three separate pushes.
 1. ~~Create an Upstash account, a QStash instance — free tier.~~ Done.
 2. ~~Set `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`,
    `QSTASH_NEXT_SIGNING_KEY` locally (`.env.local`).~~ Done locally — still
-   needs setting on Vercel's production env before the route can verify
-   real requests in prod. Already documented in `project-structure.md`'s
+   needs setting on Vercel's production env before either route can verify
+   real requests, and before `lib/qstash-schedules.ts` can authenticate
+   its own calls to QStash. Already documented in `project-structure.md`'s
    Secrets Policy list and CLAUDE.md's Environment Variables section.
-3. ~~Create the schedule.~~ Done — `scd_78Le9ufNBjK2MwErCFtrNz4nsfXH`,
-   `*/5 * * * *`, targeting
+3. ~~Create the missed-list sweep's schedule.~~ Done — one-time, manual:
+   `scd_78Le9ufNBjK2MwErCFtrNz4nsfXH`, `*/5 * * * *`, targeting
    `https://chrps.vercel.app/api/cron/check-missed-lists`. Manage/inspect
-   it via the Upstash console (QStash → Schedules) or `GET
+   via the Upstash console (QStash → Schedules) or `GET
    {QSTASH_URL}/v2/schedules/scd_78Le9ufNBjK2MwErCFtrNz4nsfXH`. **Note**:
-   this schedule is already live and will start firing every 5 minutes
-   against production the moment `QSTASH_CURRENT_SIGNING_KEY`/
+   this schedule is already live and fires every 5 minutes against
+   production the moment `QSTASH_CURRENT_SIGNING_KEY`/
    `QSTASH_NEXT_SIGNING_KEY` are set there too (until then, every
-   invocation just 401s at the signature-verification step and no-ops) —
-   pause it first (`POST .../schedules/<id>/pause`) if that's not wanted
-   yet.
+   invocation just 401s at the signature-verification step and no-ops).
+   **Start-time reminder schedules need no manual setup at all** — they're
+   created/updated/deleted automatically by the task-list CRUD/company-
+   settings routes above, one per shift-window list, the first time each
+   is saved through the app once `QSTASH_TOKEN` is set in that
+   environment.
 4. **Still outstanding**: run `scripts/backfill-company-timezone.mjs`
    against production once, so pre-existing companies aren't silently
-   skipped by the sweep forever (the sweep itself already correctly skips
-   any company with no timezone set — this step is about actually getting
-   them a timezone, not sweep correctness).
+   skipped forever (both alert types need a timezone; the missed-list
+   sweep already correctly skips a company with none, and
+   `upsertStartTimeSchedule` refuses to create a schedule without one —
+   this step is about actually getting them a timezone).
 5. Xcode: **the `App` target's `aps-environment` entitlement already
-   exists** (added for the Live Activity work — confirmed, not assumed,
-   by inspecting `ios/App/App/App.entitlements`), so no new entitlement is
-   needed for ordinary alert push. Still outstanding: enabling
-   **Background Modes → Remote notifications** under the `App` target's
-   Signing & Capabilities isn't strictly required for a visible alert push
-   (that capability is for *silent*/background-waking pushes, which this
-   feature doesn't use), so it's left undone; add it later only if a
-   future feature needs the app to react to a push while backgrounded.
+   exists** (added for the Live Activity work), so no new entitlement is
+   needed for ordinary alert push. **Background Modes → Remote
+   notifications** isn't strictly required for a visible alert push (that
+   capability is for *silent*/background-waking pushes) — left undone,
+   add later only if a future feature needs it.
 6. **A fresh native rebuild is required** — see "Device registration"
-   above's last paragraph. `npx cap sync ios` alone doesn't ship the new
-   plugin's native code.
-7. A physical device is required to test end to end, same APNs constraint
-   documented in `live-activity.md` — the Simulator can't receive real
-   pushes.
-
-## History: "not started" alert added, registration broadened to employees
-
-The feature originally shipped with only the "missed" alert
-(manager-only), matching the original spec this doc was built from. A
-"time to start" alert — nobody's logged anything a few minutes after a
-list's own `startTime` — was added shortly after, per product feedback
-that a manager-only escalation at window-close was reactive; a quick
-nudge right when a window opens is proactive and reaches the people who
-can actually act on it in the moment. Deciding factors, made explicitly at
-the time rather than assumed:
-- **Audience**: both managers and employees (not managers-only, which
-  would have reused the existing infrastructure with zero registration
-  changes; not employees-only, which would have cut managers out of a
-  useful oversight signal). This is why `app/api/push-tokens/route.ts`
-  and `lib/native/push-notifications.ts` both dropped their manager-only
-  gates — the missed alert stayed manager-only by keeping its own
-  `role: "manager"` filter in `lib/notifications.ts`, rather than the
-  registration layer restricting who can even hold a token.
-- **Grace period**: 5 minutes, short enough to be a genuine reminder
-  rather than noise, chosen over 15 minutes or firing immediately at
-  `startTime` (a few minutes' normal lateness shouldn't trigger anything).
+   above's last paragraph.
+7. A physical device is required to test end to end — the Simulator can't
+   receive real pushes.
 
 ## Deferred / open questions
 
@@ -418,39 +482,49 @@ the time rather than assumed:
   gap in the current build, not a deliberate v1 cut.
 - **In-app "no token registered" banner** — see "Device registration"
   above. Not yet built.
-- **Par-level inventory alerts** — same QStash infra, a different
-  condition (`InventoryLog` latest count vs. `InventoryItemType.parLevel`)
-  and a different dedup key. Natural fast-follow once this ships; not
-  bundled into v1 to keep the first version small and testable.
-- **Per-list configurable grace periods** — v1 uses one flat 5-minute
-  constant (not started) and one flat 30-minute constant (missed) for
-  every shift-window list, every company. A closing list arguably
-  deserves different grace than an opening one; deferred until there's a
-  real complaint either way.
+- **QStash's 10-active-schedules cap on the free tier** — every
+  shift-window list consumes one schedule (the missed-list sweep's own
+  shared schedule is the 1 extra). At more than ~9 concurrent
+  shift-window lists across all companies, `upsertStartTimeSchedule` calls
+  will start failing (logged, not thrown — a list just silently has no
+  start-time reminder until this is addressed). Revisit once real usage
+  approaches this, either by upgrading QStash's plan (usage-based past
+  1,000 schedules) or reconsidering the polling approach for the busiest
+  companies. Not designed around pre-emptively.
+- **Par-level inventory alerts** — same missed-list QStash infra, a
+  different condition (`InventoryLog` latest count vs.
+  `InventoryItemType.parLevel`) and a different dedup key. Natural
+  fast-follow once this ships.
+- **Per-list configurable grace period (missed alert only)** — v1 uses one
+  flat 30-minute constant for every shift-window list, every company.
+  Start-time reminders have no grace period to configure — they fire
+  exactly at `startTime` by construction.
 - **Email fallback** for a user who never grants push permission — no
-  transactional email provider exists in this stack yet. Out of scope for
-  v1.
+  transactional email provider exists in this stack yet.
 - **Per-user mute, or per-alert-type toggle** — v1 is a single
-  all-or-nothing `Company.notificationsEnabled` covering both alert types
-  for every user. Deferred.
+  all-or-nothing `Company.notificationsEnabled`. Deferred.
 - **A "resolved" follow-up push** once a late list finally gets finished —
-  not built; felt like it'd add noise more than value. Revisit if managers
-  actually ask for it.
+  not built; felt like it'd add noise more than value.
 - **Multi-location digest** — out of scope until Ch'rps has a real
-  multi-location data model at all (today, `Company` is a flat
-  single-tenant unit).
-- **Self-serve company creation / signup-time timezone capture** — see
-  "`Company.timezone`" above. Not built because the underlying
-  company-creation flow itself doesn't exist yet in this codebase, not a
-  cut specific to this feature.
+  multi-location data model at all.
+- **Self-serve company creation / signup-time timezone capture** — not
+  built because the underlying company-creation flow itself doesn't exist
+  yet in this codebase.
+- **Reconciling schedule drift** — nothing currently re-verifies that
+  every shift-window list's `qstashScheduleId` still matches a live QStash
+  schedule (e.g. if one was deleted out-of-band via the Upstash console,
+  or a webhook call to create one failed silently mid-request before the
+  ID could be saved). A periodic reconciliation pass is the obvious fix
+  but is itself the nightly-batch-shaped job this design otherwise avoids
+  — worth a deliberate look once this has run in production for a while.
 
 ## Depends on
 
-[`task-lists.md`](task-lists.md) — `TaskList.startTime`, the derived
-collapse/end-time math, `scheduledDays`/`isTaskVisibleOn`, and the
-`TaskLog` states this checks for completeness. [`live-activity.md`](live-activity.md) —
+[`task-lists.md`](task-lists.md) — `TaskList.startTime`/`scheduledDays`,
+the derived collapse/end-time math, `isTaskVisibleOn`, and the `TaskLog`
+states this checks for completeness. [`live-activity.md`](live-activity.md) —
 `lib/apns.ts`'s signing/send logic, reused rather than rebuilt.
 [`offline.md`](offline.md) — none functionally, but worth noting: a list
 finished entirely offline and not yet synced back to the server will look
-"still open"/"not started" to this sweep until the device reconnects and
+"still open" to the missed-list sweep until the device reconnects and
 flushes its queue; an edge case, not treated as a bug to fix here.
