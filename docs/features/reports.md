@@ -206,10 +206,22 @@ Story 5 (trend chart) is the one new route: `GET
 /api/task-logs`. Since `InventoryLog.loggedAt` is a `Date`, not a stored
 `YYYY-MM-DD` string like `TaskLog.date`, the window's date strings
 (`lib/report-dates.ts`) get converted to local-midnight boundaries rather
-than compared directly. The item picker (`InventoryTab.tsx`) defaults to
-the most-recently-logged item and renders a custom-CSS bar chart — same
+than compared directly.
+
+`InventoryTab.tsx`'s browsing structure deliberately mirrors
+`components/InventoryView.tsx` (the Inventory tab itself) rather than a
+single-item picker — same search box, same manager-defined
+`GET /api/inventory-groups` collapsible sections with an implicit
+"Ungrouped" last, same `ItemRow` visuals (below-par red tint, current/par
+fraction, "logged Xh ago" subtitle), fed by the identical `GET
+/api/inventory-item-types` response. The only behavioral difference:
+tapping a row here expands a trend chart inline (fetched lazily per row
+from `GET /api/reports/inventory`, one item at a time) instead of
+navigating to `/inventory/[itemTypeId]` — this is Reports, not the
+log-a-count flow. The chart itself is a custom-CSS bar chart — same
 no-library approach as `components/reports/TaskListChart.tsx` — bar height
-normalized to the window's max count, a below-par bar tinted red.
+normalized to the window's max count, a below-par bar tinted red, with its
+own 7d/30d toggle independent of the rest of the page.
 
 ### Files
 
