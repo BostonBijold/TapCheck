@@ -81,6 +81,13 @@ export async function upsertStartTimeSchedule(params: {
     throw new Error(`QStash schedule upsert failed for list ${taskListId}: ${res.status} ${await res.text()}`);
   }
 
+  // Success case wasn't logged at all before — every call site only
+  // logged its own catch block, so a working upsert left no trace
+  // anywhere. This is the confirmation a Vercel function-log search for
+  // "qstash-schedules" gives you that a save actually queued a schedule,
+  // without needing to check the QStash console's Schedules tab instead.
+  console.log(`qstash-schedules: upserted ${scheduleId} for list ${taskListId} (${cron})`);
+
   return scheduleId;
 }
 
@@ -90,15 +97,19 @@ export async function upsertStartTimeSchedule(params: {
 // is a much smaller problem than a task-list mutation failing over a
 // QStash hiccup. The whole body is inside the try (not just the fetch)
 // specifically so requireEnv()'s synchronous throw is caught here too, not
-// left to propagate past this function's own "best-effort" promise.
+// left to propagate past this function's own "best-effort" promise. Still
+// swallowed either way (never rethrown) — only now also logged, so a
+// silent failure here doesn't stay invisible in Vercel's function logs
+// the way it did before.
 export async function deleteStartTimeSchedule(taskListId: string): Promise<void> {
   try {
     const scheduleId = scheduleIdFor(taskListId);
-    await fetch(`${QSTASH_BASE_URL}/v2/schedules/${scheduleId}`, {
+    const res = await fetch(`${QSTASH_BASE_URL}/v2/schedules/${scheduleId}`, {
       method: "DELETE",
       headers: { Authorization: `Bearer ${requireEnv("QSTASH_TOKEN")}` },
     });
-  } catch {
-    // swallowed — see comment above
+    console.log(`qstash-schedules: delete ${scheduleId} for list ${taskListId} -> ${res.status}`);
+  } catch (err) {
+    console.error(`qstash-schedules: delete failed for list ${taskListId}`, err);
   }
 }
