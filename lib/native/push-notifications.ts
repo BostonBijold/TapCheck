@@ -1,14 +1,17 @@
 import { Capacitor } from "@capacitor/core";
 import { PushNotifications } from "@capacitor/push-notifications";
 
-// Ordinary remote-notification registration — the missed-shift-list alert
-// path (see docs/features/notifications.md), distinct from
-// lib/native/routine-activity.ts's Live Activity push token (ephemeral,
-// tied to one running timer). This one is a persistent, standing
-// per-device registration via the official Capacitor plugin, requested
-// once per native cold start for a manager only — employees don't receive
-// these alerts in v1, so there's no reason to show them the OS permission
-// prompt at all.
+// Ordinary remote-notification registration — the shift-window alert path
+// (see docs/features/notifications.md: "time to start" and "missed"),
+// distinct from lib/native/routine-activity.ts's Live Activity push token
+// (ephemeral, tied to one running timer). This one is a persistent,
+// standing per-device registration via the official Capacitor plugin,
+// requested once per native cold start for any signed-in company user —
+// both alert types have a manager audience, and "time to start" also
+// reaches employees, so unlike the very first version of this feature
+// there's no role check gating whether to prompt at all, only whether the
+// user is attached to a company (checked via GET /api/session/role, the
+// same narrow endpoint this always used).
 //
 // A denied/undetermined permission is not re-prompted on every launch,
 // respecting the OS's own "don't be naggy" norms — see
@@ -16,14 +19,14 @@ import { PushNotifications } from "@capacitor/push-notifications";
 // in-app banner that's the actual re-prompt path for that case (not
 // implemented here — this module only handles the native registration
 // itself).
-export async function registerMissedListAlerts() {
+export async function registerAlertPushNotifications() {
   if (!Capacitor.isNativePlatform()) return;
 
   try {
     const roleRes = await fetch("/api/session/role");
     if (!roleRes.ok) return;
-    const { role } = (await roleRes.json()) as { role: string | null };
-    if (role !== "manager") return;
+    const { companyId } = (await roleRes.json()) as { companyId: string | null };
+    if (!companyId) return;
 
     let status = await PushNotifications.checkPermissions();
     if (status.receive === "prompt" || status.receive === "prompt-with-rationale") {

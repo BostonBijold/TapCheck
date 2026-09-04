@@ -387,13 +387,16 @@ see "Task ↔ Inventory Linking" in `docs/features/inventory.md`.
 }
 ```
 
-### PushToken / MissedListAlert
-Back the missed-shift-list alert sweep — see "Notifications" below and
+### PushToken / MissedListAlert / NotStartedAlert
+Back the two shift-window alert sweeps — see "Notifications" below and
 `docs/features/notifications.md`.
 ```js
 // PushToken — one row per device (not per user), a standing registration
 // for ordinary remote notifications, distinct from User's own ephemeral
-// liveActivityPushToken (tied to a single running timer's Live Activity)
+// liveActivityPushToken (tied to a single running timer's Live Activity).
+// Registered by any signed-in company user (manager or employee) — not
+// role-gated at registration time; "missed" alerts filter to managers only
+// when fanning out, not by restricting who can hold a token.
 {
   _id,
   userId,
@@ -405,8 +408,10 @@ Back the missed-shift-list alert sweep — see "Notifications" below and
   lastSeenAt,
 }
 
-// MissedListAlert — one row per (company, list, day) an alert actually fired; exists purely to make
-// the sweep idempotent (unique index on companyId+taskListId+date) and doubles as an audit trail
+// MissedListAlert / NotStartedAlert — identical shape, separate collections (one row per (company,
+// list, day) that alert type actually fired); each exists purely to make its own sweep idempotent
+// (unique index on companyId+taskListId+date) and doubles as an audit trail. Kept as two collections
+// rather than one with a `type` field since the two alerts are otherwise fully independent.
 {
   _id,
   companyId,
@@ -590,38 +595,53 @@ questions (par-level alerting, Reports integration) — is in
 
 ## Notifications
 
-A manager gets a push notification when a shift-window `TaskList`'s
-scheduled window closes (its derived end time + a flat 30-minute grace
-period) with any of today's scheduled tasks still not in a terminal state
-(`done`/`missed`/`rest`) — one digest push per list per day, not one per
-task. Driven by an external **Upstash QStash** schedule (not Vercel Cron —
-the Hobby plan's once-a-day cron is useless for this) hitting
-`POST /api/cron/check-missed-lists` every 5 minutes; that route's only
-auth boundary is verifying QStash's own request signature, since it has no
-user session. `Company.timezone` (see "Data Models" above) is what lets the
-sweep ask "has this company's shift window actually closed?" independent
-of server UTC or any device's own offset — a company with no timezone set
-is skipped entirely. `Company.notificationsEnabled` is a company-wide kill
-switch (no per-manager mute in v1). A manager's device registers a
-standing `PushToken` (distinct from `User.liveActivityPushToken`'s
-ephemeral, single-timer token) via `@capacitor/push-notifications`,
-gated to managers only since employees don't receive these alerts.
-`MissedListAlert` makes the sweep idempotent (write-then-send: the dedup
-row is written before the push fan-out, so a crash mid-send can't
-duplicate an alert on retry) and doubles as an audit trail.
+Two independent push alerts, both computed against a shift-window
+`TaskList`'s own schedule by the same sweep:
 
-The window-close math (`deriveCollapseAfter` + the grace period) lives in
+- **Time to start** — `startTime` + a flat 5-minute grace period has
+  passed and zero `TaskLog` rows exist for the list's tasks today (nobody
+  logged anything at all). Reaches **managers and employees** — a
+  reminder to whoever's on shift.
+- **Missed** — the list's derived end time (`startTime` + today's
+  projected minutes) + a flat 30-minute grace period has passed with any
+  of today's scheduled tasks still not in a terminal state (`done`/
+  `missed`/`rest`). Reaches **managers only** — an escalation.
+
+One digest push per list per day per alert type, not one per task. Driven
+by an external **Upstash QStash** schedule (not Vercel Cron — the Hobby
+plan's once-a-day cron is useless for this) hitting `POST
+/api/cron/check-missed-lists` every 5 minutes — that route checks both
+alert types on every invocation; its only auth boundary is verifying
+QStash's own request signature, since it has no user session.
+`Company.timezone` (see "Data Models" above) is what lets the sweep ask
+"has this actually happened yet?" independent of server UTC or any
+device's own offset — a company with no timezone set is skipped entirely.
+`Company.notificationsEnabled` is a single company-wide kill switch
+covering both alert types (no per-alert-type or per-user mute in v1). Any
+signed-in company user's device registers a standing `PushToken`
+(distinct from `User.liveActivityPushToken`'s ephemeral, single-timer
+token) via `@capacitor/push-notifications` — registration itself isn't
+role-gated, since "time to start" reaches employees too; "missed" stays
+manager-only via its own query filter, not a registration-time
+restriction. `MissedListAlert`/`NotStartedAlert` (one each, same shape,
+kept separate since the two alerts are otherwise fully independent) make
+the sweep idempotent per alert type (write-then-send: the dedup row is
+written before the push fan-out, so a crash mid-send can't duplicate an
+alert on retry) and double as an audit trail.
+
+The window math (`deriveCollapseAfter` plus both grace periods) lives in
 `lib/task-list-window.ts`, shared between this server-side sweep and
 `components/TaskListCard.tsx`'s own client-side collapse logic — one pure
 function, two callers, same pattern as `lib/task-progress.ts`/
 `lib/placement-resolution.ts` — so the two can never diverge on "is this
-list's window actually over."
+list's window actually open/over."
 
 Deferred beyond v1: par-level inventory alerts (same QStash infra, a
 different trigger — natural fast-follow), per-list configurable grace
-period, email fallback for a manager who never grants push permission, and
-per-manager mute. Full detail — data model, the QStash job, push payload
-shape, and failure handling — is in `docs/features/notifications.md`.
+periods, email fallback for a user who never grants push permission, and
+per-user/per-alert-type mute. Full detail — data model, the QStash job,
+push payload shape, and failure handling — is in
+`docs/features/notifications.md`.
 
 ---
 
@@ -650,7 +670,7 @@ shape, and failure handling — is in `docs/features/notifications.md`.
 - [x] Inventory tab (top-up count tracker, not a decrement ledger) — see "Inventory" above and docs/features/inventory.md
 - [x] Task ↔ Inventory Linking (a task can capture one or more Inventory counts as part of its own form, with shared NFC verification when a tag backs both) — see "Inventory" above and docs/features/inventory.md's "Task ↔ Inventory Linking"
 - [x] Inventory grouping, par-level red-tint/warning cascade, per-item `nfcRequiredToLog` enforcement, and the manager-only "Manage Inventory" hub — see "Inventory" above and docs/features/inventory.md
-- [x] Missed-shift-list-alert push notifications (QStash-scheduled sweep, manager device registration, Company timezone/notificationsEnabled) — see "Notifications" above and docs/features/notifications.md
+- [x] Shift-window alert push notifications — "time to start" (managers+employees) and "missed" (managers) — QStash-scheduled sweep, device registration for any company user, Company timezone/notificationsEnabled — see "Notifications" above and docs/features/notifications.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -770,7 +790,7 @@ table is a quick reference, not authoritative.
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
-- Notifications: BUILT — QStash-scheduled sweep alerts a company's managers when a shift-window task list's window (+ 30min grace) closes with tasks still outstanding, one digest push per list per day; manager-only device registration via `@capacitor/push-notifications`, `Company.timezone`/`notificationsEnabled` drive the sweep, see "Notifications" above and `docs/features/notifications.md`
+- Notifications: BUILT — QStash-scheduled sweep sends two independent digests per shift-window task list per day: "time to start" (5min grace past startTime with nothing logged, reaches managers+employees) and "missed" (30min grace past the window's end with tasks still outstanding, managers only); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive the sweep, see "Notifications" above and `docs/features/notifications.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

@@ -7,15 +7,17 @@ import { resolveSessionUser } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 // Registers/refreshes this device's standing push-notification token — see
-// docs/features/notifications.md's "Device registration". Manager-only in
-// v1: employees don't receive missed-list alerts, so there's nothing to
-// register a token for.
+// docs/features/notifications.md's "Device registration". Open to any
+// signed-in company user, manager or employee: the "missed list" alert is
+// manager-only (lib/notifications.ts's sendMissedListAlert filters by
+// role), but the "time to start" alert reaches everyone — this route
+// doesn't know or care which alert types a given token will end up
+// receiving, it just registers the device.
 export async function POST(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { userId, companyId, role } = sessionUser;
+  const { userId, companyId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
-  if (role !== "manager") return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
   const body = await req.json().catch(() => ({}));
   const token = typeof body.token === "string" ? body.token : null;

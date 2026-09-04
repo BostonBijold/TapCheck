@@ -161,8 +161,8 @@ export default function CompanySettingsView({
           Timezone
         </p>
         <p className="font-body text-xs text-muted mb-4">
-          Used to know when a shift-window task list&rsquo;s scheduled time has actually passed —
-          missed-list alerts below are timed against this.
+          Used to know when a shift-window task list&rsquo;s scheduled time has actually opened or
+          passed — checklist alerts below are timed against this.
         </p>
         <div className="flex gap-2">
           <select
@@ -194,20 +194,21 @@ export default function CompanySettingsView({
         </div>
 
         <p className="font-mono text-[10px] text-dim uppercase tracking-widest mt-8 mb-3">
-          Missed Checklist Alerts
+          Checklist Alerts
         </p>
         <div className="flex items-center gap-3 bg-card rounded-card border border-border p-4">
           <div className="min-w-0 flex-1">
-            <p className="font-body text-sm text-text">Notify managers</p>
+            <p className="font-body text-sm text-text">Push notifications</p>
             <p className="font-mono text-[10px] text-dim mt-0.5">
-              A push alert when a shift checklist&rsquo;s window closes with tasks still outstanding.
+              A nudge to everyone if a shift checklist hasn&rsquo;t started a few minutes after it was
+              due, and a heads-up to managers if its window closes with tasks still outstanding.
             </p>
           </div>
           <button
             type="button"
             role="switch"
             aria-checked={notificationsEnabled}
-            aria-label="Notify managers of missed checklists"
+            aria-label="Enable checklist push notifications"
             onClick={handleToggleAlerts}
             disabled={saving}
             className={`flex-shrink-0 w-11 h-6 rounded-pill relative transition-colors disabled:opacity-60 ${

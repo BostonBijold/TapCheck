@@ -79,3 +79,15 @@ export function isPastGraceWindow(nowMinutesLocal: number, collapseAfter: string
   if (!collapseAfter) return false;
   return nowMinutesLocal >= toMinutes(collapseAfter) + MISSED_LIST_GRACE_MINUTES;
 }
+
+// A short 5-minute grace period after a shift window's OWN startTime,
+// before the "time to start" sweep will alert on a list nobody has logged
+// anything against yet — see docs/features/notifications.md's "What counts
+// as not started." Deliberately much shorter than MISSED_LIST_GRACE_MINUTES
+// above: this is a quick nudge that the window opened, not an escalation.
+export const NOT_STARTED_GRACE_MINUTES = 5;
+
+export function isPastStartGrace(nowMinutesLocal: number, startTime: string | null): boolean {
+  if (!startTime) return false;
+  return nowMinutesLocal >= toMinutes(startTime) + NOT_STARTED_GRACE_MINUTES;
+}
