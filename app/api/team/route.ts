@@ -35,7 +35,7 @@ export async function GET() {
   const query: Record<string, unknown> = { companyId };
   if (activeLocationId) query.locationId = activeLocationId;
   const users = mongoose.isValidObjectId(companyId)
-    ? await User.find(query, "name image role createdAt companyJoinedAt").lean()
+    ? await User.find(query, "name image role createdAt companyJoinedAt locationId").lean()
     : [];
   users.sort((a, b) => (ROLE_RANK[a.role] ?? 1) - (ROLE_RANK[b.role] ?? 1) || (a.name ?? "").localeCompare(b.name ?? ""));
 
@@ -49,6 +49,11 @@ export async function GET() {
       // feature existed) have no companyJoinedAt — fall back to account
       // creation as the closest available signal.
       joinedAt: u.companyJoinedAt ?? u.createdAt ?? null,
+      // Additive field for the Admin Console's Team table (see
+      // docs/features/admin-console.md's Phase 1b) — its per-row location
+      // dropdown needs each member's current assignment. Ignored by the
+      // mobile TeamView, which has never read this field.
+      locationId: u.locationId ? u.locationId.toString() : null,
     }))
   );
 }
