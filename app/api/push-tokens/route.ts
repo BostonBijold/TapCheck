@@ -56,5 +56,7 @@ export async function POST(req: NextRequest) {
     { upsert: true }
   );
 
+  console.log(`/api/push-tokens: registered token for userId ${userId}, companyId ${companyId}, environment ${environment}`);
+
   return NextResponse.json({ ok: true });
 }

@@ -311,7 +311,12 @@ export default function TaskFormScreen({ item, initialElapsed = 0, taskListName 
           )}
         </div>
 
-        <div className="flex-1 overflow-y-auto px-4 space-y-5">
+        {/* pb-24 keeps the last field/inventory input clear of the Save FAB
+            below — it's pulled up over this container's bottom edge
+            (-mt-16 on the button, see the footer below) and would otherwise
+            paint on top of whatever content is scrolled to the very bottom
+            of a long field/inventory list. */}
+        <div className="flex-1 overflow-y-auto px-4 pb-24 space-y-5">
           {fields.map((f) => {
             if (f.type === "checklist") {
               const items = checklistItems(f);

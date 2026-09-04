@@ -35,16 +35,32 @@ export async function registerAlertPushNotifications() {
     if (status.receive !== "granted") return;
 
     PushNotifications.addListener("registration", (token) => {
+      console.log("[push] registration token received, forwarding to /api/push-tokens");
       fetch("/api/push-tokens", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ token: token.value }),
-      }).catch(() => {});
+      })
+        .then((res) => console.log(`[push] /api/push-tokens responded ${res.status}`))
+        .catch((err) => console.error("[push] /api/push-tokens request failed", err));
     });
 
+    // Previously unlistened-for — a native-side registration failure (no
+    // APNs entitlement reachable, simulator, provisioning issue, etc.)
+    // used to be completely silent: register() itself resolves regardless
+    // of whether the OS ever actually hands back a token, so without this
+    // listener there was no way to tell "the call completed" apart from
+    // "and a token arrived" in the console.
+    PushNotifications.addListener("registrationError", (err) => {
+      console.error("[push] registrationError", JSON.stringify(err));
+    });
+
+    console.log("[push] permission granted, calling PushNotifications.register()");
     await PushNotifications.register();
-  } catch {
+  } catch (err) {
     // Best-effort — a failure here shouldn't block anything else on cold
     // start, same fire-and-forget spirit as registerPushTokenForwarding.
+    // Still logged now, for the same reason as the listeners above.
+    console.error("[push] registerAlertPushNotifications failed", err);
   }
 }

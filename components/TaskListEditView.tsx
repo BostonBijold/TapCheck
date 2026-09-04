@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import {
   DndContext,
   closestCenter,
@@ -739,12 +738,23 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
       <div className="mx-auto max-w-mobile">
         {/* Header */}
         <header className="flex items-center gap-3 px-4 pt-10 pb-4 border-b border-border">
-          <Link
-            href="/tasks/manage"
+          {/* router.back() rather than a hardcoded Link to /tasks/manage —
+              this page has exactly one entry point (tapping a task list row
+              in ManageTasksView), so back() reliably lands there, and
+              — critically — it undoes the push that got here instead of
+              adding a new history entry on top of it. A push here would
+              fight ManageTasksView's own back button (see its comment),
+              which itself deliberately uses router.back() to reach whichever
+              of its own two entry points (Tasks page / Profile) was used —
+              the two would otherwise just ping-pong between this page and
+              Manage Tasks forever, never reaching Tasks. */}
+          <button
+            type="button"
+            onClick={() => router.back()}
             className="font-mono text-dim text-sm flex items-center gap-1 min-h-[44px] pr-2"
           >
             ← Manage Tasks
-          </Link>
+          </button>
           <div className="flex-1 text-center">
             <h1 className="font-heading text-lg text-text">{taskList.name}</h1>
             <p className="font-mono text-dim text-xs">{tasks.length} tasks · {fmtTotal}</p>
