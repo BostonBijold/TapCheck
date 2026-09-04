@@ -381,6 +381,31 @@ condition, evaluated per `(company, list, today)` in
   schedule doesn't get created/updated/deleted, but the underlying
   mutation (the list itself, the settings change) still succeeds.
 
+## Gotcha: `middleware.ts` must exclude `api/cron`
+
+**Found in production, fixed**: `middleware.ts`'s global auth gate rejects
+any `/api/*` request with no signed-in session as `{"error":"Unauthorized"}`
+— which is exactly what QStash's calls to both cron routes look like, since
+they authenticate via the `Upstash-Signature` header instead, checked
+*inside* the route handler. Without an explicit exclusion, the middleware
+short-circuits the request before either route's own `Receiver.verify()`
+ever runs, so the route's own "Missing signature"/"Invalid signature"
+responses never actually appear — every call just gets the middleware's
+generic 401 instead. Confirmed via QStash's own delivery logs (`GET
+{QSTASH_URL}/v2/events?scheduleId=<id>`): the response body decoded to
+`{"error":"Unauthorized"}` with NextAuth `Set-Cookie` headers attached,
+not either message the route code actually returns. Repeated failures
+caused QStash to auto-pause the missed-list sweep's schedule entirely
+(`isPaused: true`) — **check `GET {QSTASH_URL}/v2/schedules/<id>` and
+resume it (`POST {QSTASH_URL}/v2/schedules/<id>/resume`) after deploying
+the fix**, since a paused schedule stays paused on its own.
+
+**The fix**: `middleware.ts`'s `matcher` config now excludes `api/cron`
+alongside the pre-existing `api/auth` exclusion. Any future route that
+authenticates itself (an API key, a webhook signature, anything other than
+a NextAuth session) needs the same treatment — this middleware's default
+is deny-without-session, not opt-in.
+
 ## API routes
 
 | Route | Method | Gate | Purpose |

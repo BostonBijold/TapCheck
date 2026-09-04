@@ -48,11 +48,22 @@ export const config = {
   // Run on everything except static assets, images, PWA files, and
   // NextAuth's own callback/session endpoints (those must stay reachable
   // without a session — api/auth is what establishes one in the first
-  // place). Used to also exclude api/external — the API-key-authenticated
+  // place). Also excludes api/cron — the QStash-scheduled sweep/reminder
+  // routes (see docs/features/notifications.md) have no user session at
+  // all by design; their auth boundary is QStash's own request signature,
+  // verified inside each route handler via Receiver.verify(). Without this
+  // exclusion, this middleware's own session check rejects every QStash
+  // call with a 401 before the route ever runs its signature check —
+  // confirmed in production: QStash's delivery logs showed a generic
+  // {"error":"Unauthorized"} (this middleware's own response, complete
+  // with NextAuth Set-Cookie headers) rather than either of the route's
+  // own "Missing signature"/"Invalid signature" messages, and the
+  // repeated failures caused QStash to auto-pause the schedule entirely.
+  // Used to also exclude api/external — the API-key-authenticated
   // external API surface (Shortcuts/Siri App Intents, NFC silent triggers)
   // — but that whole surface was removed; see docs/features/nfc.md's
   // history note on why.
   matcher: [
-    "/((?!_next/static|_next/image|favicon.ico|api/auth|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon.ico|api/auth|api/cron|manifest\\.json|sw\\.js|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
   ],
 };
