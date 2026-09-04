@@ -3,7 +3,7 @@
 import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { signOut } from "next-auth/react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, Monitor } from "lucide-react";
 import Header from "@/components/Header";
 
 interface Props {
@@ -12,10 +12,11 @@ interface Props {
   today: string;
   skipAuth: boolean;
   isManager?: boolean;
+  isOwner?: boolean;
   hasPassword?: boolean;
 }
 
-export default function ProfileView({ name, email, today, skipAuth, isManager = false, hasPassword = false }: Props) {
+export default function ProfileView({ name, email, today, skipAuth, isManager = false, isOwner = false, hasPassword = false }: Props) {
   const [passwordSet, setPasswordSet] = useState(hasPassword);
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
@@ -130,6 +131,29 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
                 </button>
               </form>
             </div>
+          )}
+
+          {/* Owner-only entry point into the desktop Admin Console — see
+              docs/features/admin-console.md. Only a link, no device check
+              here: opening it from the native iOS shell still navigates,
+              but app/(console)/console/layout.tsx's ConsoleShell blocks
+              native access itself with an "open this on a computer"
+              message rather than this card needing to duplicate that
+              logic. */}
+          {isOwner && (
+            <Link
+              href="/console"
+              className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
+            >
+              <div className="flex items-center gap-3">
+                <Monitor size={18} className="text-olive flex-shrink-0" />
+                <div>
+                  <p className="font-body text-sm text-text">Admin Console</p>
+                  <p className="font-mono text-[10px] text-dim mt-0.5">Locations, team & access, and the cross-location rollup — best on a computer</p>
+                </div>
+              </div>
+              <ChevronRight size={16} className="text-dim flex-shrink-0" />
+            </Link>
           )}
 
           {/* Manager-only: task lists, standalone tasks, and the company's

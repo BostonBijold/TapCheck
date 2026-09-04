@@ -82,6 +82,18 @@ handling. Components live under `components/console/` — a sibling to
 mobile component by accident. No new UI dependency was needed — same
 Tailwind setup as the rest of the app, same `lucide-react` icon set.
 
+### Entry point
+
+Logging in always lands on `/tasks`, same as before this feature — there
+is no auto-redirect into the console based on role or device.
+`components/ProfileView.tsx` gets an **owner-only** "Admin Console" card
+(above the Manage Tasks/Manage Inventory/Company Settings cards), linking
+to `/console`. No native-platform check needed on the card itself —
+tapping it from inside the Capacitor iOS shell still navigates, and
+`ConsoleShell.tsx`'s own `Capacitor.isNativePlatform()` check (see
+"Reachability from the iOS app" below) is what actually blocks it there
+with the "open this on a computer" message, so the logic isn't duplicated.
+
 ### Reachability from the iOS app
 
 **Resolved** (was Open Question #1): `components/console/ConsoleShell.tsx`
