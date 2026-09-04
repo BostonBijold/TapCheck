@@ -7,6 +7,7 @@ const SHELL_ASSETS = [
   "/icons/apple-touch-icon.png",
 ];
 
+
 self.addEventListener("install", (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS))
