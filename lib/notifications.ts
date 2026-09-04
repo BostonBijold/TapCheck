@@ -22,13 +22,21 @@ async function sendPushToUsers(params: {
   const tokens = await PushToken.find({ companyId, userId: { $in: userIds } }).lean<
     { _id: { toString(): string }; token: string; environment: "sandbox" | "production" }[]
   >();
+  console.log(`sendPushToUsers: ${tokens.length} token(s) found for companyId ${companyId} (${userIds.length} user(s) targeted)`);
   if (tokens.length === 0) return;
 
   await Promise.all(
     tokens.map(async (t) => {
       try {
         await sendAlertPush({ pushToken: t.token, environment: t.environment, title, body, data });
+        console.log(`sendPushToUsers: sent to token ${t._id} (${t.environment})`);
       } catch (err) {
+        // Always logged now — this used to be silent even for failures
+        // this branch doesn't specifically handle, which made a real APNs
+        // rejection (e.g. a sandbox-registered token sent against the
+        // production host, or vice versa — see app/api/push-tokens/route.ts's
+        // environment-inference caveat) invisible anywhere.
+        console.error(`sendPushToUsers: send failed for token ${t._id} (${t.environment})`, err);
         // A dead token (uninstalled app, reissued token) should stop being
         // retried rather than accumulate as permanent dead weight — see
         // docs/features/notifications.md's "Failure handling". Any other

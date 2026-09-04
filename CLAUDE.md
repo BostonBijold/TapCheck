@@ -406,7 +406,10 @@ Back the two shift-window alert types — see "Notifications" below and
   companyId,
   token,             // unique — a reinstalled app re-registers the same physical device under a
                      //   fresh token; the old row is pruned lazily on a BadDeviceToken APNs response
-  environment,       // 'sandbox' | 'production' — inferred server-side, not trusted from the client
+  environment,       // 'sandbox' | 'production' — hardcoded to 'sandbox' server-side (not trusted from
+                     //   the client, but also not inferred from NODE_ENV — that was tried and was
+                     //   backwards, see docs/features/notifications.md's "Device registration"); stays
+                     //   'sandbox' until App.entitlements' aps-environment becomes build-config-dependent
   platform,          // 'ios'
   lastSeenAt,
 }

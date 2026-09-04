@@ -174,13 +174,22 @@ notifications need their own explicit permission grant:
 4. On grant, `PushNotifications.register()` yields a token via the
    `registration` listener → `POST /api/push-tokens { token }`.
    **Deviation from the original spec**: `environment` is not sent by the
-   client at all — `app/api/push-tokens/route.ts` infers it server-side
-   from `process.env.NODE_ENV`, the closest available proxy to
-   `LiveActivityPlugin.swift`'s own `#if DEBUG` tagging. Known
-   imperfection: a TestFlight (Distribution-signed, real APNs *sandbox*)
-   build talking to this same production Vercel deployment would still be
-   tagged `"production"` — accepted for v1, revisit if it causes real
-   missed pushes.
+   client at all — `app/api/push-tokens/route.ts` **hardcodes it to
+   `"sandbox"`**. An earlier version inferred it from
+   `process.env.NODE_ENV` (mirroring `LiveActivityPlugin.swift`'s own
+   `#if DEBUG` tagging in spirit), which was backwards: server environment
+   has nothing to do with which APNs host a device token is valid
+   against, and it produced a 100% failure rate in practice, not a rare
+   edge case — every token got tagged `"production"` (Vercel prod always
+   sets `NODE_ENV=production`) while `ios/App/App/App.entitlements`
+   hardcodes `aps-environment: development` for **every** build, Debug or
+   Release, so every real device token is only ever valid against APNs'
+   sandbox host regardless of which server answered the registration
+   request. Confirmed as the actual cause of a real "no notifications
+   despite everything else working" report in production. Revisit the
+   moment that entitlement becomes genuinely build-configuration-dependent
+   (a real Release/Distribution/TestFlight/App Store path) — until then,
+   `"sandbox"` is simply correct, not a compromise.
 5. A denied/undetermined permission is not re-prompted automatically on
    every launch. **Not yet built**: a dismissible in-app banner for a
    manager whose company has `notificationsEnabled: true` but no

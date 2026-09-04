@@ -23,14 +23,21 @@ export async function POST(req: NextRequest) {
   const token = typeof body.token === "string" ? body.token : null;
   if (!token) return NextResponse.json({ error: "Missing token" }, { status: 400 });
 
-  // Inferred server-side, not trusted from the client — same "#if DEBUG"
-  // spirit as LiveActivityPlugin.swift's own tagging, approximated here via
-  // which Vercel environment served the request. Known imperfection: a
-  // TestFlight (Distribution-signed, real APNs sandbox) build talking to
-  // this same production deployment would still be tagged "production" —
-  // acceptable for v1 per docs/features/notifications.md, revisit if it
-  // causes real missed pushes.
-  const environment = process.env.NODE_ENV === "production" ? "production" : "sandbox";
+  // Hardcoded to "sandbox", NOT inferred from process.env.NODE_ENV — an
+  // earlier version of this route tried the NODE_ENV approach (mirroring
+  // LiveActivityPlugin.swift's own #if DEBUG tagging in spirit), but that
+  // was backwards: server environment has nothing to do with which APNs
+  // host a given device token is valid against, and it produced a 100%
+  // failure rate in practice, not a rare edge case — every push attempt
+  // got tagged "production" (Vercel prod always sets NODE_ENV=production)
+  // while ios/App/App/App.entitlements hardcodes `aps-environment:
+  // development` for EVERY build, Debug or Release, so every real device
+  // token is only ever valid against APNs' sandbox host regardless of
+  // which server answered the registration request. Revisit this the
+  // moment that entitlement becomes genuinely build-configuration-
+  // dependent (a real Release/Distribution/TestFlight/App-Store path) —
+  // until then, "sandbox" is simply correct, not a compromise.
+  const environment = "sandbox";
 
   // SKIP_AUTH's dev user isn't a real Mongo User document — nothing
   // meaningful to attribute a token to.
