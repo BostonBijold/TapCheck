@@ -40,107 +40,74 @@ function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString("en-US", { month: "short", day: "numeric" });
 }
 
-// Inline trend chart for one item — fetched lazily on expand rather than
-// eagerly for the whole catalog. Same custom-CSS-bar approach as
+// Always-visible trend chart for one item — every item's chart renders at
+// once (see the parent's `days` toggle and batched fetch) rather than
+// requiring a tap per item. Same custom-CSS-bar approach as
 // components/reports/TaskListChart.tsx (no charting library in this
-// codebase); bar height normalized to the window's max count, a
+// codebase); bar height normalized to this item's own window max, a
 // below-par bar tinted red.
-function TrendPanel({ itemTypeId }: { itemTypeId: string }) {
-  const [days, setDays] = useState<7 | 30>(30);
-  const [trend, setTrend] = useState<InventoryTrend | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    setLoading(true);
-    setTrend(null);
-    fetch(`/api/reports/inventory?itemTypeId=${itemTypeId}&days=${days}`)
-      .then((r) => r.json())
-      .then((d: InventoryTrend) => {
-        setTrend(d);
-        setLoading(false);
-      });
-  }, [itemTypeId, days]);
-
-  const maxCount = trend ? Math.max(1, ...trend.logs.map((l) => l.count)) : 1;
-
+function TrendChart({ trend, loading }: { trend: InventoryTrend | undefined; loading: boolean }) {
+  if (!trend) {
+    return loading ? (
+      <div className="mx-4 mb-3 h-[78px] bg-bg rounded-card animate-pulse" />
+    ) : null;
+  }
+  if (trend.logs.length === 0) {
+    return (
+      <p className="font-mono text-dim text-[11px] px-4 pb-3 pt-1">
+        No counts logged in this window.
+      </p>
+    );
+  }
+  const maxCount = Math.max(1, ...trend.logs.map((l) => l.count));
   return (
-    <div className="px-4 pb-4 pt-1">
-      <div className="flex justify-end mb-2">
-        <div className="flex bg-bg border border-border rounded-pill p-0.5">
-          <button
-            onClick={() => setDays(7)}
-            className={`font-mono text-[10px] px-2.5 py-1 rounded-pill transition-colors ${
-              days === 7 ? "bg-olive text-text" : "text-dim hover:text-muted"
-            }`}
-          >
-            7d
-          </button>
-          <button
-            onClick={() => setDays(30)}
-            className={`font-mono text-[10px] px-2.5 py-1 rounded-pill transition-colors ${
-              days === 30 ? "bg-olive text-text" : "text-dim hover:text-muted"
-            }`}
-          >
-            30d
-          </button>
-        </div>
-      </div>
-
-      {loading && <div className="h-24 bg-bg rounded-card animate-pulse" />}
-
-      {!loading && trend && trend.logs.length === 0 && (
-        <p className="font-mono text-dim text-xs py-4 text-center">
-          No counts logged in this window.
-        </p>
-      )}
-
-      {!loading && trend && trend.logs.length > 0 && (
-        <div className="flex items-end gap-1.5 overflow-x-auto pb-1" style={{ height: 90 }}>
-          {trend.logs.map((log) => {
-            const belowParBar = trend.parLevel !== null && log.count <= trend.parLevel;
-            const heightPct = Math.max(6, Math.round((log.count / maxCount) * 100));
-            return (
-              <div key={log._id} className="flex flex-col items-center gap-1 flex-shrink-0" style={{ width: 28 }}>
-                <span className="font-mono text-[9px] text-muted">{log.count}</span>
-                <div className="w-full flex items-end" style={{ height: 52 }}>
-                  <div
-                    className="w-full rounded-sm"
-                    style={{
-                      height: `${heightPct}%`,
-                      backgroundColor: belowParBar ? "#dc2626" : "#1f63b6",
-                      minHeight: 3,
-                    }}
-                  />
-                </div>
-                <span className="font-mono text-[8px] text-dim">{fmtDate(log.loggedAt)}</span>
+    <div className="px-4 pb-3 pt-1">
+      <div className="flex items-end gap-1.5 overflow-x-auto" style={{ height: 78 }}>
+        {trend.logs.map((log) => {
+          const belowParBar = trend.parLevel !== null && log.count <= trend.parLevel;
+          const heightPct = Math.max(6, Math.round((log.count / maxCount) * 100));
+          return (
+            <div key={log._id} className="flex flex-col items-center gap-1 flex-shrink-0" style={{ width: 26 }}>
+              <span className="font-mono text-[9px] text-muted">{log.count}</span>
+              <div className="w-full flex items-end" style={{ height: 44 }}>
+                <div
+                  className="w-full rounded-sm"
+                  style={{
+                    height: `${heightPct}%`,
+                    backgroundColor: belowParBar ? "#dc2626" : "#1f63b6",
+                    minHeight: 3,
+                  }}
+                />
               </div>
-            );
-          })}
-        </div>
-      )}
+              <span className="font-mono text-[8px] text-dim">{fmtDate(log.loggedAt)}</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
 
-// One item row — same visual language as components/InventoryView.tsx's
-// own ItemRow (below-par red tint, current/par fraction, "logged Xh ago")
-// so this reads as the same list, not a different one — except tapping
-// expands this item's trend chart inline instead of navigating to
-// /inventory/[itemTypeId] (this is Reports, not the log-a-count flow).
+// One item row + its trend chart, always rendered together — same visual
+// language as components/InventoryView.tsx's own ItemRow (below-par red
+// tint, current/par fraction, "logged Xh ago") so this reads as the same
+// list, not a different one. The row itself still links to
+// /inventory/[itemTypeId] (the log-a-count flow) since there's nothing
+// left to expand/collapse here.
 function ItemRow({
   it,
+  trend,
+  trendsLoading,
   subtitle,
-  expanded,
-  onToggle,
 }: {
   it: ItemTypeRow;
+  trend: InventoryTrend | undefined;
+  trendsLoading: boolean;
   subtitle?: string;
-  expanded: boolean;
-  onToggle: () => void;
 }) {
   return (
     <div className={`rounded-card border overflow-hidden ${it.belowPar ? "bg-burgundy/10 border-burgundy/40" : "bg-card border-border"}`}>
-      <button type="button" onClick={onToggle} className="w-full flex items-center gap-3 p-4 text-left min-h-[44px]">
+      <Link href={`/inventory/${it._id}`} className="flex items-center gap-3 p-4 min-h-[44px]">
         <div className="w-8 flex items-center justify-center flex-shrink-0">
           <Package size={18} className="text-muted" strokeWidth={1.75} />
         </div>
@@ -161,33 +128,30 @@ function ItemRow({
           </p>
           {it.unit && <p className="font-mono text-[10px] text-dim mt-0.5">{it.unit}</p>}
         </div>
-        {expanded ? (
-          <ChevronDown size={16} className="text-dim flex-shrink-0" />
-        ) : (
-          <ChevronRight size={16} className="text-dim flex-shrink-0" />
-        )}
-      </button>
-      {expanded && <TrendPanel itemTypeId={it._id} />}
+      </Link>
+      <TrendChart trend={trend} loading={trendsLoading} />
     </div>
   );
 }
 
 // Manager-only Reports sub-tab — Stories 5 & 6 of "Reports v2" (see
 // docs/features/reports.md's addendum). Browsing structure mirrors
-// components/InventoryView.tsx exactly (search box, manager-defined
-// groups as collapsible sections, Ungrouped last, same GET
-// /api/inventory-item-types + GET /api/inventory-groups) rather than a
-// single-item picker, so this reads as the same catalog, just with a
-// trend chart available per row. The below-par callout (Story 6) still
-// reuses that same item-types response's belowPar/lastLoggedAt fields —
-// no new query. Only the trend chart (Story 5) needed a new route,
-// GET /api/reports/inventory, fetched lazily per expanded row.
+// components/InventoryView.tsx (search box, manager-defined groups as
+// collapsible sections, Ungrouped last, same GET /api/inventory-item-types
+// + GET /api/inventory-groups). Every item's trend chart renders inline at
+// once — GET /api/reports/inventory's no-itemTypeId shape returns every
+// active item's window in one batched call, so this isn't item.length
+// separate round trips. The below-par callout (Story 6) still reuses the
+// item-types response's belowPar/lastLoggedAt fields directly — no new
+// query for that part.
 export default function InventoryTab() {
   const [itemTypes, setItemTypes] = useState<ItemTypeRow[] | null>(null);
   const [groups, setGroups] = useState<Group[] | null>(null);
+  const [trends, setTrends] = useState<Record<string, InventoryTrend> | null>(null);
+  const [trendsLoading, setTrendsLoading] = useState(true);
+  const [days, setDays] = useState<7 | 30>(30);
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [search, setSearch] = useState("");
-  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   useEffect(() => {
     fetch("/api/inventory-item-types")
@@ -199,6 +163,17 @@ export default function InventoryTab() {
       .then(setGroups)
       .catch(() => setGroups([]));
   }, []);
+
+  useEffect(() => {
+    setTrends(null);
+    setTrendsLoading(true);
+    fetch(`/api/reports/inventory?days=${days}`)
+      .then((r) => r.json())
+      .then((d: { items: InventoryTrend[] }) => {
+        setTrends(Object.fromEntries(d.items.map((t) => [t.itemTypeId, t])));
+        setTrendsLoading(false);
+      });
+  }, [days]);
 
   const groupNameById = useMemo(() => new Map((groups ?? []).map((g) => [g._id, g.name])), [groups]);
 
@@ -231,8 +206,6 @@ export default function InventoryTab() {
     const key = id ?? "__ungrouped__";
     setCollapsed((prev) => ({ ...prev, [key]: !prev[key] }));
   };
-
-  const toggleExpanded = (id: string) => setExpandedId((cur) => (cur === id ? null : id));
 
   const belowPar = useMemo(() => (itemTypes ?? []).filter((it) => it.belowPar), [itemTypes]);
 
@@ -275,17 +248,37 @@ export default function InventoryTab() {
       )}
 
       {/* Story 5 — full catalog, same search/grouping as the Inventory tab,
-          tap a row to see its trend chart inline. */}
+          every item's trend chart shown at once. */}
       <section>
-        <div className="relative mb-4">
-          <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" strokeWidth={1.75} />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search items…"
-            className="w-full bg-card border border-border rounded-card pl-9 pr-3 py-2.5 font-body text-sm text-text placeholder:text-dim outline-none focus:border-border-light min-h-[44px]"
-          />
+        <div className="flex items-center gap-2 mb-4">
+          <div className="relative flex-1">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-dim" strokeWidth={1.75} />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search items…"
+              className="w-full bg-card border border-border rounded-card pl-9 pr-3 py-2.5 font-body text-sm text-text placeholder:text-dim outline-none focus:border-border-light min-h-[44px]"
+            />
+          </div>
+          <div className="flex bg-card border border-border rounded-pill p-0.5 flex-shrink-0">
+            <button
+              onClick={() => setDays(7)}
+              className={`font-mono text-xs px-3 py-1.5 rounded-pill transition-colors ${
+                days === 7 ? "bg-olive text-text" : "text-dim hover:text-muted"
+              }`}
+            >
+              7d
+            </button>
+            <button
+              onClick={() => setDays(30)}
+              className={`font-mono text-xs px-3 py-1.5 rounded-pill transition-colors ${
+                days === 30 ? "bg-olive text-text" : "text-dim hover:text-muted"
+              }`}
+            >
+              30d
+            </button>
+          </div>
         </div>
 
         {itemTypes.length === 0 && (
@@ -302,13 +295,7 @@ export default function InventoryTab() {
               <p className="text-dim font-mono text-xs text-center py-6">No items match &quot;{search.trim()}&quot;.</p>
             )}
             {searchResults.map(({ it, groupName }) => (
-              <ItemRow
-                key={it._id}
-                it={it}
-                subtitle={groupName}
-                expanded={expandedId === it._id}
-                onToggle={() => toggleExpanded(it._id)}
-              />
+              <ItemRow key={it._id} it={it} subtitle={groupName} trend={trends?.[it._id]} trendsLoading={trendsLoading} />
             ))}
           </div>
         )}
@@ -344,12 +331,7 @@ export default function InventoryTab() {
                         <p className="text-dim font-mono text-[11px] py-2 px-1">No items in this group yet.</p>
                       )}
                       {section.items.map((it) => (
-                        <ItemRow
-                          key={it._id}
-                          it={it}
-                          expanded={expandedId === it._id}
-                          onToggle={() => toggleExpanded(it._id)}
-                        />
+                        <ItemRow key={it._id} it={it} trend={trends?.[it._id]} trendsLoading={trendsLoading} />
                       ))}
                     </div>
                   )}

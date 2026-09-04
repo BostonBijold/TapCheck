@@ -8,12 +8,18 @@ import InventoryLog from "@/models/InventoryLog";
 
 export const dynamic = "force-dynamic";
 
-// GET /api/reports/inventory?itemTypeId=&days=7|30 — manager-only trend
-// history for one InventoryItemType's logged counts, for the Reports
-// Inventory sub-tab's line/bar chart (Story 5). The below-par callout
-// (Story 6) needs no query here at all — it reuses GET
+// GET /api/reports/inventory?days=7|30[&itemTypeId=] — manager-only trend
+// history for the Reports Inventory sub-tab's bar charts (Story 5). The
+// below-par callout (Story 6) needs no query here at all — it reuses GET
 // /api/inventory-item-types's existing belowPar/lastLoggedAt fields
 // client-side. See docs/features/reports.md's "Reports v2" addendum.
+//
+// `itemTypeId` omitted (the InventoryTab.tsx default — every item's chart
+// shown at once, not opened one at a time) returns every active item's
+// trend in one batched response: one query for the catalog, one query for
+// every matching log, grouped in memory — not N+1 round trips. Passing
+// `itemTypeId` narrows to that one item's trend only (kept for any future
+// single-item consumer).
 export async function GET(req: NextRequest) {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -23,15 +29,12 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = req.nextUrl;
   const itemTypeId = searchParams.get("itemTypeId");
-  if (!itemTypeId || !mongoose.isValidObjectId(itemTypeId)) {
-    return NextResponse.json({ error: "Valid itemTypeId is required" }, { status: 400 });
+  if (itemTypeId && !mongoose.isValidObjectId(itemTypeId)) {
+    return NextResponse.json({ error: "Invalid itemTypeId" }, { status: 400 });
   }
   const days = Math.min(30, Math.max(7, parseInt(searchParams.get("days") ?? "30")));
 
   await connectDB();
-
-  const itemType = await InventoryItemType.findOne({ _id: itemTypeId, companyId }).lean();
-  if (!itemType) return NextResponse.json({ error: "Item not found" }, { status: 404 });
 
   const localDate = new Date().toISOString().split("T")[0];
   const dates = getDates(days, localDate);
@@ -42,23 +45,46 @@ export async function GET(req: NextRequest) {
   const start = new Date(dates[0] + "T00:00:00");
   const end = new Date(dates[dates.length - 1] + "T23:59:59.999");
 
-  const rawLogs = await InventoryLog.find({
-    companyId,
-    itemTypeId,
-    loggedAt: { $gte: start, $lte: end },
-  })
-    .sort({ loggedAt: 1 })
-    .lean();
+  const itemTypes = await InventoryItemType.find(
+    itemTypeId ? { _id: itemTypeId, companyId } : { companyId, isActive: true }
+  ).lean();
+  if (itemTypeId && itemTypes.length === 0) {
+    return NextResponse.json({ error: "Item not found" }, { status: 404 });
+  }
 
-  return NextResponse.json({
-    itemTypeId,
-    name: itemType.name,
-    unit: itemType.unit ?? null,
-    parLevel: itemType.parLevel ?? null,
-    logs: rawLogs.map((l) => ({
+  const rawLogs = itemTypes.length > 0
+    ? await InventoryLog.find({
+        companyId,
+        itemTypeId: { $in: itemTypes.map((it) => it._id) },
+        loggedAt: { $gte: start, $lte: end },
+      })
+        .sort({ loggedAt: 1 })
+        .lean()
+    : [];
+
+  const logsByItem = new Map<string, typeof rawLogs>();
+  for (const log of rawLogs) {
+    const key = log.itemTypeId.toString();
+    if (!logsByItem.has(key)) logsByItem.set(key, []);
+    logsByItem.get(key)!.push(log);
+  }
+
+  const items = itemTypes.map((it) => ({
+    itemTypeId: it._id.toString(),
+    name: it.name,
+    unit: it.unit ?? null,
+    parLevel: it.parLevel ?? null,
+    logs: (logsByItem.get(it._id.toString()) ?? []).map((l) => ({
       _id: l._id.toString(),
       count: l.count,
       loggedAt: new Date(l.loggedAt).toISOString(),
     })),
-  });
+  }));
+
+  // Single-item shape stays back-compat for a ?itemTypeId= caller; the
+  // no-arg (default) path returns the batched `items[]` shape.
+  if (itemTypeId) {
+    return NextResponse.json(items[0]);
+  }
+  return NextResponse.json({ days, today: localDate, items });
 }

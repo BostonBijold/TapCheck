@@ -198,30 +198,35 @@ deferred "push" alerting in [`inventory.md`](inventory.md)'s "Par-level
 alerting" — this is its read-only, pull precursor, not the push version.
 
 Story 5 (trend chart) is the one new route: `GET
-/api/reports/inventory?itemTypeId=&days=7|30`, manager-only, querying
-`InventoryLog` directly for one item type's counts across the window
-(sorted chronologically) — kept separate from `GET /api/reports`, same
+/api/reports/inventory?days=7|30[&itemTypeId=]`, manager-only, querying
+`InventoryLog` directly — kept separate from `GET /api/reports`, same
 "different query shape, different consumer" reasoning `GET
 /api/task-logs/history` already used to stay separate from `GET
 /api/task-logs`. Since `InventoryLog.loggedAt` is a `Date`, not a stored
 `YYYY-MM-DD` string like `TaskLog.date`, the window's date strings
 (`lib/report-dates.ts`) get converted to local-midnight boundaries rather
-than compared directly.
+than compared directly. `itemTypeId` omitted — `InventoryTab.tsx`'s only
+caller, since every item's chart renders at once rather than one at a
+time — returns **every active item's trend in one batched response**
+(`{ items: [{ itemTypeId, name, unit, parLevel, logs }] }`): one query for
+the catalog, one query for every matching log across all of them, grouped
+in memory, not an N+1 round trip per item. Passing `itemTypeId` narrows to
+that single item's shape instead, kept for any future single-item consumer.
 
-`InventoryTab.tsx`'s browsing structure deliberately mirrors
+`InventoryTab.tsx`'s browsing structure mirrors
 `components/InventoryView.tsx` (the Inventory tab itself) rather than a
 single-item picker — same search box, same manager-defined
 `GET /api/inventory-groups` collapsible sections with an implicit
 "Ungrouped" last, same `ItemRow` visuals (below-par red tint, current/par
 fraction, "logged Xh ago" subtitle), fed by the identical `GET
-/api/inventory-item-types` response. The only behavioral difference:
-tapping a row here expands a trend chart inline (fetched lazily per row
-from `GET /api/reports/inventory`, one item at a time) instead of
-navigating to `/inventory/[itemTypeId]` — this is Reports, not the
-log-a-count flow. The chart itself is a custom-CSS bar chart — same
-no-library approach as `components/reports/TaskListChart.tsx` — bar height
-normalized to the window's max count, a below-par bar tinted red, with its
-own 7d/30d toggle independent of the rest of the page.
+/api/inventory-item-types` response. Every item's trend chart renders
+directly under its row, all at once — no per-item tap-to-expand — with one
+shared 7d/30d toggle for the whole tab rather than a control per item. The
+row itself links to `/inventory/[itemTypeId]` (the log-a-count flow) since
+there's nothing left to expand/collapse on it. The chart itself is a
+custom-CSS bar chart — same no-library approach as
+`components/reports/TaskListChart.tsx` — bar height normalized to that
+item's own window max, a below-par bar tinted red.
 
 ### Files
 
