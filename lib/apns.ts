@@ -163,3 +163,102 @@ export async function sendLiveActivityPush({
     req.end();
   });
 }
+
+interface AlertPushOptions {
+  pushToken: string;
+  environment: "sandbox" | "production";
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+}
+
+// Ordinary remote notification — used by the missed-shift-list alert sweep
+// (see docs/features/notifications.md and lib/notifications.ts), the first
+// consumer of the reusable signing/HTTP2 machinery this file's header
+// comment anticipated. Distinct from sendLiveActivityPush above: standard
+// `apns-topic` (no `.push-type.liveactivity` suffix), `apns-push-type:
+// alert`, and a normal `aps.alert` payload rather than `content-state`.
+export async function sendAlertPush({
+  pushToken,
+  environment,
+  title,
+  body: alertBody,
+  data,
+}: AlertPushOptions): Promise<void> {
+  const token = await signProviderToken();
+  const host =
+    environment === "production" ? "https://api.push.apple.com" : "https://api.sandbox.push.apple.com";
+
+  const payload: Record<string, unknown> = {
+    aps: {
+      alert: { title, body: alertBody },
+      sound: "default",
+    },
+    ...data,
+  };
+  const body = JSON.stringify(payload);
+
+  await new Promise<void>((resolve, reject) => {
+    const session = http2.connect(host);
+    session.on("error", (err) => {
+      session.close();
+      reject(err);
+    });
+
+    const req = session.request({
+      ":method": "POST",
+      ":path": `/3/device/${pushToken}`,
+      authorization: `bearer ${token}`,
+      "apns-topic": BUNDLE_ID,
+      "apns-push-type": "alert",
+      "apns-priority": "10",
+      "content-type": "application/json",
+    });
+
+    let responseBody = "";
+    let status: number | undefined;
+    req.on("response", (headers) => {
+      status = headers[":status"] as number;
+    });
+    req.setEncoding("utf8");
+    req.on("data", (chunk) => {
+      responseBody += chunk;
+    });
+    req.on("end", () => {
+      session.close();
+      if (status === 200) {
+        resolve();
+      } else {
+        reject(new ApnsPushError(status, responseBody));
+      }
+    });
+    req.on("error", (err) => {
+      session.close();
+      reject(err);
+    });
+
+    req.write(body);
+    req.end();
+  });
+}
+
+// Carries the APNs JSON error reason (e.g. "BadDeviceToken",
+// "Unregistered") so lib/notifications.ts's send loop can tell "this token
+// is dead, delete it" apart from a transient failure worth logging but
+// leaving alone — see docs/features/notifications.md's "Failure handling".
+export class ApnsPushError extends Error {
+  status: number | undefined;
+  reason: string | null;
+
+  constructor(status: number | undefined, responseBody: string) {
+    let reason: string | null = null;
+    try {
+      reason = (JSON.parse(responseBody) as { reason?: string }).reason ?? null;
+    } catch {
+      // non-JSON body — leave reason null
+    }
+    super(`APNs push failed: status ${status}, reason ${reason ?? "unknown"}`);
+    this.status = status;
+    this.reason = reason;
+  }
+}

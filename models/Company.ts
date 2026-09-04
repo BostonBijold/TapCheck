@@ -21,9 +21,20 @@ export interface ICompanySubscription {
 // code that touches it) should be restaurant-specific.
 export interface ICompany extends Document {
   companyName: string;
-  // Stubbed for v1 — no UI or logic reads these yet, but every tenant will
-  // eventually need them, so the fields exist ahead of that work.
+  // Stubbed for v1 — no UI or logic reads this yet, but every tenant will
+  // eventually need it, so the field exists ahead of that work.
   industry: string | null;
+  // IANA zone name ("America/Chicago"), not a raw UTC offset — DST is
+  // handled for free by any zone-aware date computation. No longer stubbed
+  // as of the missed-shift-list alert sweep (see
+  // docs/features/notifications.md), which needs to know "has this
+  // company's shift window closed?" independent of any browser's own
+  // offset. Best-effort default at signup from the creating user's browser
+  // (Intl.DateTimeFormat().resolvedOptions().timeZone), editable afterward
+  // from Company Settings. Pre-existing companies are backfilled by a
+  // one-off script (see docs/features/notifications.md) rather than left
+  // null, since a null zone here means the sweep can't evaluate that
+  // company's lists at all.
   timezone: string | null;
   notificationPreferences: Record<string, unknown>;
   // Which chirp plays on a device that just completed a task via the NFC
@@ -31,6 +42,10 @@ export interface ICompany extends Document {
   // docs/features/nfc.md) — a real, company-wide preference, not part of
   // the still-unused notificationPreferences bag above.
   notificationSound: "standard" | "male";
+  // Company-wide kill switch for missed-shift-list push alerts (see
+  // docs/features/notifications.md) — no per-manager mute in v1, so if a
+  // company doesn't want these at all, they turn this off entirely.
+  notificationsEnabled: boolean;
   subscription: ICompanySubscription;
 }
 
@@ -58,6 +73,7 @@ const CompanySchema = new Schema<ICompany>(
     timezone: { type: String, default: null },
     notificationPreferences: { type: Schema.Types.Mixed, default: {} },
     notificationSound: { type: String, enum: ["standard", "male"], default: "standard" },
+    notificationsEnabled: { type: Boolean, default: true },
     subscription: { type: CompanySubscriptionSchema, default: () => ({}) },
   },
   { timestamps: true }

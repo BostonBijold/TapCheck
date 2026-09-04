@@ -11,6 +11,8 @@ interface Props {
   today: string;
   skipAuth: boolean;
   initialNotificationSound: NotificationSound;
+  initialTimezone: string | null;
+  initialNotificationsEnabled: boolean;
 }
 
 const OPTIONS: { value: NotificationSound; label: string; description: string }[] = [
@@ -18,30 +20,83 @@ const OPTIONS: { value: NotificationSound; label: string; description: string }[
   { value: "male", label: "Male", description: "An alternate chirp voice." },
 ];
 
-export default function CompanySettingsView({ userName, today, skipAuth, initialNotificationSound }: Props) {
+// A curated list, not every IANA zone — this app is US-restaurant-first
+// today. "Detect automatically" below covers anything outside this list by
+// reading the manager's own browser zone directly.
+const TIMEZONE_OPTIONS = [
+  { value: "America/New_York", label: "Eastern (New York)" },
+  { value: "America/Chicago", label: "Central (Chicago)" },
+  { value: "America/Denver", label: "Mountain (Denver)" },
+  { value: "America/Phoenix", label: "Mountain, no DST (Phoenix)" },
+  { value: "America/Los_Angeles", label: "Pacific (Los Angeles)" },
+  { value: "America/Anchorage", label: "Alaska (Anchorage)" },
+  { value: "Pacific/Honolulu", label: "Hawaii (Honolulu)" },
+];
+
+export default function CompanySettingsView({
+  userName,
+  today,
+  skipAuth,
+  initialNotificationSound,
+  initialTimezone,
+  initialNotificationsEnabled,
+}: Props) {
   const [notificationSound, setNotificationSound] = useState<NotificationSound>(initialNotificationSound);
+  const [timezone, setTimezone] = useState<string | null>(initialTimezone);
+  const [notificationsEnabled, setNotificationsEnabled] = useState(initialNotificationsEnabled);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  const patch = async (body: Record<string, unknown>) => {
+    setError("");
+    try {
+      const res = await fetch("/api/company/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error();
+      return true;
+    } catch {
+      setError("Failed to save — please try again.");
+      return false;
+    }
+  };
 
   const handleSelect = async (value: NotificationSound) => {
     if (value === notificationSound || saving) return;
     const previous = notificationSound;
     setNotificationSound(value);
-    setError("");
     setSaving(true);
+    if (!(await patch({ notificationSound: value }))) setNotificationSound(previous);
+    setSaving(false);
+  };
+
+  const handleTimezoneChange = async (value: string) => {
+    if (value === timezone || saving) return;
+    const previous = timezone;
+    setTimezone(value);
+    setSaving(true);
+    if (!(await patch({ timezone: value }))) setTimezone(previous);
+    setSaving(false);
+  };
+
+  const handleDetectTimezone = () => {
     try {
-      const res = await fetch("/api/company/settings", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ notificationSound: value }),
-      });
-      if (!res.ok) throw new Error();
+      handleTimezoneChange(Intl.DateTimeFormat().resolvedOptions().timeZone);
     } catch {
-      setNotificationSound(previous);
-      setError("Failed to save — please try again.");
-    } finally {
-      setSaving(false);
+      setError("Couldn't detect your timezone — please pick one manually.");
     }
+  };
+
+  const handleToggleAlerts = async () => {
+    if (saving) return;
+    const previous = notificationsEnabled;
+    const next = !previous;
+    setNotificationsEnabled(next);
+    setSaving(true);
+    if (!(await patch({ notificationsEnabled: next }))) setNotificationsEnabled(previous);
+    setSaving(false);
   };
 
   return (
@@ -100,6 +155,71 @@ export default function CompanySettingsView({ userName, today, skipAuth, initial
               </div>
             );
           })}
+        </div>
+
+        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mt-8 mb-3">
+          Timezone
+        </p>
+        <p className="font-body text-xs text-muted mb-4">
+          Used to know when a shift-window task list&rsquo;s scheduled time has actually passed —
+          missed-list alerts below are timed against this.
+        </p>
+        <div className="flex gap-2">
+          <select
+            value={timezone ?? ""}
+            onChange={(e) => handleTimezoneChange(e.target.value)}
+            disabled={saving}
+            className="flex-1 min-w-0 bg-card border border-border rounded-card px-3 py-3 font-body text-sm text-text outline-none focus:border-border-light disabled:opacity-60"
+          >
+            <option value="" disabled>
+              Select a timezone
+            </option>
+            {timezone && !TIMEZONE_OPTIONS.some((o) => o.value === timezone) && (
+              <option value={timezone}>{timezone}</option>
+            )}
+            {TIMEZONE_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={handleDetectTimezone}
+            disabled={saving}
+            className="flex-shrink-0 border border-border-light text-muted font-body text-xs px-3 rounded-card disabled:opacity-60 hover:text-olive hover:border-olive/40 transition-colors"
+          >
+            Detect
+          </button>
+        </div>
+
+        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mt-8 mb-3">
+          Missed Checklist Alerts
+        </p>
+        <div className="flex items-center gap-3 bg-card rounded-card border border-border p-4">
+          <div className="min-w-0 flex-1">
+            <p className="font-body text-sm text-text">Notify managers</p>
+            <p className="font-mono text-[10px] text-dim mt-0.5">
+              A push alert when a shift checklist&rsquo;s window closes with tasks still outstanding.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={notificationsEnabled}
+            aria-label="Notify managers of missed checklists"
+            onClick={handleToggleAlerts}
+            disabled={saving}
+            className={`flex-shrink-0 w-11 h-6 rounded-pill relative transition-colors disabled:opacity-60 ${
+              notificationsEnabled ? "bg-olive" : "bg-card-hover border border-border-light"
+            }`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-bg shadow-sm transition-transform ${
+                notificationsEnabled ? "translate-x-5" : "translate-x-0"
+              }`}
+            />
+          </button>
         </div>
 
         {error && <p className="font-mono text-xs text-burgundy-light mt-3">{error}</p>}

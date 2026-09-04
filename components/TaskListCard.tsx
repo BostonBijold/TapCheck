@@ -8,6 +8,11 @@ import TaskCard from "@/components/TaskCard";
 import type { TaskLogEntry, SessionLockInfo } from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
+import {
+  deriveCollapseAfter,
+  isPastWindow as isPastWindowAt,
+  isBeforeWindow as isBeforeWindowAt,
+} from "@/lib/task-list-window";
 
 export interface TaskListCardTaskList {
   _id: string;
@@ -48,26 +53,16 @@ function minutesNow(): number {
   return now.getHours() * 60 + now.getMinutes();
 }
 
-function toMinutes(t: string): number {
-  const [h, m] = t.split(":").map(Number);
-  return h * 60 + m;
-}
-
-// Derive end time from startTime + total projected minutes of timed tasks
-function deriveCollapseAfter(startTime: string | null, projectedMins: number): string | null {
-  if (!startTime || projectedMins <= 0) return null;
-  const total = toMinutes(startTime) + projectedMins;
-  return `${String(Math.floor(total / 60) % 24).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
-}
-
+// deriveCollapseAfter/isPastWindow/isBeforeWindow themselves live in
+// lib/task-list-window.ts, shared with the server-side missed-list alert
+// sweep (see docs/features/notifications.md) — these two wrappers just
+// supply the browser's own "now," matching this file's previous signature.
 function isPastWindow(collapseAfter: string | null): boolean {
-  if (!collapseAfter) return false;
-  return minutesNow() >= toMinutes(collapseAfter);
+  return isPastWindowAt(minutesNow(), collapseAfter);
 }
 
 function isBeforeWindow(startTime: string | null): boolean {
-  if (!startTime) return false;
-  return minutesNow() < toMinutes(startTime);
+  return isBeforeWindowAt(minutesNow(), startTime);
 }
 
 function isInWindow(startTime: string | null, collapseAfter: string | null): boolean {

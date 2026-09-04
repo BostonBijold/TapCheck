@@ -21,7 +21,10 @@ export default async function CompanySettingsPage() {
   if (sessionUser.role !== "manager") redirect("/tasks");
 
   await connectDB();
-  const company = await Company.findById(companyId, "notificationSound").lean<{ notificationSound?: string }>();
+  const company = await Company.findById(
+    companyId,
+    "notificationSound timezone notificationsEnabled"
+  ).lean<{ notificationSound?: string; timezone?: string | null; notificationsEnabled?: boolean }>();
 
   const userName = session?.user?.name ?? "Developer";
   const today = new Date().toISOString().split("T")[0];
@@ -32,6 +35,8 @@ export default async function CompanySettingsPage() {
       today={today}
       skipAuth={skipAuth}
       initialNotificationSound={(company?.notificationSound as NotificationSound) ?? "standard"}
+      initialTimezone={company?.timezone ?? null}
+      initialNotificationsEnabled={company?.notificationsEnabled ?? true}
     />
   );
 }
