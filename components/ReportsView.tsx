@@ -1,21 +1,40 @@
 "use client";
 
+import { useState } from "react";
 import Header from "@/components/Header";
+import LocationSwitcher from "@/components/LocationSwitcher";
 import ReportsContent from "@/components/ReportsContent";
 
 interface Props {
   userName: string;
   today: string;
   role: "manager" | "employee" | "owner";
+  // Already resolved server-side via pickActiveLocationId — see
+  // docs/features/locations.md's "Location switcher".
+  activeLocationId: string | null;
   skipAuth?: boolean;
 }
 
-export default function ReportsView({ userName, today, role, skipAuth }: Props) {
+export default function ReportsView({ userName, today, role, activeLocationId, skipAuth }: Props) {
+  // ReportsContent's own sub-tabs (ManagerOverview/EmployeeOverview/
+  // LogsTab/InventoryTab) each fetch their own data once on mount — a
+  // plain router.refresh() re-runs this page's server component but
+  // doesn't re-trigger an effect that already ran. Bumping this counter on
+  // every switcher change forces the whole subtree to remount and refetch
+  // against the newly-selected location instead of threading a refetch
+  // callback through four separate tab components.
+  const [refreshTick, setRefreshTick] = useState(0);
+
   return (
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-12">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
-        <ReportsContent role={role} />
+        <LocationSwitcher
+          isOwner={role === "owner"}
+          activeLocationId={activeLocationId}
+          onChanged={() => setRefreshTick((t) => t + 1)}
+        />
+        <ReportsContent key={`${activeLocationId}-${refreshTick}`} role={role} />
       </div>
     </div>
   );

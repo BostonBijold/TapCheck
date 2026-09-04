@@ -3,14 +3,12 @@
 # Locations (multi-location companies)
 
 **Status: BUILT** — schema, permissions, invite/team location assignment,
-Location CRUD, and TaskLog/InventoryLog/TaskListSession/MissedListAlert
-location-scoping described below are all implemented. The location
-**switcher UI** for an owner (a visual control to change which location's
-Today view/Reports/Inventory they're looking at) is **not yet built** — an
-owner's session defaults to their own `locationId`, and every read route
-that supports it accepts an optional `?locationId=` query param (validated
-against the company) as the mechanism a future switcher would call. See
-"Known gaps" at the end of this doc.
+Location CRUD, TaskLog/InventoryLog/TaskListSession/MissedListAlert
+location-scoping, and (as of the location-switcher feature) a real
+**switcher UI** for an owner — a control on each of the 4 bottom-nav pages
+(Tasks, Team, Reports, Inventory) to change which location's data they're
+looking at (and, on Tasks, acting against) — are all implemented. See
+"Location switcher" below.
 
 Every `Company` was implicitly a single restaurant before this feature.
 `Location` is a new one-to-many child of `Company`, so one company (one
@@ -186,6 +184,63 @@ company-wide, and its own "already finished" skip-check is still evaluated
 company-wide too. Accepted simplification for this low-stakes nudge — see
 [Known gaps](#known-gaps).
 
+## Location switcher
+
+A `<select>` control (`components/LocationSwitcher.tsx`), rendered on all 4
+bottom-nav pages (Tasks, Team, Reports, Inventory) directly under each
+page's `<Header>`. Renders nothing unless `isOwner` and the company has 2+
+active locations — a manager/employee, or an owner at a single-location
+company, sees no UI change at all.
+
+- **Persisted server-side, not in a URL param or `localStorage`** (see
+  CLAUDE.md's "Notes for Claude Code" — all state lives in MongoDB):
+  `User.activeLocationId: ObjectId | null` (new field, same storage shape
+  as the existing `User.locationId`). Set only via `PATCH
+  /api/session/active-location` (owner-only, validated with
+  `lib/locations.ts`'s `validateLocationId` — same silent-fallback-to-null
+  convention as every other call site of that helper).
+- **`null` resolves differently per page**, matching each page's
+  *pre-switcher* default exactly, so shipping this changed no default
+  behavior for anyone who's never touched the switcher:
+  - **Tasks/Reports/Inventory** — `lib/session.ts`'s `pickActiveLocationId`
+    gained one more fallback tier for owners:
+    `requestedLocationId || sessionUser.activeLocationId ||
+    sessionUser.locationId`. `null` still means "my own location."
+  - **Team** (`GET /api/team`) — reads `sessionUser.activeLocationId`
+    directly, **not** `pickActiveLocationId`: `null` means "no filter, show
+    the whole company" (today's original, unfiltered behavior — this is
+    the first time Team has ever been location-scoped at all), a specific
+    id filters to `{ companyId, locationId }`. Team's switcher instance
+    passes `allowAll`, adding an "All Locations" entry that simply
+    `PATCH`es `activeLocationId` back to `null` — not a separate sentinel
+    value.
+- **Tasks writes need no separate wiring.** `/api/task-logs`'s
+  start/complete/miss/rest handlers already resolved their location via
+  `pickActiveLocationId` before this feature existed (originally only
+  reachable via a raw `?locationId=`/body param nothing in the UI ever
+  sent) — so once the session-level fallback was added, switching location
+  on the Tasks page makes starting/completing/missing a task act against
+  that location automatically, no `TasksView.tsx` mutation call needed
+  updating.
+- **Reports/Inventory refresh via remount, not `router.refresh()` alone.**
+  Their data comes from a client-side `fetch()` in a `useEffect` that only
+  runs once on mount, so a plain server-component refresh doesn't
+  re-trigger it. `LocationSwitcher` takes an optional `onChanged` callback,
+  fired after a successful `PATCH` alongside `router.refresh()`:
+  `InventoryView`/`TeamView` pass their own existing `fetchAll`/`fetchTeam`
+  functions; `ReportsView` has no single equivalent (4 separate sub-tab
+  components each own their fetch), so it instead bumps a counter used in
+  `<ReportsContent key={...}>` to force the whole subtree to remount and
+  refetch.
+- **Out of scope**: no cross-location aggregate/"all stores" rollup for
+  Tasks/Reports/Inventory (the backend has no such concept — Team's "All
+  Locations" is a plain unfiltered list, not an aggregate); no
+  re-validation if a location is deactivated while still selected as
+  someone's `activeLocationId` (same risk profile as the pre-existing
+  `User.locationId` field); the native offline SQLite cache doesn't know
+  about this at all — it only affects which location an *online* request
+  resolves to.
+
 ## Migration / backfill
 
 `scripts/backfill-locations.mjs` — one-off, manually run
@@ -216,12 +271,6 @@ of this one.
 Deliberately left unbuilt or unresolved in this pass — flag before treating
 this feature as fully "done":
 
-- **No location switcher UI.** An owner's session always defaults to their
-  own `locationId`; every route that supports viewing another location
-  accepts `?locationId=` (or body `locationId` for writes), but nothing in
-  the app currently renders a control to set it. Until a switcher exists,
-  an owner's Today view/Reports/Inventory only ever show their own default
-  location, same as a manager.
 - **Offline SQLite cache (`lib/offline-db.ts`) has no `locationId` column.**
   Harmless today (every company has exactly one location post-migration),
   but the native cache schema needs its own migration before offline sync
@@ -232,9 +281,6 @@ this feature as fully "done":
   owner-gated, but no UI button calls it yet.
 - **Start-time reminders (`task-list-reminder` cron) are not split per
   location** — see [Notifications fan-out](#notifications-fan-out) above.
-- **`GET /api/team` returns the whole company roster**, not filtered by
-  location — a location-bound manager sees every teammate at every
-  location, not just their own. Not decided in the original spec either.
 - Everything already listed as deferred in the original design pass, still
   true: restricting an owner to a subset of locations; the broader
   "one person, many companies" model; a combined multi-location rollup

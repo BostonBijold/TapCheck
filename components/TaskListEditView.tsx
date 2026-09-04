@@ -598,6 +598,7 @@ export default function TaskListEditView({ isManager, taskList, tasks: initialTa
     setSettingsChanged(false);
     setSettingsSaved(true);
     setTimeout(() => setSettingsSaved(false), 2000);
+    router.refresh(); // invalidate Tasks page cache — same as handleSaveTask/handleRemove/handleAdd below
   }
 
   async function handleDeleteTaskList() {

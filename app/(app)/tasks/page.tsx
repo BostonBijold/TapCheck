@@ -11,7 +11,7 @@ import { resolveTasks } from "@/lib/task-definitions";
 import { calendarWeekDates } from "@/lib/week-dates";
 import TasksView from "@/components/TasksView";
 import type { LogState } from "@/models/TaskLog";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
 import NoCompanyMessage from "@/components/NoCompanyMessage";
 
 export const dynamic = "force-dynamic";
@@ -32,7 +32,12 @@ export default async function TasksPage({
 
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) redirect("/login");
-  const { companyId, userId, role, locationId } = sessionUser;
+  const { companyId, userId, role } = sessionUser;
+  // The location this page's data is actually scoped to — for an owner,
+  // this is their switcher selection (or their own default if unset); for
+  // an employee/manager it's always just their own. See
+  // docs/features/locations.md's "Location switcher".
+  const locationId = pickActiveLocationId(sessionUser, null);
 
   const userName = session?.user?.name ?? "Developer";
 
@@ -180,6 +185,7 @@ export default async function TasksPage({
       userId={userId}
       userRole={role}
       companyId={companyId}
+      activeLocationId={locationId}
       skipAuth={skipAuth}
       autoStartNext={!!searchParams?.startNext}
       autoAddTask={!!searchParams?.addTask}

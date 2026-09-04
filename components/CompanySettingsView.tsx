@@ -13,6 +13,7 @@ interface Props {
   initialNotificationSound: NotificationSound;
   initialTimezone: string | null;
   initialNotificationsEnabled: boolean;
+  initialMissedAlertGraceMinutes: number | null;
 }
 
 const OPTIONS: { value: NotificationSound; label: string; description: string }[] = [
@@ -40,12 +41,28 @@ export default function CompanySettingsView({
   initialNotificationSound,
   initialTimezone,
   initialNotificationsEnabled,
+  initialMissedAlertGraceMinutes,
 }: Props) {
   const [notificationSound, setNotificationSound] = useState<NotificationSound>(initialNotificationSound);
   const [timezone, setTimezone] = useState<string | null>(initialTimezone);
   const [notificationsEnabled, setNotificationsEnabled] = useState(initialNotificationsEnabled);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+
+  // Missed-alert grace period — how many minutes past a shift-window list's
+  // end time before managers get the "missed" push (see
+  // docs/features/notifications.md's "Missed-list alerts"). null = off for
+  // this company entirely, distinct from the broader notificationsEnabled
+  // switch above (which covers start-time reminders too). lastGraceMinutes
+  // remembers the manager's own number across an off/on toggle within this
+  // session — the number field stays populated with whatever they last
+  // typed rather than resetting to 30 every time they flip it back on.
+  const [missedAlertGraceMinutes, setMissedAlertGraceMinutes] = useState<number | null>(
+    initialMissedAlertGraceMinutes
+  );
+  const [lastGraceMinutes, setLastGraceMinutes] = useState(initialMissedAlertGraceMinutes ?? 30);
+  const [graceMinutesDraft, setGraceMinutesDraft] = useState(String(initialMissedAlertGraceMinutes ?? 30));
+  const [graceMinutesError, setGraceMinutesError] = useState("");
 
   const patch = async (body: Record<string, unknown>) => {
     setError("");
@@ -96,6 +113,39 @@ export default function CompanySettingsView({
     setNotificationsEnabled(next);
     setSaving(true);
     if (!(await patch({ notificationsEnabled: next }))) setNotificationsEnabled(previous);
+    setSaving(false);
+  };
+
+  const handleToggleMissedAlerts = async () => {
+    if (saving) return;
+    const previous = missedAlertGraceMinutes;
+    const turningOn = previous === null;
+    const next = turningOn ? lastGraceMinutes : null;
+    setMissedAlertGraceMinutes(next);
+    if (turningOn) setGraceMinutesDraft(String(lastGraceMinutes));
+    setSaving(true);
+    if (!(await patch({ missedAlertGraceMinutes: next }))) setMissedAlertGraceMinutes(previous);
+    setSaving(false);
+  };
+
+  const commitGraceMinutes = async () => {
+    setGraceMinutesError("");
+    const parsed = parseInt(graceMinutesDraft, 10);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 240) {
+      setGraceMinutesError("Enter a number of minutes between 0 and 240.");
+      setGraceMinutesDraft(String(lastGraceMinutes));
+      return;
+    }
+    setLastGraceMinutes(parsed);
+    setGraceMinutesDraft(String(parsed));
+    // Alerts are off (missedAlertGraceMinutes === null) — just remember the
+    // number for whenever the manager flips the toggle back on, no need to
+    // save anything to the server yet.
+    if (missedAlertGraceMinutes === null || parsed === missedAlertGraceMinutes) return;
+    const previous = missedAlertGraceMinutes;
+    setSaving(true);
+    setMissedAlertGraceMinutes(parsed);
+    if (!(await patch({ missedAlertGraceMinutes: parsed }))) setMissedAlertGraceMinutes(previous);
     setSaving(false);
   };
 
@@ -221,6 +271,61 @@ export default function CompanySettingsView({
               }`}
             />
           </button>
+        </div>
+
+        <p className="font-mono text-[10px] text-dim uppercase tracking-widest mt-8 mb-3">
+          Missed Alert Timing
+        </p>
+        <div className="bg-card rounded-card border border-border p-4 space-y-4">
+          <div className="flex items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="font-body text-sm text-text">Alert managers on a missed checklist</p>
+              <p className="font-mono text-[10px] text-dim mt-0.5">
+                How long past a shift checklist&rsquo;s expected end time before managers get a
+                heads-up that it still isn&rsquo;t done. Applies to every shift-window list
+                company-wide.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={missedAlertGraceMinutes !== null}
+              aria-label="Alert managers on a missed checklist"
+              onClick={handleToggleMissedAlerts}
+              disabled={saving}
+              className={`flex-shrink-0 w-11 h-6 rounded-pill relative transition-colors disabled:opacity-60 ${
+                missedAlertGraceMinutes !== null ? "bg-olive" : "bg-card-hover border border-border-light"
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-bg shadow-sm transition-transform ${
+                  missedAlertGraceMinutes !== null ? "translate-x-5" : "translate-x-0"
+                }`}
+              />
+            </button>
+          </div>
+
+          <div className={missedAlertGraceMinutes === null ? "opacity-50" : ""}>
+            <label className="font-mono text-[10px] text-dim block mb-1.5">Minutes past end time</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                max={240}
+                value={graceMinutesDraft}
+                onChange={(e) => setGraceMinutesDraft(e.target.value)}
+                onBlur={commitGraceMinutes}
+                disabled={saving || missedAlertGraceMinutes === null}
+                className="w-24 bg-bg border border-border rounded-card px-3 py-2 font-mono text-sm text-text outline-none focus:border-olive disabled:opacity-60"
+              />
+              <span className="font-mono text-xs text-dim">minutes</span>
+            </div>
+          </div>
+
+          {graceMinutesError && (
+            <p className="font-mono text-[11px] text-burgundy-light">{graceMinutesError}</p>
+          )}
         </div>
 
         {error && <p className="font-mono text-xs text-burgundy-light mt-3">{error}</p>}

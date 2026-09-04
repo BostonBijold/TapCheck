@@ -33,6 +33,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         // Called when the application is about to terminate. Save data if appropriate. See also applicationDidEnterBackground:.
     }
 
+    // Forwards the OS-level APNs registration result to Capacitor's
+    // push-notifications plugin. Capacitor's PushNotificationsPlugin.load()
+    // only ever *listens* for .capacitorDidRegisterForRemoteNotifications /
+    // .capacitorDidFailToRegisterForRemoteNotifications on NotificationCenter
+    // (see node_modules/@capacitor/push-notifications's PushNotificationsPlugin.swift)
+    // — nothing in the Capacitor framework itself posts them. Without this
+    // bridging, UIApplication.shared.registerForRemoteNotifications() can
+    // succeed or fail at the OS level and the JS-side `registration`/
+    // `registrationError` listeners in lib/native/push-notifications.ts
+    // never fire, with no error anywhere.
+    func application(_ application: UIApplication, didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data) {
+        NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
+    }
+
+    func application(_ application: UIApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        NotificationCenter.default.post(name: .capacitorDidFailToRegisterForRemoteNotifications, object: error)
+    }
+
     func application(_ application: UIApplication,
                      configurationForConnecting connectingSceneSession: UISceneSession,
                      options: UIScene.ConnectionOptions) -> UISceneConfiguration {

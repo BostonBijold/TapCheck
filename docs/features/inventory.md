@@ -86,6 +86,23 @@ it happens to have linked items.
   /api/inventory-groups/[id]`) and manage which item types are linked to a
   given task — see "Task ↔ Inventory Linking" below.
 
+## Location scoping
+
+`InventoryItemType`/`InventoryGroup` stay a shared, company-wide catalog
+(one set of item types for every location, same reasoning as the shared
+`Task`/`TaskDefinition` catalog), but `InventoryLog` — the actual logged
+counts — is per-location. `GET /api/inventory-item-types` and `GET`/`POST
+/api/inventory-logs` resolve `locationId` via `pickActiveLocationId`
+(`lib/session.ts`): always an employee/manager's own location, or an
+owner's location-switcher selection (defaulting to their own location if
+unset — see [`locations.md`](locations.md)'s "Location switcher"). Two
+locations logging the same catalog item independently never collide into
+one location's count. `InventoryView` renders
+`components/LocationSwitcher.tsx` under its `<Header>` so an owner can
+actually change which location's counts they're viewing; switching calls
+the view's existing `fetchAll()` to refetch, since its data comes from a
+client-side fetch that only runs once on mount.
+
 ## NFC binding — uses Part 1's multi-target model directly
 
 An `InventoryItemType.nfcTagUid` binds to a **storage location**, not

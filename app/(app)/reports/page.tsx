@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser } from "@/lib/session";
+import { resolveSessionUser, pickActiveLocationId } from "@/lib/session";
 import ReportsView from "@/components/ReportsView";
 
 export const dynamic = "force-dynamic";
@@ -18,6 +18,7 @@ export default async function ReportsPage() {
       userName={session?.user?.name ?? "Developer"}
       today={today}
       role={sessionUser?.role ?? "manager"}
+      activeLocationId={sessionUser ? pickActiveLocationId(sessionUser, null) : null}
       skipAuth={skipAuth}
     />
   );

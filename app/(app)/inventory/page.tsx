@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, isOwner, pickActiveLocationId } from "@/lib/session";
 import NoCompanyMessage from "@/components/NoCompanyMessage";
 import InventoryView from "@/components/InventoryView";
 
@@ -31,6 +31,8 @@ export default async function InventoryPage() {
       today={today}
       skipAuth={skipAuth}
       isManager={isManagerOrAbove(sessionUser.role)}
+      isOwner={isOwner(sessionUser.role)}
+      activeLocationId={pickActiveLocationId(sessionUser, null)}
     />
   );
 }

@@ -70,6 +70,17 @@ const UserSchema = new Schema(
     // scripts/backfill-locations.mjs) and for anyone hand-attached to a
     // company without a location assigned.
     locationId: { type: Schema.Types.ObjectId, ref: "Location", default: null },
+    // An owner's current location-switcher selection (see
+    // docs/features/locations.md's "Location switcher") — distinct from
+    // locationId above, which is this user's fixed home/default location.
+    // Meaningless for employee/manager (they have no switcher — see
+    // lib/session.ts's pickActiveLocationId). null means "no override set,"
+    // which resolves differently per page: Tasks/Reports/Inventory fall
+    // back to this owner's own locationId (unchanged pre-switcher
+    // behavior); the Team roster falls back to no filter at all (also
+    // unchanged pre-switcher behavior — it's never been location-scoped).
+    // Set only via PATCH /api/session/active-location.
+    activeLocationId: { type: Schema.Types.ObjectId, ref: "Location", default: null },
     // Company-defined job function tags (server/cook/busser/host/…) for
     // task-list assignment — orthogonal to `role`, which governs access.
     // Optional: a company that never sets any tag keeps every task list

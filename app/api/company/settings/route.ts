@@ -19,14 +19,22 @@ export async function GET() {
   await connectDB();
   const company = await Company.findById(
     companyId,
-    "notificationSound timezone notificationsEnabled"
-  ).lean<{ notificationSound?: string; timezone?: string | null; notificationsEnabled?: boolean }>();
+    "notificationSound timezone notificationsEnabled missedAlertGraceMinutes"
+  ).lean<{
+    notificationSound?: string;
+    timezone?: string | null;
+    notificationsEnabled?: boolean;
+    missedAlertGraceMinutes?: number | null;
+  }>();
   if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   return NextResponse.json({
     notificationSound: company.notificationSound ?? "standard",
     timezone: company.timezone ?? null,
     notificationsEnabled: company.notificationsEnabled ?? true,
+    // `?? 30` would incorrectly coerce an explicit "off" (null) back to 30
+    // — only an actually-unset field should get the default.
+    missedAlertGraceMinutes: company.missedAlertGraceMinutes === undefined ? 30 : company.missedAlertGraceMinutes,
   });
 }
 
@@ -41,6 +49,7 @@ export async function PATCH(req: NextRequest) {
     notificationSound?: string;
     timezone?: string;
     notificationsEnabled?: boolean;
+    missedAlertGraceMinutes?: number | null;
   };
 
   const update: Record<string, unknown> = {};
@@ -63,6 +72,22 @@ export async function PATCH(req: NextRequest) {
   if (body.notificationsEnabled !== undefined) {
     update.notificationsEnabled = !!body.notificationsEnabled;
   }
+  if (body.missedAlertGraceMinutes !== undefined) {
+    // null = turn missed alerts off entirely for this company — a valid,
+    // deliberate value, not something to reject.
+    if (
+      body.missedAlertGraceMinutes !== null &&
+      (!Number.isInteger(body.missedAlertGraceMinutes) ||
+        body.missedAlertGraceMinutes < 0 ||
+        body.missedAlertGraceMinutes > 240)
+    ) {
+      return NextResponse.json(
+        { error: "missedAlertGraceMinutes must be null or an integer between 0 and 240" },
+        { status: 400 }
+      );
+    }
+    update.missedAlertGraceMinutes = body.missedAlertGraceMinutes;
+  }
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: "No fields to update" }, { status: 400 });
   }
@@ -72,6 +97,7 @@ export async function PATCH(req: NextRequest) {
     notificationSound?: string;
     timezone?: string | null;
     notificationsEnabled?: boolean;
+    missedAlertGraceMinutes?: number | null;
   }>();
   if (!company) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
@@ -106,5 +132,6 @@ export async function PATCH(req: NextRequest) {
     notificationSound: company.notificationSound ?? "standard",
     timezone: company.timezone ?? null,
     notificationsEnabled: company.notificationsEnabled ?? true,
+    missedAlertGraceMinutes: company.missedAlertGraceMinutes === undefined ? 30 : company.missedAlertGraceMinutes,
   });
 }

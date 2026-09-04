@@ -32,6 +32,7 @@ export default async function TeamPage() {
       isManager={isManagerOrAbove(sessionUser.role)}
       isOwner={isOwner(sessionUser.role)}
       currentUserId={sessionUser.userId}
+      activeLocationId={sessionUser.activeLocationId}
     />
   );
 }

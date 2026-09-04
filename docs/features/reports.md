@@ -6,6 +6,10 @@ Renamed from "Analytics" — a real-world label managers and employees recognize
 
 These live inside the Reports page itself, **not** a new bottom-nav slot — the nav's 4th placeholder (see [team-invites.md](team-invites.md)'s "Team tab UI" section) is untouched.
 
+## Location scoping
+
+Every query in `GET /api/reports`/`/api/reports/leaderboard`/`/api/reports/inventory`/`GET /api/task-logs/history` resolves its `locationId` via `pickActiveLocationId` (`lib/session.ts`) — for an employee/manager this is always just their own location; for an owner it's their location-switcher selection, defaulting to their own location if unset. `ReportsView` renders `components/LocationSwitcher.tsx` under its `<Header>` so an owner can actually change it — see [`locations.md`](locations.md)'s "Location switcher". Since each of `ReportsContent`'s four sub-tabs (`ManagerOverview`/`EmployeeOverview`/`LogsTab`/`InventoryTab`) fetches its own data once on mount, `ReportsView` remounts the whole `ReportsContent` subtree (via a `key` bump) when the switcher changes, rather than threading a refetch callback through all four.
+
 ## Role split
 
 - **Managers** see the company-wide dashboard that existed before this split, unchanged.

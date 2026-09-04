@@ -9,9 +9,14 @@ mechanisms, both landing on the same devices:
   `startTime`, via its own standing **per-list QStash schedule** (not a
   poll). A nudge, not an escalation. Reaches **managers and employees**.
 - **Missed** — fires when a list's window closes (derived end time + a
-  flat 30-minute grace period) with tasks still outstanding, via a single
-  **shared recurring QStash sweep** (a poll, every 5 minutes). An
-  escalation. Reaches **managers only**.
+  manager-configurable grace period, `Company.missedAlertGraceMinutes`,
+  company-wide for every shift-window list — see "Missed-list alerts"
+  below) with tasks still outstanding, via a single **shared recurring
+  QStash sweep** (a poll, every 5 minutes). An escalation. Reaches
+  **managers only**. A manager can also turn missed alerts off entirely
+  for their company (distinct from the broader `notificationsEnabled` kill
+  switch, which covers both alert types) by setting the grace period to
+  "off" in Company Settings.
 
 See CLAUDE.md's "Notifications" section for a short summary; this doc has
 the full detail.
@@ -22,9 +27,9 @@ non-repeating QStash occurrence; missed: deduped via `MissedListAlert`).
 
 **Explicitly out of scope for v1** (see "Deferred / open questions" below):
 par-level inventory alerts (same missed-list infra, different trigger — a
-fast-follow), email fallback, per-manager mute, per-list configurable
-grace period for the missed alert, time clock (not built at all yet,
-unrelated).
+fast-follow), email fallback, per-manager mute, **per-list** configurable
+grace period for the missed alert (v1 is company-wide, not per-list — see
+"Missed-list alerts" below), time clock (not built at all yet, unrelated).
 
 ## Two mechanisms, on purpose
 
@@ -32,7 +37,8 @@ These aren't the same shape of problem, so they don't share one:
 
 - **Missed** only needs to know "has enough time passed that this is now
   late?" — a coarse poll (every 5 minutes) is fine, since the alert itself
-  is inherently fuzzy ("closed *around* 30 minutes ago").
+  is inherently fuzzy ("closed *around* `N` minutes ago," `N` being the
+  company's own configured grace period).
 - **Start-time reminders** are explicitly about firing *at* a specific
   moment — "starts now" read oddly arriving up to several minutes early or
   late, which is what an earlier version of this feature did (a shared
@@ -139,8 +145,21 @@ should comfortably support QStash's usage-based pricing.
   reminders, schedules keep firing regardless of this flag (deleting/
   recreating every list's schedule on every toggle wasn't worth the
   churn) — `app/api/cron/task-list-reminder` checks the flag at send
-  time instead and no-ops if it's off. No per-alert-type or per-manager
-  mute in v1 (see "Deferred" below).
+  time instead and no-ops if it's off. No per-manager mute in v1 (see
+  "Deferred" below).
+- **`Company.missedAlertGraceMinutes: number | null`** (default `30`) —
+  manager-editable from Company Settings (`GET`/`PATCH
+  /api/company/settings`), one value for the whole company, applied to
+  every shift-window list (not per-list — see "Deferred" below). Fed
+  straight into `lib/task-list-window.ts`'s `isPastGraceWindow` by the
+  sweep in place of the old hardcoded `MISSED_LIST_GRACE_MINUTES`
+  constant. **`null` turns missed alerts off entirely for this company**
+  — a strictly narrower switch than `notificationsEnabled` above, since it
+  leaves start-time reminders untouched. `undefined` (a company document
+  that predates this field) is treated as the original flat 30-minute
+  default everywhere this is read — `DEFAULT_MISSED_LIST_GRACE_MINUTES` in
+  `lib/task-list-window.ts` — not as "off"; only an *explicit* `null`
+  means off. Validated server-side to `null` or an integer `0`–`240`.
 
 No changes to `Task`/`TaskDefinition`/`TaskLog` — this reads existing
 state, it doesn't add fields to the things it's checking.
@@ -300,9 +319,14 @@ condition, evaluated per `(company, list, today)` in
    `TaskListCard.tsx`, which currently sums over every task regardless of
    today's visibility; a known, pre-existing divergence between the two,
    not introduced by this feature).
-2. **Grace period**: end time + a flat **30 minutes**
-   (`MISSED_LIST_GRACE_MINUTES` in `lib/task-list-window.ts`). Before
-   that, nothing fires, even if the list is behind.
+2. **Grace period**: end time + `Company.missedAlertGraceMinutes` (a
+   manager-configurable, company-wide value — default 30, editable from
+   Company Settings; `DEFAULT_MISSED_LIST_GRACE_MINUTES` in
+   `lib/task-list-window.ts` is only the fallback for a company document
+   that predates this field). Before that, nothing fires, even if the list
+   is behind. **A company with this set to `null` is skipped by the sweep
+   entirely** (filtered out alongside `notificationsEnabled`/`timezone` —
+   see "The sweep job" below) — the manager turned missed alerts off.
 3. Now (via `minutesNowInZone(company.timezone)`, **not** server UTC or
    any requesting device's own offset) must be past that grace-adjusted
    time.
@@ -333,14 +357,18 @@ condition, evaluated per `(company, list, today)` in
   Rejects (`401`) anything that doesn't verify — this route is otherwise
   unauthenticated, so signature verification **is** the auth boundary
   here, same conceptual role `assertNfcVerified` plays for a scan.
-- **Logic**: for every `Company` with `notificationsEnabled !== false` and
-  a non-empty `timezone` — filtered in application code, not via an exact
-  Mongo match, since every Company in this app is hand-inserted directly
-  in MongoDB and can easily be missing either field entirely; an exact
-  `{ notificationsEnabled: true }` query would silently exclude those,
-  same reasoning as the `?? true` fallback used elsewhere — compute "now"
+- **Logic**: for every `Company` with `notificationsEnabled !== false`, a
+  non-empty `timezone`, and `missedAlertGraceMinutes !== null` — filtered
+  in application code, not via an exact Mongo match, since every Company
+  in this app is hand-inserted directly in MongoDB and can easily be
+  missing any of these fields entirely; an exact `{ notificationsEnabled:
+  true }` query would silently exclude those, same reasoning as the `?? true`
+  fallback used elsewhere (an *unset* `missedAlertGraceMinutes` still
+  passes this filter and resolves to `DEFAULT_MISSED_LIST_GRACE_MINUTES` —
+  only an explicit `null` is treated as "off") — compute "now"
   in that company's zone, find its shift-window lists, apply the "what
-  counts as missed" conditions above, and for every list that qualifies:
+  counts as missed" conditions above (using that company's own resolved
+  grace minutes), and for every list that qualifies:
   write the `MissedListAlert` row **first** (write-then-send — a crash
   mid-send can't cause a duplicate on the next run), then fan out a push
   (`lib/notifications.ts`'s `sendMissedListAlert()`) to every registered
@@ -423,7 +451,7 @@ is deny-without-session, not opt-in.
 | `/api/session/role` | GET | any signed-in user | tiny session lookup, used only to gate the native permission prompt to signed-in company users |
 | `/api/cron/check-missed-lists` | POST | QStash signature only | the missed-list sweep |
 | `/api/cron/task-list-reminder` | POST | QStash signature only | one list's exact-startTime fire |
-| `/api/company/settings` | GET/PATCH | any signed-in user (GET) / manager (PATCH) | gains `timezone`/`notificationsEnabled`; a timezone change re-upserts every list's schedule |
+| `/api/company/settings` | GET/PATCH | any signed-in user (GET) / manager (PATCH) | gains `timezone`/`notificationsEnabled`/`missedAlertGraceMinutes`; a timezone change re-upserts every list's schedule |
 | `/api/task-lists` | POST | manager (existing route) | gains the schedule-upsert side effect |
 | `/api/task-lists/[taskListId]` | PATCH / DELETE | manager (existing route) | gains the schedule upsert / delete side effect |
 | `/api/task-lists/[taskListId]/duplicate` | POST | manager (existing route) | gains the schedule-upsert side effect |
@@ -431,17 +459,22 @@ is deny-without-session, not opt-in.
 ## Files
 
 - `models/PushToken.ts`, `models/MissedListAlert.ts` — new.
-- `models/Company.ts` — gained `notificationsEnabled`; `timezone` already
-  existed (stubbed) and is now load-bearing.
+- `models/Company.ts` — gained `notificationsEnabled`, then later
+  `missedAlertGraceMinutes` (`number | null`, default `30`); `timezone`
+  already existed (stubbed) and is now load-bearing.
 - `models/TaskList.ts` — gained `qstashScheduleId`.
 - `lib/task-list-window.ts` — new. The extracted, shared window math for
   the missed-list sweep — `deriveCollapseAfter`, `isPastGraceWindow`/
-  `MISSED_LIST_GRACE_MINUTES`. (An earlier version of this file also had
-  `isPastStartGrace`/`NOT_STARTED_GRACE_MINUTES` for a polling-based
-  start-time check — removed when that approach was replaced by per-list
-  QStash schedules.) `components/TaskListCard.tsx` was refactored to call
-  the shared `deriveCollapseAfter`/`isPastWindow`/`isBeforeWindow` instead
-  of its own local copies.
+  `DEFAULT_MISSED_LIST_GRACE_MINUTES` (originally a single hardcoded
+  `MISSED_LIST_GRACE_MINUTES` constant every company shared; `
+  isPastGraceWindow` now takes the caller's resolved per-company
+  `graceMinutes` as a required parameter instead). (An earlier version of
+  this file also had `isPastStartGrace`/`NOT_STARTED_GRACE_MINUTES` for a
+  polling-based start-time check — removed when that approach was replaced
+  by per-list QStash schedules.) `components/TaskListCard.tsx` was
+  refactored to call the shared `deriveCollapseAfter`/`isPastWindow`/
+  `isBeforeWindow` instead of its own local copies (it does not call
+  `isPastGraceWindow` — that's sweep-only).
 - `lib/qstash-schedules.ts` — new. `upsertStartTimeSchedule()`/
   `deleteStartTimeSchedule()`, the per-list QStash schedule management
   backing start-time reminders.
@@ -456,15 +489,17 @@ is deny-without-session, not opt-in.
 - `app/api/cron/check-missed-lists/route.ts`, `app/api/cron/task-list-reminder/route.ts`,
   `app/api/push-tokens/route.ts`, `app/api/session/role/route.ts` — new.
 - `app/api/company/settings/route.ts` — gained `timezone`/
-  `notificationsEnabled` on `GET`/`PATCH`, plus the schedule re-upsert side
-  effect on a timezone change.
+  `notificationsEnabled`/`missedAlertGraceMinutes` on `GET`/`PATCH`, plus
+  the schedule re-upsert side effect on a timezone change.
 - `app/api/task-lists/route.ts`, `app/api/task-lists/[taskListId]/route.ts`,
   `app/api/task-lists/[taskListId]/duplicate/route.ts` — gained the
   schedule upsert/delete side effects.
 - `components/CompanySettingsView.tsx` — gained a timezone `<select>` (plus
-  a browser-detect button) and a single "Checklist Alerts" toggle switch
-  covering both alert types, alongside the existing `notificationSound`
-  control.
+  a browser-detect button), a single "Checklist Alerts" toggle switch
+  covering both alert types, and a "Missed Alert Timing" section (its own
+  on/off toggle plus a minutes input, mapping to
+  `Company.missedAlertGraceMinutes`), alongside the existing
+  `notificationSound` control.
 - `components/NativeBootstrap.tsx` — gained a call to
   `registerAlertPushNotifications()` alongside the existing Live Activity
   push-token forwarding call.
@@ -537,10 +572,15 @@ is deny-without-session, not opt-in.
   different condition (`InventoryLog` latest count vs.
   `InventoryItemType.parLevel`) and a different dedup key. Natural
   fast-follow once this ships.
-- **Per-list configurable grace period (missed alert only)** — v1 uses one
-  flat 30-minute constant for every shift-window list, every company.
-  Start-time reminders have no grace period to configure — they fire
-  exactly at `startTime` by construction.
+- **Per-list configurable grace period (missed alert only)** — **built at
+  the company level** (`Company.missedAlertGraceMinutes`, including an
+  "off" state — see "Data model" and "Missed-list alerts" above), but
+  still one value for every shift-window list within a company, not
+  configurable per individual list. A company running very different
+  shift lengths across lists (e.g. a 10-minute Anytime-style check vs. a
+  long Closing Shift) can't give them different grace periods yet. Start-
+  time reminders have no grace period to configure — they fire exactly at
+  `startTime` by construction.
 - **Email fallback** for a user who never grants push permission — no
   transactional email provider exists in this stack yet.
 - **Per-user mute, or per-alert-type toggle** — v1 is a single

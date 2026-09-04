@@ -9,7 +9,7 @@ import TaskLog from "@/models/TaskLog";
 import MissedListAlert from "@/models/MissedListAlert";
 import { resolveTasks } from "@/lib/task-definitions";
 import { isTaskVisibleOn } from "@/lib/task-visibility";
-import { deriveCollapseAfter, isPastGraceWindow, minutesNowInZone, todayInZone } from "@/lib/task-list-window";
+import { DEFAULT_MISSED_LIST_GRACE_MINUTES, deriveCollapseAfter, isPastGraceWindow, minutesNowInZone, todayInZone } from "@/lib/task-list-window";
 import { sendMissedListAlert } from "@/lib/notifications";
 
 export const dynamic = "force-dynamic";
@@ -59,12 +59,28 @@ export async function POST(req: NextRequest) {
   // "enabled" everywhere else in this app via `?? true`, e.g.
   // app/api/company/settings/route.ts — a raw query needs the same
   // fallback, not schema-default reliance a hand-inserted doc never got).
-  const allCompanies = await Company.find({}, "_id timezone notificationsEnabled").lean<
-    { _id: { toString(): string }; timezone?: string | null; notificationsEnabled?: boolean }[]
+  // missedAlertGraceMinutes gets the same treatment, but with an important
+  // distinction: `undefined` (unset field) falls back to the original flat
+  // 30-minute default, while an explicit `null` means the manager turned
+  // missed alerts off for this company entirely — see models/Company.ts.
+  const allCompanies = await Company.find(
+    {},
+    "_id timezone notificationsEnabled missedAlertGraceMinutes"
+  ).lean<
+    {
+      _id: { toString(): string };
+      timezone?: string | null;
+      notificationsEnabled?: boolean;
+      missedAlertGraceMinutes?: number | null;
+    }[]
   >();
   const companies = allCompanies
-    .filter((c) => c.notificationsEnabled !== false && !!c.timezone)
-    .map((c) => ({ _id: c._id, timezone: c.timezone as string }));
+    .filter((c) => c.notificationsEnabled !== false && !!c.timezone && c.missedAlertGraceMinutes !== null)
+    .map((c) => ({
+      _id: c._id,
+      timezone: c.timezone as string,
+      graceMinutes: c.missedAlertGraceMinutes ?? DEFAULT_MISSED_LIST_GRACE_MINUTES,
+    }));
 
   let alertsSent = 0;
 
@@ -105,7 +121,7 @@ export async function POST(req: NextRequest) {
             const timedVisible = visible.filter((t) => t.taskType !== "checkbox");
             const totalProjected = timedVisible.reduce((s, t) => s + t.projectedMinutes, 0);
             const collapseAfter = deriveCollapseAfter(list.startTime, totalProjected);
-            if (!isPastGraceWindow(nowMinutes, collapseAfter)) continue;
+            if (!isPastGraceWindow(nowMinutes, collapseAfter, company.graceMinutes)) continue;
 
             const logs = await TaskLog.find(
               { companyId, locationId, date: today, taskId: { $in: visible.map((t) => t._id) } },

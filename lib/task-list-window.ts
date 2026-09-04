@@ -65,17 +65,23 @@ export function todayInZone(timeZone: string): string {
   return `${year}-${month}-${day}`;
 }
 
-// A flat 30-minute grace period after a shift window's derived end time,
-// before the missed-list sweep will alert on it — see
-// docs/features/notifications.md's "What counts as missed." One constant
-// for every shift-window list, every company, in v1; not yet
-// per-list-configurable.
-export const MISSED_LIST_GRACE_MINUTES = 30;
+// Fallback grace period for any company whose own
+// Company.missedAlertGraceMinutes is undefined (a document that predates
+// that field) — NOT the same as an explicit null there, which means missed
+// alerts are turned off entirely. See docs/features/notifications.md's
+// "What counts as missed." Manager-configurable company-wide (not
+// per-list) from Company Settings as of the missed-alert-timing feature —
+// previously a single hardcoded constant for every company.
+export const DEFAULT_MISSED_LIST_GRACE_MINUTES = 30;
 
 // True once a shift-window list's grace-adjusted end time has passed for
 // "now" (already resolved to the company's own local minutes-since-midnight
-// — see minutesNowInZone). Mirrors isPastWindow, offset by the grace period.
-export function isPastGraceWindow(nowMinutesLocal: number, collapseAfter: string | null): boolean {
+// — see minutesNowInZone). Mirrors isPastWindow, offset by the grace
+// period. graceMinutes is the caller's resolved value for this company
+// (Company.missedAlertGraceMinutes, falling back to
+// DEFAULT_MISSED_LIST_GRACE_MINUTES when unset) — this function no longer
+// assumes one flat value for every company.
+export function isPastGraceWindow(nowMinutesLocal: number, collapseAfter: string | null, graceMinutes: number): boolean {
   if (!collapseAfter) return false;
-  return nowMinutesLocal >= toMinutes(collapseAfter) + MISSED_LIST_GRACE_MINUTES;
+  return nowMinutesLocal >= toMinutes(collapseAfter) + graceMinutes;
 }

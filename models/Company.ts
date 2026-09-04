@@ -46,6 +46,18 @@ export interface ICompany extends Document {
   // docs/features/notifications.md) — no per-manager mute in v1, so if a
   // company doesn't want these at all, they turn this off entirely.
   notificationsEnabled: boolean;
+  // Minutes past a shift-window list's derived end time before the
+  // missed-list sweep (`app/api/cron/check-missed-lists`) will alert
+  // managers that it's still not done — see docs/features/notifications.md's
+  // "Missed-list alerts". Manager-editable from Company Settings, one value
+  // for every shift-window list company-wide (not per-list). `null` means
+  // missed alerts are turned off entirely for this company — distinct from
+  // `notificationsEnabled` above, which is the broader kill switch covering
+  // BOTH alert types. `undefined` (a company document that predates this
+  // field) is treated as the original flat 30-minute default everywhere
+  // this is read, not as "off" — see `DEFAULT_MISSED_LIST_GRACE_MINUTES` in
+  // `lib/task-list-window.ts`.
+  missedAlertGraceMinutes: number | null;
   subscription: ICompanySubscription;
 }
 
@@ -74,6 +86,7 @@ const CompanySchema = new Schema<ICompany>(
     notificationPreferences: { type: Schema.Types.Mixed, default: {} },
     notificationSound: { type: String, enum: ["standard", "male"], default: "standard" },
     notificationsEnabled: { type: Boolean, default: true },
+    missedAlertGraceMinutes: { type: Number, default: 30 },
     subscription: { type: CompanySubscriptionSchema, default: () => ({}) },
   },
   { timestamps: true }

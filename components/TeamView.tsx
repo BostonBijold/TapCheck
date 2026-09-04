@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Header from "@/components/Header";
+import LocationSwitcher from "@/components/LocationSwitcher";
 import InviteSheet from "@/components/InviteSheet";
 import TeamMemberActionSheet from "@/components/TeamMemberActionSheet";
 
@@ -35,6 +36,11 @@ interface Props {
   isManager: boolean;
   isOwner: boolean;
   currentUserId: string;
+  // Raw switcher selection (null = "All Locations," today's unfiltered
+  // default) — unlike Tasks/Reports/Inventory, Team does NOT fall back to
+  // this owner's own locationId when null. See
+  // docs/features/locations.md's "Location switcher".
+  activeLocationId: string | null;
 }
 
 function fmtDate(iso: string | null) {
@@ -66,7 +72,7 @@ function RoleBadge({ role }: { role: "manager" | "employee" | "owner" }) {
   );
 }
 
-export default function TeamView({ userName, today, skipAuth, isManager, isOwner, currentUserId }: Props) {
+export default function TeamView({ userName, today, skipAuth, isManager, isOwner, currentUserId, activeLocationId }: Props) {
   const [team, setTeam] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [locations, setLocations] = useState<Location[]>([]);
@@ -136,6 +142,7 @@ export default function TeamView({ userName, today, skipAuth, isManager, isOwner
     <div className="min-h-dvh bg-bg">
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <LocationSwitcher isOwner={isOwner} activeLocationId={activeLocationId} allowAll onChanged={fetchTeam} />
 
         <div className="mt-4 mb-5">
           <h1 className="font-heading text-xl text-text">Team</h1>

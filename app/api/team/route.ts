@@ -10,10 +10,18 @@ const ROLE_RANK: Record<string, number> = { owner: 0, manager: 1, employee: 2 };
 
 // GET /api/team — the read-only roster, open to any signed-in company
 // member (not manager-gated). Managers first, then alphabetical by name.
+// Location filtering (see docs/features/locations.md's "Location
+// switcher") is opt-in and owner-only: sessionUser.activeLocationId is
+// read directly here rather than through pickActiveLocationId, since this
+// route's own "no override" default (show the WHOLE company, unfiltered)
+// has always differed from every other page's ("fall back to my own
+// location") — a non-owner's activeLocationId is always null anyway, so
+// this has no effect on employee/manager, unchanged from before this
+// field existed.
 export async function GET() {
   const sessionUser = await resolveSessionUser();
   if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const { companyId } = sessionUser;
+  const { companyId, activeLocationId } = sessionUser;
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
 
   await connectDB();
@@ -24,8 +32,10 @@ export async function GET() {
   // otherwise make this query throw a cast error — same defensive pattern
   // as lib/task-list-session-actions.ts's getOpenSessionLocks(). No real
   // company ever has that id, so there's nothing to find either way.
+  const query: Record<string, unknown> = { companyId };
+  if (activeLocationId) query.locationId = activeLocationId;
   const users = mongoose.isValidObjectId(companyId)
-    ? await User.find({ companyId }, "name image role createdAt companyJoinedAt").lean()
+    ? await User.find(query, "name image role createdAt companyJoinedAt").lean()
     : [];
   users.sort((a, b) => (ROLE_RANK[a.role] ?? 1) - (ROLE_RANK[b.role] ?? 1) || (a.name ?? "").localeCompare(b.name ?? ""));
 

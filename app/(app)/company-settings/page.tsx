@@ -23,8 +23,13 @@ export default async function CompanySettingsPage() {
   await connectDB();
   const company = await Company.findById(
     companyId,
-    "notificationSound timezone notificationsEnabled"
-  ).lean<{ notificationSound?: string; timezone?: string | null; notificationsEnabled?: boolean }>();
+    "notificationSound timezone notificationsEnabled missedAlertGraceMinutes"
+  ).lean<{
+    notificationSound?: string;
+    timezone?: string | null;
+    notificationsEnabled?: boolean;
+    missedAlertGraceMinutes?: number | null;
+  }>();
 
   const userName = session?.user?.name ?? "Developer";
   const today = new Date().toISOString().split("T")[0];
@@ -37,6 +42,9 @@ export default async function CompanySettingsPage() {
       initialNotificationSound={(company?.notificationSound as NotificationSound) ?? "standard"}
       initialTimezone={company?.timezone ?? null}
       initialNotificationsEnabled={company?.notificationsEnabled ?? true}
+      initialMissedAlertGraceMinutes={
+        company?.missedAlertGraceMinutes === undefined ? 30 : company.missedAlertGraceMinutes
+      }
     />
   );
 }

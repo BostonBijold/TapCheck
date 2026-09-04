@@ -154,8 +154,17 @@ Company, and every other collection scopes its data either to the Company
   notificationSound,          // 'standard' | 'male' — defaults 'standard'; which chirp plays on a
                                // device that completes an NFC-bound task via "Scan NFC to Save"
                                // (docs/features/nfc.md). Manager-set from Profile > Company Settings.
-  notificationsEnabled,        // bool, defaults true — company-wide kill switch for missed-shift-list
-                               // push alerts (see "Notifications" below). No per-manager mute in v1.
+  notificationsEnabled,        // bool, defaults true — company-wide kill switch for BOTH shift-window
+                               // alert types (see "Notifications" below). No per-manager mute in v1.
+  missedAlertGraceMinutes,     // number | null, defaults 30 — minutes past a shift-window list's
+                               // derived end time before the missed-list sweep alerts managers it's
+                               // still not done; manager-set from Profile > Company Settings, one
+                               // value for every shift-window list company-wide (not per-list). null
+                               // turns missed alerts off entirely for this company — a narrower switch
+                               // than notificationsEnabled above, since it leaves start-time reminders
+                               // untouched. A pre-existing company with this field unset falls back to
+                               // 30 (the original hardcoded value), not "off" — only an explicit null
+                               // means off. See "Notifications" below.
   subscription: {              // stubbed — no Stripe integration wired up yet
     status,                   // 'trialing' | 'active' | 'past_due' | 'canceled' | 'none' — defaults 'trialing'
     tier,                     // 'free' | 'starter' | 'pro' — defaults 'free'
@@ -208,6 +217,12 @@ way around.
                                // Invite redemption from the invite's own locationId, or by an owner via
                                // PATCH /api/team/[userId]. Null until the one-off backfill script runs
                                // (scripts/backfill-locations.mjs) for any pre-Locations user.
+  activeLocationId,            // ref Location | null — an owner's location-switcher selection (see
+                               // "Locations" below's "Location switcher"), distinct from locationId above
+                               // (that's this user's fixed home/default). Meaningless for employee/manager.
+                               // null = no override; resolves to locationId (Tasks/Reports/Inventory) or
+                               // "no filter, show everyone" (Team) depending on the page. Set only via
+                               // PATCH /api/session/active-location.
   jobTags,                     // string[], default [] — company-defined job function tags (server/cook/
                                // busser/host/…), orthogonal to role (role = access, jobTags = task-list
                                // assignment). Schema only — not yet read anywhere, see
@@ -651,12 +666,15 @@ Two independent push alerts, structurally different mechanisms:
   already done. Reaches **managers and employees** — a nudge to whoever's
   on shift.
 - **Missed** — the list's derived end time (`startTime` + today's
-  projected minutes) + a flat 30-minute grace period has passed with any
-  of today's scheduled tasks still not in a terminal state (`done`/
-  `missed`/`rest`). Driven by a single **shared recurring QStash sweep**
-  (`POST /api/cron/check-missed-lists`, every 5 minutes — a poll, since
-  "closed *around* 30 minutes ago" doesn't need to-the-minute precision).
-  Reaches **managers only** — an escalation.
+  projected minutes) + a manager-configurable grace period
+  (`Company.missedAlertGraceMinutes`, default 30, company-wide for every
+  shift-window list — set from Profile > Company Settings, `null` turns
+  missed alerts off entirely) has passed with any of today's scheduled
+  tasks still not in a terminal state (`done`/`missed`/`rest`). Driven by
+  a single **shared recurring QStash sweep** (`POST
+  /api/cron/check-missed-lists`, every 5 minutes — a poll, since "closed
+  *around* N minutes ago" doesn't need to-the-minute precision). Reaches
+  **managers only** — an escalation.
 
 These use genuinely different QStash primitives on purpose: a poll rounds
 to its own interval, and "starts now" read oddly arriving several minutes
@@ -686,20 +704,26 @@ fan-out) and doubles as an audit trail — start-time reminders need no
 equivalent table, since each QStash fire of a per-list schedule is
 already a distinct, non-repeating occurrence by construction.
 
-The missed-list window math (`deriveCollapseAfter`, `isPastGraceWindow`/
-`MISSED_LIST_GRACE_MINUTES`) lives in `lib/task-list-window.ts`, shared
-between the sweep and `components/TaskListCard.tsx`'s own client-side
-collapse logic — one pure function, two callers, same pattern as
-`lib/task-progress.ts`/`lib/placement-resolution.ts`.
+The missed-list window math lives in `lib/task-list-window.ts`:
+`deriveCollapseAfter`/`isPastWindow`/`isBeforeWindow` are shared between
+the sweep and `components/TaskListCard.tsx`'s own client-side collapse
+logic — one pure function, multiple callers, same pattern as
+`lib/task-progress.ts`/`lib/placement-resolution.ts`. `isPastGraceWindow`/
+`DEFAULT_MISSED_LIST_GRACE_MINUTES` are sweep-only (the client card has no
+grace-period concept) and take the caller's resolved per-company
+`Company.missedAlertGraceMinutes` rather than one flat constant.
 
 Deferred beyond v1: par-level inventory alerts (same missed-list QStash
-infra, a different trigger — natural fast-follow), a configurable grace
-period for the missed alert, email fallback for a user who never grants
-push permission, per-user/per-alert-type mute, and reconciling schedule
-drift (nothing re-verifies a list's `qstashScheduleId` still matches a
-live QStash schedule). QStash's free-tier 10-active-schedule cap is also
-worth watching — every shift-window list consumes one. Full detail — data
-model, both mechanisms, push payload shape, and failure handling — is in
+infra, a different trigger — natural fast-follow), a **per-list**
+configurable grace period for the missed alert (built at the company
+level — see `Company.missedAlertGraceMinutes` above — but still one value
+for every shift-window list within a company), email fallback for a user
+who never grants push permission, per-user/per-alert-type mute, and
+reconciling schedule drift (nothing re-verifies a list's
+`qstashScheduleId` still matches a live QStash schedule). QStash's
+free-tier 10-active-schedule cap is also worth watching — every
+shift-window list consumes one. Full detail — data model, both
+mechanisms, push payload shape, and failure handling — is in
 `docs/features/notifications.md`.
 
 ---
@@ -731,11 +755,17 @@ Also adds a second, independent axis on `User` — `jobTags: string[]`
 (server/cook/busser/host/…), schema-only for now, for a future task-list-
 by-job-function assignment pass that isn't built yet.
 
-**Known gap**: no location-switcher UI yet — an owner's session defaults to
-their own location; every route that supports viewing another one accepts
-an optional `?locationId=`, but nothing renders a control to set it. Full
-detail — permissions audit, migration script, notification fan-out
-changes, and every other open gap — is in `docs/features/locations.md`.
+An owner now gets a real **location switcher** — a control on all 4
+bottom-nav pages (Tasks, Team, Reports, Inventory) to pick which location's
+data they're viewing (and, on Tasks, acting against), persisted server-side
+on `User.activeLocationId` (not a URL param or browser storage). Team is
+the one page where a `null` selection means "no filter, show the whole
+company" rather than falling back to the owner's own location — its
+roster has never been location-scoped before this, so that default
+preserves existing behavior for anyone who hasn't touched the switcher.
+Full detail — permissions audit, migration script, notification fan-out
+changes, the switcher's own resolution rules, and every other open gap —
+is in `docs/features/locations.md`.
 
 ---
 
@@ -885,7 +915,7 @@ table is a quick reference, not authoritative.
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
-- Locations: BUILT (backend) — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, and locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert; migration script at `scripts/backfill-locations.mjs`. NOT built: an owner-facing location-switcher UI, per-location split of the start-time-reminder cron, and job-tags UI — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
+- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. NOT built: per-location split of the start-time-reminder cron, and job-tags UI — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

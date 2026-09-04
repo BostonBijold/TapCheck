@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Settings } from "lucide-react";
 import Header from "@/components/Header";
+import LocationSwitcher from "@/components/LocationSwitcher";
 import DateNav from "@/components/DateNav";
 import TaskListCard, { type TaskListCardTaskList } from "@/components/TaskListCard";
 import TimerScreen, { type TimerItem } from "@/components/TimerScreen";
@@ -65,6 +66,11 @@ interface Props {
   userId: string;
   userRole: "manager" | "employee" | "owner";
   companyId: string; // scopes the offline SQLite cache/queue — see docs/features/offline.md
+  // The location this page's data is scoped to (already resolved server-
+  // side via pickActiveLocationId) — passed through only so LocationSwitcher
+  // can show the current selection; not used for any fetch/mutation here,
+  // since every /api/task-logs call already resolves this itself server-side.
+  activeLocationId: string | null;
   skipAuth?: boolean;
   autoStartNext?: boolean;
   autoAddTask?: boolean;
@@ -83,7 +89,7 @@ interface ActiveSession {
 
 export default function TasksView({
   taskLists, initialLogs, initialTodos, weekLogs, weekDates,
-  today, userName, userId, userRole, companyId, skipAuth,
+  today, userName, userId, userRole, companyId, activeLocationId, skipAuth,
   autoStartNext = false,
   autoAddTask = false,
   autoResumeTimer = false,
@@ -1028,6 +1034,7 @@ export default function TasksView({
 
       <div className="mx-auto max-w-mobile px-4 pb-28">
         <Header userName={userName} today={today} skipAuth={skipAuth} />
+        <LocationSwitcher isOwner={userRole === "owner"} activeLocationId={activeLocationId} />
 
         <>
           {/* Date navigation */}
