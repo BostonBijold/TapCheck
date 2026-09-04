@@ -882,6 +882,12 @@ APNS_KEY_ID=           # Apple Push Notifications Auth Key — see docs/features
 APNS_TEAM_ID=          # X3DPK5Y29G
 APNS_PRIVATE_KEY=      # contents of the downloaded .p8 file
 QSTASH_TOKEN=              # Upstash QStash — see docs/features/notifications.md
+QSTASH_URL=                # Upstash account's REGIONAL endpoint (e.g. https://qstash-us-east-1.
+                           #   upstash.io) — required for lib/qstash-schedules.ts's outbound calls
+                           #   (creating/deleting a list's start-time reminder schedule); the generic
+                           #   https://qstash.upstash.io endpoint 404s/misroutes for some accounts.
+                           #   Not needed by the missed-list sweep route itself (inbound-only,
+                           #   verifies via signing keys, no outbound QStash API calls)
 QSTASH_CURRENT_SIGNING_KEY=
 QSTASH_NEXT_SIGNING_KEY=
 ```

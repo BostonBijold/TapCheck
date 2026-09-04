@@ -465,25 +465,33 @@ is deny-without-session, not opt-in.
 
 1. ~~Create an Upstash account, a QStash instance — free tier.~~ Done.
 2. ~~Set `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`,
-   `QSTASH_NEXT_SIGNING_KEY` locally (`.env.local`).~~ Done locally — still
-   needs setting on Vercel's production env before either route can verify
-   real requests, and before `lib/qstash-schedules.ts` can authenticate
-   its own calls to QStash. Already documented in `project-structure.md`'s
-   Secrets Policy list and CLAUDE.md's Environment Variables section.
+   `QSTASH_NEXT_SIGNING_KEY` on Vercel's production env.~~ Done, confirmed
+   working. **Also required and initially missed: `QSTASH_URL`** — the
+   Upstash account's own *regional* endpoint (e.g.
+   `https://qstash-us-east-1.upstash.io`), needed by
+   `lib/qstash-schedules.ts`'s outbound calls (creating/deleting a list's
+   start-time reminder schedule). Without it, that code falls back to the
+   generic `https://qstash.upstash.io` endpoint, which misroutes for some
+   accounts ("user not found in this region") — the failure is swallowed
+   by the best-effort `try`/`catch` at every call site, so a task list
+   still saves fine, it just silently gets no schedule and nothing shows
+   up in QStash's logs. All four vars are documented in
+   `project-structure.md`'s Secrets Policy list and CLAUDE.md's
+   Environment Variables section.
 3. ~~Create the missed-list sweep's schedule.~~ Done — one-time, manual:
    `scd_78Le9ufNBjK2MwErCFtrNz4nsfXH`, `*/5 * * * *`, targeting
    `https://chrps.vercel.app/api/cron/check-missed-lists`. Manage/inspect
    via the Upstash console (QStash → Schedules) or `GET
-   {QSTASH_URL}/v2/schedules/scd_78Le9ufNBjK2MwErCFtrNz4nsfXH`. **Note**:
-   this schedule is already live and fires every 5 minutes against
-   production the moment `QSTASH_CURRENT_SIGNING_KEY`/
-   `QSTASH_NEXT_SIGNING_KEY` are set there too (until then, every
-   invocation just 401s at the signature-verification step and no-ops).
-   **Start-time reminder schedules need no manual setup at all** — they're
-   created/updated/deleted automatically by the task-list CRUD/company-
-   settings routes above, one per shift-window list, the first time each
-   is saved through the app once `QSTASH_TOKEN` is set in that
-   environment.
+   {QSTASH_URL}/v2/schedules/scd_78Le9ufNBjK2MwErCFtrNz4nsfXH`. **Confirmed
+   working in production**: `lastScheduleStates` on that schedule shows a
+   `SUCCESS` delivery after the `api/cron` middleware exclusion (see
+   "Gotcha" below) deployed and the schedule — which QStash had
+   auto-paused after enough consecutive 401s — was manually resumed
+   (`POST {QSTASH_URL}/v2/schedules/<id>/resume`). **Start-time reminder
+   schedules need no manual setup at all** — they're created/updated/
+   deleted automatically by the task-list CRUD/company-settings routes
+   above, one per shift-window list, the first time each is saved through
+   the app (once `QSTASH_TOKEN`/`QSTASH_URL` are both set — see step 2).
 4. **Still outstanding**: run `scripts/backfill-company-timezone.mjs`
    against production once, so pre-existing companies aren't silently
    skipped forever (both alert types need a timezone; the missed-list

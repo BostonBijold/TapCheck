@@ -91,6 +91,6 @@ Todos has no separate API doc — its small surface (`/api/todos*`) is documente
 - `AUTH_GOOGLE_SECRET`
 - `SKIP_AUTH` (local-dev-only auth bypass — never set in production)
 - `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY` (Live Activity push, see `lib/apns.ts` and `features/live-activity.md`)
-- `QSTASH_TOKEN`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` (missed-shift-list alert sweep, see `app/api/cron/check-missed-lists` and `features/notifications.md`)
+- `QSTASH_TOKEN`, `QSTASH_URL`, `QSTASH_CURRENT_SIGNING_KEY`, `QSTASH_NEXT_SIGNING_KEY` (shift-window alerts — the missed-list sweep and per-list start-time reminder schedules, see `app/api/cron/check-missed-lists`, `lib/qstash-schedules.ts`, and `features/notifications.md`)
 
 `.gitignore` excludes `.env*.local` (covers `.env.local`, `.env.development.local`, etc.), but **not** a bare `.env` or `.env.production` — if either of those is ever added, extend `.gitignore` before committing.
