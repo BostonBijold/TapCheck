@@ -43,8 +43,14 @@ export default function ConsoleShell({ userName, isOwner, children }: Props) {
   }
 
   return (
-    <div className="min-h-dvh bg-bg flex">
+    <div className="h-dvh bg-bg flex">
       <ConsoleSidebar userName={userName} isOwner={isOwner} />
+      {/* h-dvh (not min-h-dvh) is load-bearing here: html/body are
+          position:fixed + overflow:hidden app-wide (see globals.css), so
+          this row must be height-BOUNDED, not just height-at-least, or
+          <main>'s overflow-y-auto below has no bounded box to actually
+          scroll within — same reasoning app/(app)/layout.tsx's own
+          h-full scroll container documents for the mobile shell. */}
       <main className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-8 py-8">{children}</div>
       </main>
