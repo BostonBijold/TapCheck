@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import TaskListsPane, { type ConsoleTaskList } from "@/components/console/TaskListsPane";
 import TaskListDetailPane, { type ConsoleTask } from "@/components/console/TaskListDetailPane";
+import TaskCatalogPane from "@/components/console/TaskCatalogPane";
 import type { TaskType, FormFieldDef } from "@/models/TaskDefinition";
 
 interface RawTask {
@@ -32,6 +33,7 @@ interface TaskDefinitionEntry {
   formFields: FormFieldDef[];
   projectedMinutes: number;
   nfcTagUid: string | null;
+  placements: Array<{ taskId: string; taskListId: string; taskListName: string }>;
 }
 
 // Joins a list's raw task placements onto the company catalog — mirrors
@@ -77,6 +79,7 @@ export default function TaskManagementView() {
   const [taskLists, setTaskLists] = useState<RawTaskList[] | null>(null);
   const [definitions, setDefinitions] = useState<TaskDefinitionEntry[] | null>(null);
   const [selectedListId, setSelectedListId] = useState<string | null>(null);
+  const [view, setView] = useState<"lists" | "catalog">("lists");
 
   const fetchTaskLists = useCallback(async () => {
     const res = await fetch("/api/task-lists");
@@ -225,6 +228,51 @@ export default function TaskManagementView() {
     await refetchTasksAndDefinitions();
   };
 
+  // Task Catalog pane handlers — these key off definitionId directly
+  // (PATCH/POST/DELETE /api/task-definitions), unlike the list-scoped
+  // handlers above which key off a Task placement id. A definition with no
+  // active placements has no placement id to key off of at all, which is
+  // exactly the gap this pane exists to fill — see
+  // docs/features/console-task-management.md's "Task Catalog pane".
+  const handleSaveDefinition = async (
+    id: string,
+    name: string,
+    icon: string,
+    projectedMinutes: number,
+    formFields: FormFieldDef[]
+  ) => {
+    await fetch(`/api/task-definitions/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, icon, projectedMinutes, formFields }),
+    });
+    await refetchTasksAndDefinitions();
+  };
+
+  const handleDeleteDefinition = async (id: string) => {
+    const res = await fetch(`/api/task-definitions/${id}`, { method: "DELETE" });
+    if (res.ok) {
+      await refetchTasksAndDefinitions();
+      return { ok: true };
+    }
+    const body = await res.json().catch(() => ({}));
+    return { ok: false, error: body.error as string | undefined };
+  };
+
+  const handleCreateDefinition = async (
+    name: string,
+    icon: string,
+    projectedMinutes: number,
+    formFields: FormFieldDef[]
+  ) => {
+    await fetch("/api/task-definitions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name, icon, projectedMinutes, formFields }),
+    });
+    await fetchDefinitions();
+  };
+
   const consoleTaskLists: ConsoleTaskList[] | null =
     taskLists?.map((l) => ({
       _id: l._id,
@@ -239,29 +287,60 @@ export default function TaskManagementView() {
 
   return (
     <div>
-      <h1 className="font-heading text-2xl text-text mb-1">Task Management</h1>
-      <p className="font-body text-sm text-muted mb-6">
-        The same task lists and tasks the mobile app uses — create, rename, schedule, and edit them here.
-      </p>
-      <div className="flex items-start">
-        <TaskListsPane
-          taskLists={consoleTaskLists}
-          selectedListId={selectedListId}
-          onSelect={setSelectedListId}
-          onCreate={handleCreateList}
-          onUpdate={handleUpdateList}
-          onDelete={handleDeleteList}
-        />
-        <TaskListDetailPane
-          taskList={selectedList ? { _id: selectedList._id, name: selectedList.name } : null}
-          tasks={resolvedTasks}
-          onReorder={handleReorderTasks}
-          onSaveTask={handleSaveTask}
-          onRemoveTask={handleRemoveTask}
-          onAddTask={handleAddTask}
-          onAddExisting={handleAddExisting}
-        />
+      <div className="flex items-start justify-between mb-1 gap-4">
+        <h1 className="font-heading text-2xl text-text">Task Management</h1>
+        <div className="flex-shrink-0 flex items-center gap-1 bg-card border border-border rounded-pill p-1">
+          <button
+            onClick={() => setView("lists")}
+            className={`font-mono text-[11px] uppercase tracking-widest px-3 py-1.5 rounded-pill transition-colors ${
+              view === "lists" ? "bg-olive text-text" : "text-dim hover:text-muted"
+            }`}
+          >
+            Task Lists
+          </button>
+          <button
+            onClick={() => setView("catalog")}
+            className={`font-mono text-[11px] uppercase tracking-widest px-3 py-1.5 rounded-pill transition-colors ${
+              view === "catalog" ? "bg-olive text-text" : "text-dim hover:text-muted"
+            }`}
+          >
+            Task Catalog
+          </button>
+        </div>
       </div>
+      <p className="font-body text-sm text-muted mb-6">
+        {view === "lists"
+          ? "The same task lists and tasks the mobile app uses — create, rename, schedule, and edit them here."
+          : "Every saved task the company has, independent of which task lists (if any) place it."}
+      </p>
+      {view === "lists" ? (
+        <div className="flex items-start">
+          <TaskListsPane
+            taskLists={consoleTaskLists}
+            selectedListId={selectedListId}
+            onSelect={setSelectedListId}
+            onCreate={handleCreateList}
+            onUpdate={handleUpdateList}
+            onDelete={handleDeleteList}
+          />
+          <TaskListDetailPane
+            taskList={selectedList ? { _id: selectedList._id, name: selectedList.name } : null}
+            tasks={resolvedTasks}
+            onReorder={handleReorderTasks}
+            onSaveTask={handleSaveTask}
+            onRemoveTask={handleRemoveTask}
+            onAddTask={handleAddTask}
+            onAddExisting={handleAddExisting}
+          />
+        </div>
+      ) : (
+        <TaskCatalogPane
+          definitions={definitions}
+          onSave={handleSaveDefinition}
+          onDelete={handleDeleteDefinition}
+          onCreate={handleCreateDefinition}
+        />
+      )}
     </div>
   );
 }

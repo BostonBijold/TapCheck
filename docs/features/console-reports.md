@@ -21,9 +21,10 @@ with a real console page, same data, same APIs, desktop layout.
 
 ## What this is not
 
-Not the cross-location rollup — that's `admin-console.md`'s Phase 2,
-`/console/rollup`, `GET /api/reports/rollup`, and is unaffected by this
-page. This is the **single-location** Reports view (Overview/Logs/
+Not the cross-location rollup — that's `admin-console.md`'s Phase 2, now
+`/console` itself (the console's homepage — see that doc's "Entry point"),
+`GET /api/reports/rollup`, and is unaffected by this page. This is the
+**single-location** Reports view (Overview/Logs/
 Inventory), reused here for whichever one location is currently active —
 same scoping mobile has always used, nothing new aggregated.
 
@@ -157,24 +158,28 @@ fixes. Now that this page exists, that push target is
 `components/console/ConsoleSidebar.tsx` gained a **Reports** item (same
 `BarChart3` icon mobile's own Reports tab uses), visible to both owner and
 manager — same visibility as Task Management, unlike Locations/Team/
-Rollup which stay owner-only. Rollup Dashboard's own icon changed from
-`BarChart3` to `LayoutDashboard` now that both sit in one sidebar and
-can't share an icon. Owner nav, in order: Locations, Team & Access, Task
-Management, Reports, Rollup Dashboard. Manager nav: Task Management,
-Reports.
+Rollup which stay owner-only (at the time). Rollup Dashboard's own icon
+changed from `BarChart3` to `LayoutDashboard` now that both sit in one
+sidebar and can't share an icon. Owner nav, in order at the time:
+Locations, Team & Access, Task Management, Reports, Rollup Dashboard.
+Manager nav: Task Management, Reports.
 
-Neither role's default landing page changed — an owner still lands on
-`/console/locations`, a manager still lands on `/console/tasks`, per
-[`console-task-management.md`](console-task-management.md). Reports is an
-additional reachable page, not a new default for either role.
+**Superseded**: Locations was later removed from the console, and Rollup
+Dashboard moved off the sidebar to become `/console`'s own homepage
+(keeping the `LayoutDashboard` icon, now on a "Dashboard" nav item
+instead) — an owner now lands on `/console` itself rather than
+`/console/locations`. A manager still lands on `/console/tasks`,
+unchanged. See [`admin-console.md`](admin-console.md)'s "Removed:
+Locations CRUD"/"Entry point"/"Nav & shell". Reports' own position and
+behavior are unaffected by either change.
 
 ## Depends on
 
 [`features/reports.md`](reports.md) — every reused route, and the
 location scoping/role-split logic this must not diverge from.
-[`admin-console.md`](admin-console.md) — the Rollup Dashboard and its
-row-click behavior this replaces, the sidebar/shell conventions this adds
-to. [`console-task-management.md`](console-task-management.md) — the
-owner-or-manager console gate this page reuses without modification.
+[`admin-console.md`](admin-console.md) — the Rollup Dashboard (now
+`/console`'s own homepage) and its row-click behavior this replaces, the
+sidebar/shell conventions this adds to. [`console-task-management.md`](console-task-management.md)
+— the owner-or-manager console gate this page reuses without modification.
 [`features/locations.md`](locations.md) — `LocationSwitcher`,
 `activeLocationId`, `PATCH /api/session/active-location` mechanics.

@@ -35,8 +35,8 @@ export default function ConsoleShell({ userName, isOwner, children }: Props) {
         <h1 className="font-heading text-2xl text-text mb-3">Open this on a computer</h1>
         <p className="text-muted font-body text-sm max-w-sm">
           The Admin Console is built for a bigger screen — sign in from a
-          desktop browser to manage locations, team access, and the
-          cross-location rollup.
+          desktop browser to manage team access and view the cross-location
+          dashboard.
         </p>
       </main>
     );

@@ -78,9 +78,8 @@ counts (same key-bump convention as `console-reports.md`).
 
 ### Layout
 
-Matches the console's Phase 1a table convention
-(`LocationsTable.tsx`'s inline edit-row swap) rather than Task
-Management's two-pane layout — item types are flatter to edit (name/
+Matches the console's flat inline-edit-row table convention rather than
+Task Management's two-pane layout — item types are flatter to edit (name/
 unit/par/group, no nested fields).
 
 - **`components/console/InventoryItemTypesTable.tsx`** — one table per
@@ -92,16 +91,15 @@ unit/par/group, no nested fields).
   just to move an item between groups), **Log a Count** (a number input +
   Save button, always visible in the row — Open Question #1, resolved
   toward speed rather than a per-item expand/modal), and Actions (a
-  history expand toggle, an edit pencil swapping the row into
-  `LocationsTable.tsx`-style inputs for Name/Unit/ParLevel, and an archive
-  trash icon).
+  history expand toggle, an edit pencil swapping the row into inline
+  inputs for Name/Unit/ParLevel, and an archive trash icon).
 - **History** (Open Question #2, resolved as its own affordance separate
   from the always-visible log input): the row's chevron toggle expands an
   inline sub-row fetching `GET /api/inventory-logs?itemTypeId=&limit=10`
   on demand — count, timestamp, logged-by name, newest first.
 - **"+ Add Item Type"** — an inline create row (name, unit, parLevel,
-  group picker) below all the group tables, same interaction as
-  `LocationsTable.tsx`'s "+ Add Location." The group `<select>` includes a
+  group picker) below all the group tables, same inline-create interaction
+  used elsewhere in the console. The group `<select>` includes a
   "+ New Group…" option that swaps in a text input, creating the group via
   `POST /api/inventory-groups` before the item itself is created and
   pre-selecting it — same create-inline pattern
@@ -126,18 +124,26 @@ flow, same enforcement behavior.
 `components/console/ConsoleSidebar.tsx` gained an **Inventory** item
 (same `Package` icon mobile's own Inventory tab uses), visible to both
 owner and manager — same visibility as Task Management and Reports.
-Owner nav, in order: Locations, Team & Access, Task Management, Reports,
-Inventory, Rollup Dashboard. Manager nav: Task Management, Reports,
-Inventory.
+Owner nav, in order at the time: Locations, Team & Access, Task
+Management, Reports, Inventory, Rollup Dashboard. Manager nav: Task
+Management, Reports, Inventory.
 
-Neither role's default landing page changed.
+**Superseded**: Locations was later removed from the console and Rollup
+Dashboard moved to be `/console`'s own homepage rather than a sidebar
+item — current owner nav is Dashboard, Team & Access, Task Management,
+Reports, Inventory. See [`admin-console.md`](admin-console.md)'s "Removed:
+Locations CRUD" and "Nav & shell". Inventory's own position (after
+Reports) is unaffected.
+
+Neither role's default landing page changed for a manager; an owner's did
+(see the superseded note above).
 
 ## Depends on
 
 [`features/inventory.md`](inventory.md) — every reused route, the data
 model, and the NFC section this intentionally doesn't touch.
-[`admin-console.md`](admin-console.md) — the `LocationsTable.tsx`
-inline-edit-row convention this follows, sidebar/shell conventions.
+[`admin-console.md`](admin-console.md) — the inline-edit-row table
+convention this follows, sidebar/shell conventions.
 [`console-task-management.md`](console-task-management.md) — the
 owner-or-manager console gate this rides on.
 [`console-reports.md`](console-reports.md) — the location-switcher

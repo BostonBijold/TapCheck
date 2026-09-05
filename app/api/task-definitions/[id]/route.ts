@@ -2,9 +2,56 @@ import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskDefinition from "@/models/TaskDefinition";
 import Task from "@/models/Task";
+import { sanitizeFormFields } from "@/lib/form-fields";
 import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
+
+// PATCH /api/task-definitions/[id] — edit a catalog entry directly, by its
+// own definitionId rather than through one of its placements. Needed for a
+// definition with zero active placements ("not placed in any list" — see
+// GET /api/task-definitions), which PATCH /api/tasks/[id] can't reach since
+// that route keys off a Task placement id. Manager-only, same as this
+// route's own DELETE below. Every list this task IS placed in still sees
+// the change too — name/icon/formFields/projectedMinutes all live on the
+// shared TaskDefinition, not any one placement (see
+// docs/features/task-lists.md's "Company Task Catalog" section).
+export async function PATCH(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, role } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+
+  const updates = await req.json();
+  const patch: Record<string, unknown> = {};
+  if (typeof updates.name === "string" && updates.name.trim()) patch.name = updates.name.trim();
+  if (typeof updates.icon === "string" && updates.icon) patch.icon = updates.icon;
+  if (typeof updates.projectedMinutes === "number") patch.projectedMinutes = updates.projectedMinutes;
+  if ("formFields" in updates) patch.formFields = sanitizeFormFields(updates.formFields);
+
+  await connectDB();
+
+  const definition = await TaskDefinition.findOneAndUpdate(
+    { _id: params.id, companyId, isActive: true },
+    { $set: patch },
+    { new: true }
+  ).lean();
+  if (!definition) return NextResponse.json({ error: "Not found" }, { status: 404 });
+
+  return NextResponse.json({
+    _id: definition._id.toString(),
+    name: definition.name,
+    icon: definition.icon,
+    taskType: definition.taskType,
+    formFields: definition.formFields ?? [],
+    projectedMinutes: definition.projectedMinutes,
+    nfcTagUid: definition.nfcTagUid ?? null,
+  });
+}
 
 // DELETE /api/task-definitions/[id] — removes a saved task from the
 // company's catalog entirely (soft delete). Manager-only. Blocked while any

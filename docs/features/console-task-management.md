@@ -42,6 +42,12 @@ tighten that.
   Rollup); a manager sees only **Task Management**.
 - **`app/(console)/console/page.tsx`**: its redirect is now role-aware —
   owner → `/console/locations` (unchanged), manager → `/console/tasks`.
+  (**Superseded**: Locations was later removed from the console entirely
+  and Rollup Dashboard moved to be `/console`'s own homepage rather than a
+  fourth sidebar item — see [`admin-console.md`](admin-console.md)'s
+  "Removed: Locations CRUD" and "Nav & shell" for the sidebar's current
+  shape. The rest of this section's history is otherwise accurate as of
+  when Task Management shipped.)
 - **`components/ProfileView.tsx`**: the "Admin Console" card now shows for
   `isManager` (was `isOwner`) — `isManager` is already
   `isManagerOrAbove(role)` from `app/(app)/profile/page.tsx`, so this one
@@ -52,15 +58,26 @@ tighten that.
 
 ## Page: `/console/tasks`
 
-Owner or manager (not employee). Reuses every existing route below
-as-is — **no new backend** for the management functionality itself, with
-one small additive exception (see below):
+Owner or manager (not employee). A segmented control at the top of
+`TaskManagementView.tsx` switches between two independent views — **Task
+Lists** (the original two-pane layout, below) and **Task Catalog** (see its
+own section further down) — sharing the same fetched
+`taskLists`/`definitions` state and the same `refetchTasksAndDefinitions`
+refresh after any mutation.
+
+Reuses every existing route below as-is, plus two small additive routes on
+`/api/task-definitions` the Task Catalog pane needed (see that section):
 
 - `GET /api/task-lists`
 - `POST /api/task-lists`
 - `PATCH /api/task-lists/[taskListId]`
 - `DELETE /api/task-lists/[taskListId]`
 - `GET /api/task-definitions`
+- `POST /api/task-definitions` (new — catalog-only creation, no placement)
+- `PATCH /api/task-definitions/[id]` (new — edit a definition directly by
+  its own id)
+- `DELETE /api/task-definitions/[id]` (pre-existing, now also called from
+  this page's Task Catalog pane)
 - `POST /api/tasks` (both paths — place an existing definition, or build a
   new one)
 - `PATCH /api/tasks/[id]`
@@ -78,10 +95,7 @@ fields its own schema mirrors.
 **Not reused, by design**: `POST`/`DELETE /api/tasks/[id]/nfc-tag` and
 `POST`/`DELETE /api/task-definitions/[id]/nfc-tag`. These keep working
 exactly as before from the phone — they're just not callable from this
-page, since there's no scanner to call them with. `DELETE
-/api/task-definitions/[id]` (removing a saved task from the catalog
-entirely, independent of any list) is also not called here — that's the
-Company Task Catalog browsing view, deferred (see Open Questions below).
+page, since there's no scanner to call them with.
 
 ### Layout — two panes
 
@@ -141,6 +155,43 @@ to get subtly wrong with a hand-rolled local patch.
   `successThreshold`, reorder, add task, NFC status only), unaffected on
   mobile.
 
+### Task Catalog pane
+
+`components/console/TaskCatalogPane.tsx` — a full-width, flat list of every
+`TaskDefinition` in the company's catalog, independent of which (if any)
+task lists currently place it. This is the fix for the gap the original
+build of this page left open (see "Deferred" below, now resolved): a
+manager could see/edit tasks only through a specific list's placement, so a
+definition with zero active placements had no edit path anywhere in the
+app at all — not even mobile's own `ManageTasksView.tsx` "Company Task
+Catalog" section can edit a catalog row's name/icon/fields/minutes, only
+bind NFC, delete, or (when it has at least one placement) jump to that
+list's edit screen.
+
+Each row shows name, icon, `projectedMinutes`, NFC-linked badge, and a
+usage line — "Used in Opening, Closing" or "Not placed in any list" (the
+same `placements` array `GET /api/task-definitions` already returns, just
+rendered flat instead of per-list). Expanding a row edits name/icon/
+`formFields`/`projectedMinutes` inline (same `AppIcon`/`IconPicker`/
+`TaskFieldsEditor` building blocks as `TaskListDetailPane.tsx`'s row),
+saving via the new `PATCH /api/task-definitions/[id]` — which, unlike
+`PATCH /api/tasks/[id]`, keys off the definition's own id rather than a
+placement's, so it works whether or not the definition is placed anywhere.
+Delete is disabled (with a tooltip) whenever `placements.length > 0`,
+mirroring `DELETE /api/task-definitions/[id]`'s own 409 rule — no
+double-checking client-side beyond that, the delete button just calls
+through and surfaces the 409's message if a manager finds a stale row.
+"+ New catalog task" creates a definition via the new
+`POST /api/task-definitions`, with no placement at all — the one way to
+get a catalog-only entry a manager can place into a list later, on their
+own schedule, distinct from every other creation path (`AddTaskSheet`'s
+"Create custom task", `POST /api/tasks` with no `definitionId`) which
+always creates a placement in the same request.
+
+Both new routes are manager-or-above gated, same convention as this file's
+pre-existing `DELETE`. NFC binding stays status-only here too, same
+reasoning as the Task Lists pane below.
+
 ### What's explicitly unaffected
 
 `ManageTasksView.tsx`, `TaskListEditView.tsx`, `AddTaskSheet.tsx` (reused,
@@ -151,18 +202,19 @@ point into the same data, not a replacement for any of it.
 
 ## Deferred (not built this pass)
 
-1. **Company Task Catalog browsing** — mobile's `ManageTasksView.tsx` also
-   shows every saved `TaskDefinition` regardless of whether it's currently
-   placed in any list (with the delete-blocked-while-placed rule). Not on
-   this console page — the "lists on the left, tasks on the right" shape
-   maps cleanly to per-list editing; the catalog is a meaningfully separate
-   view, left mobile-only for now.
-2. **`ProfileView.tsx` card copy** — shipped with role-aware subtitle text
+1. **`ProfileView.tsx` card copy** — shipped with role-aware subtitle text
    (see above) rather than one shared label, resolving what the original
    spec flagged as an open question.
-3. **Manager's `/console` landing experience** — shipped as the spec's own
+2. **Manager's `/console` landing experience** — shipped as the spec's own
    lean: a bare two-pane task editor, no summary/dashboard content above
    it.
+3. **Bringing the catalog-only edit/create routes to mobile** — `PATCH`/
+   `POST /api/task-definitions` (added for the console's Task Catalog pane,
+   see above) would also close mobile's own matching gap in
+   `ManageTasksView.tsx`/`ManageTaskDetailSheet.tsx` (today it can bind
+   NFC, delete, or jump to a placement's list, but can't edit an unplaced
+   definition's name/icon/fields/minutes directly). Left as a mobile-side
+   follow-up — not touched this pass.
 
 ## Depends on
 

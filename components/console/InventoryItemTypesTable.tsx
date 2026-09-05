@@ -56,8 +56,8 @@ interface Props {
 }
 
 // Grouped item-type table for /console/inventory — follows the console's
-// Phase 1a table convention (LocationsTable.tsx's inline edit-row swap)
-// rather than Task Management's two-pane layout, since item types are
+// flat inline-edit-row table convention rather than Task Management's
+// two-pane layout, since item types are
 // flatter to edit (name/unit/par/group, no nested fields). No NFC field
 // anywhere in this table — see docs/features/console-inventory.md's "NFC
 // — explicitly out of scope for this pass". Logging a count is always an

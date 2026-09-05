@@ -3,26 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Building2, Users, BarChart3, LayoutDashboard, LogOut, ListChecks, Package } from "lucide-react";
+import { Users, BarChart3, LayoutDashboard, LogOut, ListChecks, Package } from "lucide-react";
 
-// Owner-only items come first (unchanged from before Task Management
-// existed); Task Management, Reports, and Inventory are the three items a
-// manager can also see — see docs/features/console-task-management.md's
+// The Rollup Dashboard is now /console's own landing content (see
+// app/(console)/console/page.tsx) rather than a separate sidebar page, so
+// it's this "Dashboard" entry instead of a distinct route — an owner's
+// home. Locations was removed from the console entirely (no nav item, no
+// page) — see docs/features/admin-console.md. Team & Access stays
+// owner-only; Task Management, Reports, and Inventory are the three items
+// a manager can also see — see docs/features/console-task-management.md's
 // "Required change: the console is no longer owner-only",
 // docs/features/console-reports.md's "Sidebar", and
 // docs/features/console-inventory.md's "Sidebar". Reports/Inventory use
 // the same BarChart3/Package icons as mobile's own bottom-nav tabs
-// (components/BottomNav.tsx); Rollup Dashboard (console-only, no mobile
-// equivalent) uses a distinct icon now that Reports also sits in this
-// sidebar.
-const OWNER_NAV_ITEMS = [
-  { href: "/console/locations", label: "Locations", icon: Building2 },
-  { href: "/console/team", label: "Team & Access", icon: Users },
-] as const;
+// (components/BottomNav.tsx).
+const DASHBOARD_NAV_ITEM = { href: "/console", label: "Dashboard", icon: LayoutDashboard } as const;
+const TEAM_NAV_ITEM = { href: "/console/team", label: "Team & Access", icon: Users } as const;
 const TASKS_NAV_ITEM = { href: "/console/tasks", label: "Task Management", icon: ListChecks } as const;
 const REPORTS_NAV_ITEM = { href: "/console/reports", label: "Reports", icon: BarChart3 } as const;
 const INVENTORY_NAV_ITEM = { href: "/console/inventory", label: "Inventory", icon: Package } as const;
-const ROLLUP_NAV_ITEM = { href: "/console/rollup", label: "Rollup Dashboard", icon: LayoutDashboard } as const;
 
 // Desktop sidebar shell for the Admin Console — see
 // docs/features/admin-console.md's "Nav & shell". Distinct from
@@ -31,11 +30,13 @@ const ROLLUP_NAV_ITEM = { href: "/console/rollup", label: "Rollup Dashboard", ic
 export default function ConsoleSidebar({ userName, isOwner }: { userName: string; isOwner: boolean }) {
   const pathname = usePathname();
 
-  // An owner sees all six items; a manager sees only Task Management,
-  // Reports, and Inventory — see docs/features/console-task-management.md,
-  // docs/features/console-reports.md, and docs/features/console-inventory.md.
+  // An owner sees all five items, Dashboard first; a manager (who can't
+  // see the cross-location Dashboard or Team & Access) sees only Task
+  // Management, Reports, and Inventory — see
+  // docs/features/console-task-management.md, docs/features/console-reports.md,
+  // and docs/features/console-inventory.md.
   const navItems = isOwner
-    ? [...OWNER_NAV_ITEMS, TASKS_NAV_ITEM, REPORTS_NAV_ITEM, INVENTORY_NAV_ITEM, ROLLUP_NAV_ITEM]
+    ? [DASHBOARD_NAV_ITEM, TEAM_NAV_ITEM, TASKS_NAV_ITEM, REPORTS_NAV_ITEM, INVENTORY_NAV_ITEM]
     : [TASKS_NAV_ITEM, REPORTS_NAV_ITEM, INVENTORY_NAV_ITEM];
 
   return (
@@ -47,7 +48,10 @@ export default function ConsoleSidebar({ userName, isOwner }: { userName: string
 
       <nav className="flex-1 px-3 space-y-1">
         {navItems.map(({ href, label, icon: Icon }) => {
-          const active = pathname.startsWith(href);
+          // "/console" itself needs an exact match — startsWith alone would
+          // also light up Dashboard on every other console route, since
+          // they're all prefixed with "/console" too.
+          const active = href === "/console" ? pathname === "/console" : pathname.startsWith(href);
           return (
             <Link
               key={href}

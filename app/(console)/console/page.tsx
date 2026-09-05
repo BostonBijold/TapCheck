@@ -1,13 +1,18 @@
 import { redirect } from "next/navigation";
 import { resolveSessionUser, isOwner } from "@/lib/session";
+import RollupTable from "@/components/console/RollupTable";
 
-// /console has no landing content of its own. An owner lands on Locations —
-// the thinnest, first-built slice (see docs/features/admin-console.md's
-// "Dependency ordering") — while a manager, who can't see Locations at all,
-// lands on Task Management instead. See
-// docs/features/console-task-management.md's "Required change: the console
-// is no longer owner-only".
+export const dynamic = "force-dynamic";
+
+// The Rollup Dashboard is now /console's own landing content, not a
+// separate sidebar page (see docs/features/admin-console.md) — an owner's
+// first screen is the cross-location snapshot. A manager, who can't see
+// this owner-only view, still lands on Task Management instead, unchanged
+// from before. GET /api/reports/rollup (app/api/reports/rollup/route.ts)
+// is RollupTable's own backend dependency.
 export default async function ConsoleIndexPage() {
   const sessionUser = await resolveSessionUser();
-  redirect(sessionUser && isOwner(sessionUser.role) ? "/console/locations" : "/console/tasks");
+  if (!sessionUser || !isOwner(sessionUser.role)) redirect("/console/tasks");
+
+  return <RollupTable />;
 }

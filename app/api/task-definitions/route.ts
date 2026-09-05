@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import TaskDefinition from "@/models/TaskDefinition";
 import Task from "@/models/Task";
 import TaskList from "@/models/TaskList";
-import { resolveSessionUser } from "@/lib/session";
+import { sanitizeFormFields } from "@/lib/form-fields";
+import { resolveSessionUser, isManagerOrAbove } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -61,4 +62,52 @@ export async function GET() {
       placements: placementsByDefinitionId.get(d._id.toString()) ?? [],
     }))
   );
+}
+
+// POST /api/task-definitions — add a saved task straight to the company's
+// catalog, with no list placement at all — the Admin Console's Task Catalog
+// pane's "+ New task" (see docs/features/console-task-management.md). Every
+// other creation path (AddTaskSheet's "Create custom task", POST
+// /api/tasks with no definitionId) always creates a placement in the same
+// request; this is the one way to get a catalog-only entry a manager can
+// place into a list later, on their own schedule. Manager-only, same as
+// this file's DELETE.
+export async function POST(req: NextRequest) {
+  const sessionUser = await resolveSessionUser();
+  if (!sessionUser) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  const { companyId, role } = sessionUser;
+  if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
+  if (!isManagerOrAbove(role)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
+
+  const { name, icon, projectedMinutes, formFields } = await req.json();
+  if (typeof name !== "string" || !name.trim() || typeof icon !== "string" || !icon) {
+    return NextResponse.json({ error: "name and icon required" }, { status: 400 });
+  }
+
+  await connectDB();
+
+  const definition = await TaskDefinition.create({
+    companyId,
+    templateId: null,
+    name: name.trim(),
+    icon,
+    taskType: "form",
+    projectedMinutes: typeof projectedMinutes === "number" ? projectedMinutes : 5,
+    formFields: sanitizeFormFields(formFields),
+    nfcTagUid: null,
+    isActive: true,
+  });
+
+  return NextResponse.json({
+    _id: definition._id.toString(),
+    companyId,
+    name: definition.name,
+    icon: definition.icon,
+    taskType: definition.taskType,
+    formFields: definition.formFields,
+    projectedMinutes: definition.projectedMinutes,
+    nfcTagUid: null,
+    updatedAt: definition.updatedAt ? new Date(definition.updatedAt).toISOString() : null,
+    placements: [],
+  });
 }

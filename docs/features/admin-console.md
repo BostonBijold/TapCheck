@@ -8,13 +8,22 @@ sections below for what actually exists vs. the original spec's phrasing.
 ## Purpose & scope
 
 A dedicated, desktop-first section of the app for an **owner** to manage
-their company across every location: team roster and access, invites,
-location CRUD, and a cross-location rollup dashboard. Nothing about the
-mobile experience changed — Tasks/Team/Reports/Inventory on the Capacitor
-app and in a mobile browser stay exactly as documented in
+their company across every location: team roster and access, invites, and
+a cross-location rollup dashboard (the console's own homepage — see
+"Entry point"/"Phase 2" below). Nothing about the mobile experience
+changed — Tasks/Team/Reports/Inventory on the Capacitor app and in a
+mobile browser stay exactly as documented in
 [`team-invites.md`](team-invites.md), [`locations.md`](locations.md),
 [`reports.md`](reports.md), and [`inventory.md`](inventory.md). This is
 additive.
+
+**Locations CRUD was removed from the console** (it briefly existed as
+Phase 1a — see "Removed: Locations CRUD" below). `Location` itself, the
+mobile location switcher, and `GET`/`POST`/`PATCH`/`DELETE /api/locations`
+are all untouched — only the console's own management page/nav item is
+gone. A new location, if one's ever needed, is created directly in
+MongoDB by the developer, the same way a company's very first manager
+already is (see CLAUDE.md's "Multi-Tenancy").
 
 **Why a separate section instead of responsive breakpoints on the
 existing pages:** the mobile UI is built around bottom-sheet modals,
@@ -40,17 +49,16 @@ nested inside it. Pages:
   shell (loosened from owner-only — see
   [`console-task-management.md`](console-task-management.md)'s "Change:
   the console is no longer owner-only").
-- `app/(console)/console/page.tsx` — role-aware redirect: owner →
-  `/console/locations`, manager → `/console/tasks`.
-- `app/(console)/console/locations/page.tsx` — Location CRUD (Phase 1a).
-  Owner-only, self-gated (see below).
+- `app/(console)/console/page.tsx` — role-aware: an owner renders the
+  cross-location rollup dashboard directly (Phase 2's `RollupTable`,
+  self-gated, no longer a separate `/console/rollup` route — see "Entry
+  point" and Phase 2 below); a manager, who can't see it, redirects to
+  `/console/tasks`.
 - `app/(console)/console/team/page.tsx` — Roster, invites, access (Phase 1b).
   Owner-only, self-gated.
 - `app/(console)/console/tasks/page.tsx` — Task & task-list management.
   Manager-or-above — see
   [`console-task-management.md`](console-task-management.md).
-- `app/(console)/console/rollup/page.tsx` — Cross-location dashboard (Phase 2).
-  Owner-only, self-gated.
 
 ### Auth gate
 
@@ -74,25 +82,29 @@ plain "is there a session at all" check (it excludes only static assets,
 `api/auth`, and `api/cron`), so no middleware change was needed; the
 company/role-tier check happens one layer in, inside this server
 component, same precedent as `NoCompanyMessage.tsx`. Since the blanket
-gate above is now manager-or-above rather than owner-only, the three
-owner-only pages (`locations`, `team`, `rollup`) each additionally check
-`!isOwner(sessionUser.role)` themselves and redirect a manager to
-`/console/tasks` — `team/page.tsx`'s `resolveSessionUser()` call already
-existed (for `currentUserId`, the roster's "(you)" label); `locations`/
-`rollup` gained their first one for this. Same non-concern the original
-spec flagged about a second DB read per navigation, confirmed by
-building it: every other page in the app already does its own
-`resolveSessionUser()` call regardless of any layout-level check.
+gate above is now manager-or-above rather than owner-only, the two
+remaining owner-only pages (`page.tsx` itself — the rollup dashboard —
+and `team`) each additionally check `!isOwner(sessionUser.role)`
+themselves and redirect a manager to `/console/tasks` — `team/page.tsx`'s
+`resolveSessionUser()` call already existed (for `currentUserId`, the
+roster's "(you)" label). Same non-concern the original spec flagged about
+a second DB read per navigation, confirmed by building it: every other
+page in the app already does its own `resolveSessionUser()` call
+regardless of any layout-level check.
 
 ### Nav & shell
 
 `components/console/ConsoleSidebar.tsx` — a fixed 240px sidebar (not
 bottom nav), now role-aware via an `isOwner: boolean` prop threaded from
-the layout through `ConsoleShell`: an owner sees **Locations**, **Team &
-Access**, **Task Management**, **Reports**, **Inventory**, **Rollup
-Dashboard**; a manager sees only **Task Management**, **Reports**, and
+the layout through `ConsoleShell`: an owner sees **Dashboard** (the rollup
+view, `/console` itself — first in the list, since it's the section's
+homepage), **Team & Access**, **Task Management**, **Reports**, and
+**Inventory**; a manager sees only **Task Management**, **Reports**, and
 **Inventory** — see [`console-reports.md`](console-reports.md) and
-[`console-inventory.md`](console-inventory.md). The signed-in user's name and
+[`console-inventory.md`](console-inventory.md). The Dashboard nav item
+needs an exact-match `pathname === "/console"` check for its active state
+rather than the `startsWith` every other item uses, since every console
+route is itself prefixed with `/console`. The signed-in user's name and
 a **Sign Out** button stay pinned at the bottom regardless of role
 (`next-auth/react`'s `signOut()`, same call `ProfileView.tsx` uses).
 `components/console/ConsoleShell.tsx` wraps the sidebar and a
@@ -117,6 +129,14 @@ shell still navigates, and `ConsoleShell.tsx`'s own
 below) is what actually blocks it there with the "open this on a
 computer" message, so the logic isn't duplicated.
 
+**`/console` itself is the owner's homepage**: `app/(console)/console/page.tsx`
+renders `RollupTable` directly (an owner's first screen is the
+cross-location snapshot, not a redirect elsewhere) rather than forwarding
+to a separate page — see Phase 2 below. This replaced an earlier version
+that redirected an owner to `/console/locations`, back when Locations CRUD
+still existed (see "Removed: Locations CRUD" above) and Rollup lived at
+its own `/console/rollup` route.
+
 ### Reachability from the iOS app
 
 **Resolved** (was Open Question #1): `components/console/ConsoleShell.tsx`
@@ -126,24 +146,28 @@ sidebar/table content — no redirect to `/tasks` (simpler than plumbing a
 message through a query param, and avoids a jarring auto-navigation away
 from a URL the owner explicitly opened).
 
-## Phase 1a — Locations CRUD (built)
+## Removed: Locations CRUD (was Phase 1a)
 
-Thinnest slice, existing API only, no new backend work.
+Originally shipped as the console's thinnest first slice — a
+`components/console/LocationsTable.tsx` page at `/console/locations`
+wrapping the existing `GET`/`POST /api/locations`, `PATCH`/`DELETE
+/api/locations/[id]` routes. Removed once the console's actual usage
+showed a location-CRUD page wasn't needed there: this owner's company
+runs a small, effectively-fixed set of locations that don't get
+created/renamed/closed often enough to justify a standing nav item, and
+Team & Access's own per-row location `<select>` (Phase 1b, unchanged)
+already covers the recurring need — reassigning a teammate to a location
+that already exists.
 
-- `GET /api/locations` — list.
-- `POST /api/locations` — create (owner-only).
-- `PATCH /api/locations/[id]` — rename/re-address/re-zone.
-- `DELETE /api/locations/[id]` — soft-delete/close.
-
-`components/console/LocationsTable.tsx`: Name, Address, Timezone, Actions
-(edit, close) — **no Status column**: `GET /api/locations` only ever
-returns active locations (a closed one just disappears from the list,
-same soft-delete convention as `TaskList`), so there is no "closed" row
-this table could ever render; the spec's draft "Status (active/closed)"
-column was dropped for this reason rather than fabricated with fake data.
-"+ Add Location" expands an inline editable table row (name required,
-address/timezone optional); editing an existing row swaps it into the
-same inline-input row shape rather than a separate modal.
+**What's actually gone**: `app/(console)/console/locations/page.tsx` and
+`components/console/LocationsTable.tsx` (deleted), and the sidebar's
+Locations nav item. **What's unaffected**: the `Location` model, every
+`/api/locations` route, the mobile location switcher
+(`components/LocationSwitcher.tsx`), and `locations.md`'s full feature —
+this was a console-page removal only. If location CRUD from a browser is
+needed again later, a new location today gets created directly in
+MongoDB by the developer, same as a company's very first manager (see
+CLAUDE.md's "Multi-Tenancy").
 
 ## Phase 1b — Team & Access (built)
 
@@ -239,7 +263,11 @@ in `locations.md` as "a distinct future pass" and left that way here too.
 
 The genuinely new part — the piece with no existing precedent.
 `reports.md` and `locations.md` both flagged multi-location rollup as
-explicitly out of scope; this is where it was built.
+explicitly out of scope; this is where it was built. **Now the console's
+own homepage** (`/console` itself, not a separate `/console/rollup`
+route — see "Entry point" above) rather than a standalone sidebar page;
+`components/console/RollupTable.tsx` is unchanged, just mounted one level
+higher.
 
 ### `GET /api/reports/rollup?days=7|30&localDate=YYYY-MM-DD`
 

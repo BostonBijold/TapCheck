@@ -11,8 +11,8 @@ interface Props {
 }
 
 // Top-level coordinator for /console/inventory — see
-// docs/features/console-inventory.md. Follows the console's Phase 1a
-// table convention (LocationsTable.tsx) rather than Task Management's
+// docs/features/console-inventory.md. Follows the console's flat
+// inline-edit-row table convention rather than Task Management's
 // two-pane layout. No NFC anywhere: create/edit never send
 // nfcRequiredToLog, and logging a count never sends verifiedNfcUid — see
 // the doc's "NFC — explicitly out of scope for this pass". An item type
