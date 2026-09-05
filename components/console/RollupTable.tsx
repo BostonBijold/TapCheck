@@ -61,9 +61,11 @@ export default function RollupTable() {
 
   // Reuses the exact same endpoint the mobile location switcher calls
   // (see components/LocationSwitcher.tsx), then navigates into the
-  // existing single-location Reports view rather than rebuilding that
-  // detail view a second time inside the console — see the spec's
-  // "Row click" note.
+  // console's own single-location Reports view (/console/reports) rather
+  // than /reports — the mobile page, which visibly shrinks the whole
+  // browser window down to phone-width chrome. See
+  // docs/features/console-reports.md's "Required fix: Rollup Dashboard's
+  // row click".
   const handleRowClick = async (locationId: string) => {
     setNavigatingId(locationId);
     await fetch("/api/session/active-location", {
@@ -71,7 +73,7 @@ export default function RollupTable() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ locationId }),
     });
-    router.push("/reports");
+    router.push("/console/reports");
   };
 
   return (

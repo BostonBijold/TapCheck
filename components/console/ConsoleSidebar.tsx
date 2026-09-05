@@ -3,18 +3,26 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Building2, Users, BarChart3, LogOut, ListChecks } from "lucide-react";
+import { Building2, Users, BarChart3, LayoutDashboard, LogOut, ListChecks, Package } from "lucide-react";
 
 // Owner-only items come first (unchanged from before Task Management
-// existed); Task Management is the one item a manager can also see — see
-// docs/features/console-task-management.md's "Required change: the console
-// is no longer owner-only".
+// existed); Task Management, Reports, and Inventory are the three items a
+// manager can also see — see docs/features/console-task-management.md's
+// "Required change: the console is no longer owner-only",
+// docs/features/console-reports.md's "Sidebar", and
+// docs/features/console-inventory.md's "Sidebar". Reports/Inventory use
+// the same BarChart3/Package icons as mobile's own bottom-nav tabs
+// (components/BottomNav.tsx); Rollup Dashboard (console-only, no mobile
+// equivalent) uses a distinct icon now that Reports also sits in this
+// sidebar.
 const OWNER_NAV_ITEMS = [
   { href: "/console/locations", label: "Locations", icon: Building2 },
   { href: "/console/team", label: "Team & Access", icon: Users },
 ] as const;
 const TASKS_NAV_ITEM = { href: "/console/tasks", label: "Task Management", icon: ListChecks } as const;
-const ROLLUP_NAV_ITEM = { href: "/console/rollup", label: "Rollup Dashboard", icon: BarChart3 } as const;
+const REPORTS_NAV_ITEM = { href: "/console/reports", label: "Reports", icon: BarChart3 } as const;
+const INVENTORY_NAV_ITEM = { href: "/console/inventory", label: "Inventory", icon: Package } as const;
+const ROLLUP_NAV_ITEM = { href: "/console/rollup", label: "Rollup Dashboard", icon: LayoutDashboard } as const;
 
 // Desktop sidebar shell for the Admin Console — see
 // docs/features/admin-console.md's "Nav & shell". Distinct from
@@ -23,11 +31,12 @@ const ROLLUP_NAV_ITEM = { href: "/console/rollup", label: "Rollup Dashboard", ic
 export default function ConsoleSidebar({ userName, isOwner }: { userName: string; isOwner: boolean }) {
   const pathname = usePathname();
 
-  // An owner sees all four items; a manager sees only Task Management —
-  // see docs/features/console-task-management.md.
+  // An owner sees all six items; a manager sees only Task Management,
+  // Reports, and Inventory — see docs/features/console-task-management.md,
+  // docs/features/console-reports.md, and docs/features/console-inventory.md.
   const navItems = isOwner
-    ? [...OWNER_NAV_ITEMS, TASKS_NAV_ITEM, ROLLUP_NAV_ITEM]
-    : [TASKS_NAV_ITEM];
+    ? [...OWNER_NAV_ITEMS, TASKS_NAV_ITEM, REPORTS_NAV_ITEM, INVENTORY_NAV_ITEM, ROLLUP_NAV_ITEM]
+    : [TASKS_NAV_ITEM, REPORTS_NAV_ITEM, INVENTORY_NAV_ITEM];
 
   return (
     <aside className="w-60 flex-shrink-0 border-r border-border bg-card flex flex-col h-dvh sticky top-0">

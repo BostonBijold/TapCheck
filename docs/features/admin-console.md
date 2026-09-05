@@ -89,9 +89,11 @@ building it: every other page in the app already does its own
 `components/console/ConsoleSidebar.tsx` — a fixed 240px sidebar (not
 bottom nav), now role-aware via an `isOwner: boolean` prop threaded from
 the layout through `ConsoleShell`: an owner sees **Locations**, **Team &
-Access**, **Task Management**, **Rollup Dashboard**; a manager sees only
-**Task Management**. The signed-in user's name and a **Sign Out** button
-stay pinned at the bottom regardless of role
+Access**, **Task Management**, **Reports**, **Inventory**, **Rollup
+Dashboard**; a manager sees only **Task Management**, **Reports**, and
+**Inventory** — see [`console-reports.md`](console-reports.md) and
+[`console-inventory.md`](console-inventory.md). The signed-in user's name and
+a **Sign Out** button stay pinned at the bottom regardless of role
 (`next-auth/react`'s `signOut()`, same call `ProfileView.tsx` uses).
 `components/console/ConsoleShell.tsx` wraps the sidebar and a
 `max-w-5xl` centered content area — desktop layout, no mobile safe-area
@@ -312,9 +314,12 @@ path for the single-location view.
   `belowParItemCount` render in burgundy when `> 0`, matching the
   existing red-tint convention (`InventoryTab.tsx`, `ExceptionCallouts.tsx`).
 - **Row click** → `PATCH /api/session/active-location` (same endpoint the
-  mobile switcher calls) then `router.push("/reports")` — reuses the
-  existing single-location Reports view rather than rebuilding it inside
-  the console.
+  mobile switcher calls) then `router.push("/console/reports")` — the
+  console's own single-location Reports page (see
+  [`console-reports.md`](console-reports.md)), not mobile's `/reports`.
+  (Originally pushed to `/reports` before that console page existed —
+  updated once it shipped, since that mobile page visibly shrinks the
+  whole browser window down to phone-width chrome.)
 - 7-day / 30-day toggle, matching the existing Reports convention.
 
 ### Deferred (unchanged from the original spec)
