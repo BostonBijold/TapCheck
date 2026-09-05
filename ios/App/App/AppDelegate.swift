@@ -1,5 +1,6 @@
 import UIKit
 import Capacitor
+import AVFoundation
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -7,6 +8,17 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     var window: UIWindow?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+        // Without an explicit category, WKWebView's own default audio-session
+        // behavior kicks in the first time lib/notification-sound.ts's
+        // `new Audio(...)` chirp plays on an NFC "Scan NFC to Save" — which
+        // stops whatever background music the user has playing, exactly the
+        // way an app taking over playback would. .ambient + .mixWithOthers
+        // makes the chirp behave like a real notification sound instead: it
+        // plays over other audio without pausing it, and still respects the
+        // silent switch (same as a standard push-notification sound).
+        try? AVAudioSession.sharedInstance().setCategory(.ambient, options: [.mixWithOthers])
+        try? AVAudioSession.sharedInstance().setActive(true, options: [])
+
         // Override point for customization after application launch.
         return true
     }
