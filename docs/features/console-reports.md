@@ -115,7 +115,7 @@ pattern `ReportsView.tsx` uses on mobile.
   `TaskListMiniChart.tsx` — same `barColor`/`dayLabel` math as mobile's
   `TaskListChart.tsx`, always shows day labels since a grid card has the
   room), and a Task Breakdown `<table>` per task list (task/done/missed/
-  rest/unlogged/avg actual/progress) instead of `TaskStatRow.tsx`'s
+  unlogged/avg actual/progress) instead of `TaskStatRow.tsx`'s
   per-task segmented-bar card.
 - **Logs** — `ConsoleLogsTab.tsx`. Same filters (date range, team-member
   select, task-list select) as mobile, always shown (no employee-personal

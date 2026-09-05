@@ -29,7 +29,7 @@ const receiver = new Receiver({
   nextSigningKey: process.env.QSTASH_NEXT_SIGNING_KEY!,
 });
 
-const TERMINAL_STATES = new Set(["done", "missed", "rest"]);
+const TERMINAL_STATES = new Set(["done", "missed"]);
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("upstash-signature");

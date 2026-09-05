@@ -8,7 +8,7 @@ honest record. Ch'rps started as a lean fork of a personal habit/routine
 tracker (itself a fork of an earlier, more philosophy-heavy app, "A Good
 Man") — that personal-habit framing has since been retired in favor of
 restaurant work checks: structured checklist tasks (`form`-type) with
-numeric readings or yes/no fields, honest skip states (missed vs. rest),
+numeric readings or yes/no fields, an honest "missed" skip state,
 streaks, and completion analytics. The old timer-based "habit" item types
 (countdown/stopwatch/checkbox) and the Sunday "Routine Review" time-variance
 feature are gone — a checklist's value is in what got checked, not how long
@@ -102,7 +102,8 @@ tobacco:        #78716c   (neutral — past-window states)
 burgundy:       #dc2626   (missed, over-timer states)
 burgundy-light: #ef4444
 amber:          #d97706   (timer warning — 75% of target elapsed)
-blue-muted:     #71717a   (neutral — standalone task/rest layer)
+blue-muted:     #71717a   (neutral — standalone/To-Do task layer; also the retired
+                           "rest" state's legacy display color, see "Skip Types" below)
 border:         #e2e8f0
 border-light:   #cbd5e1
 ```
@@ -352,7 +353,9 @@ locations both running the same shared list get independent logs).
   actualMinutes,    // null if skipped
   state: 'in_progress' | 'paused' | 'done' | 'missed' | 'rest',
   // 'missed' = breaks streak, honest record
-  // 'rest'   = intentional skip, protects streak (sick kid, late flight, rest day)
+  // 'rest'   = retired (see "Skip Types" below) — legacy value only, kept in the
+  //            type for any pre-existing TaskLog document that already has it;
+  //            no code path can write a new one
   startedAt, pausedSeconds, sessionTaskListId, // timer bookkeeping — see docs/features/timer.md
   formData,         // { [fieldKey]: string | number | boolean } — captured field values for a form task
   note,             // optional manual back-entry note
@@ -689,7 +692,7 @@ Two independent push alerts, structurally different mechanisms:
   (`Company.missedAlertGraceMinutes`, default 30, company-wide for every
   shift-window list — set from Profile > Company Settings, `null` turns
   missed alerts off entirely) has passed with any of today's scheduled
-  tasks still not in a terminal state (`done`/`missed`/`rest`). Driven by
+  tasks still not in a terminal state (`done`/`missed`). Driven by
   a single **shared recurring QStash sweep** (`POST
   /api/cron/check-missed-lists`, every 5 minutes — a poll, since "closed
   *around* N minutes ago" doesn't need to-the-minute precision). Reaches
@@ -799,7 +802,7 @@ is in `docs/features/locations.md`.
 - [x] Multi-tenant Company/User model, session-resolved companyId/role
 - [x] Seed default shift task lists + tasks on first company load
 - [x] Today view: shift task lists (Opening/Mid-Shift/Closing), time-aware collapse/expand
-- [x] Task card: tap to expand actions (Start task / Missed it / Rest+Life)
+- [x] Task card: tap to expand actions (Start task / Missed it) — a "Rest+Life" skip option existed here too until it was retired, see "Skip Types" below
 - [x] Form task screen: one control per field (number reading or yes/no), actual time logged on save
 - [x] TaskLog write on complete/skip, including captured `formData`
 - [x] 7-day streak dots per task
@@ -845,18 +848,24 @@ section for the full removal note.
 - Custom lists do not auto-collapse
 
 ### Skip Types
-Two distinct skip states — must be visually and semantically different:
+One skip state, an honest record of not doing it:
 
 **Missed it** (`state: 'missed'`)
 - User forgot, chose not to, couldn't be bothered
 - Breaks streak — red dot in history
 - Honest record of not doing it
 
-**Rest / Life** (`state: 'rest'`)
-- Intentional, justified skip
-- Examples: rest day, sick child, late flight, vacation, injury
-- Protects streak — blue dot in history
-- App never punishes the user for living life
+A restaurant work task has no personal "rest day" concept — a shift check
+either got done or it didn't, so there is no protected/excused skip state.
+`'rest'` (a remnant of this app's pre-pivot personal-habit-tracker
+foundation — see "Vision" above) has been retired: no UI can create a new
+`TaskLog`/`TaskListSession` entry with this state anymore (enforced at
+`POST /api/task-logs`), and every calculation (streaks, weekly progress,
+Reports aggregates) now treats it the same as "no log at all," not as a
+protected success. `models/TaskLog.ts`'s `LogState` type (and
+`models/TaskListSession.ts`'s `CompletionState`) keep `'rest'` as a listed
+value purely so a pre-existing document that already has it stays
+type-safe to read/display — no historical data was migrated or deleted.
 
 ### Variance Tracking
 Every TaskLog with `state: 'done'` stores `actualMinutes`, and — for a
@@ -932,7 +941,7 @@ table is a quick reference, not authoritative.
 - NFC tap-to-trigger: BUILT — physical tags linked to a task (manager-only), triggered via Universal Links only by any company user, see `docs/features/nfc.md`
 - NFC scan-to-complete binding: BUILT — manager scans a physical tag's raw UID onto a task from Manage Task List; completing that task then requires a matching in-app "Scan NFC" instead of a plain Save, see `docs/features/nfc.md`
 - Multi-target NFC binding: BUILT — a tag can back more than one task and/or Inventory item type at once; the FAB's blind scan disambiguates with a picker when a scan resolves to more than one, see `docs/features/nfc.md`'s "Multi-target binding"
-- Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss/rest) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
+- Offline support: BUILT — native SQLite cache mirrors task lists/tasks/definitions/today's logs, task-log mutations (start/complete/miss) queue locally and sync on reconnect, and in-app NFC scan-to-complete resolves against the local cache when offline; a cold app launch/full reload while offline is a known, documented gap (server-URL Capacitor mode), see `docs/features/offline.md`
 - FAB button (center bottom nav): resumes the active timer when one exists; otherwise scans an NFC tag and opens whichever task or Inventory item it's bound to, disambiguating first if it's bound to more than one (`components/BottomNav.tsx`, see `docs/features/nfc.md`)
 - Team & Invites: BUILT — Team tab roster (everyone) + manager-only invite-link generation/revocation and role-switching/removal, see "Team & Invites" above and `docs/features/team-invites.md`
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
@@ -997,7 +1006,7 @@ above).
 - **open**: pending, dark card, "Pending" badge, tap expands to actions
 - **done**: olive border, "Done" badge, variance shown (+/-Xm)
 - **missed**: burgundy border, "Missed" badge
-- **rest**: blue-muted border, "Rest" badge
+- **rest**: blue-muted border, "Rest" badge — retired (see "Skip Types" above); this state only ever renders for a pre-existing log that already has it, never reachable via any current action
 
 ---
 

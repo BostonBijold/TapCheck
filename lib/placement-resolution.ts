@@ -60,7 +60,7 @@ export function pickMostRelevantPlacement(
 
   const unresolved = sorted.filter((p) => {
     const log = logByTaskId.get(p.id);
-    return !log || (log.state !== "done" && log.state !== "missed" && log.state !== "rest");
+    return !log || (log.state !== "done" && log.state !== "missed");
   });
   const candidates = unresolved.length > 0 ? unresolved : sorted;
 

@@ -117,16 +117,15 @@ export async function GET(req: NextRequest) {
     const totalTasks = tasks.length;
 
     const daily = dates.map((date) => {
-      let doneCount = 0, missedCount = 0, restCount = 0, actualMins = 0;
+      let doneCount = 0, missedCount = 0, actualMins = 0;
       const projectedMins = tasks.reduce((s, t) => s + t.projectedMinutes, 0);
       for (const task of tasks) {
         const log = logMap[task._id.toString()]?.[date];
         if (!log) continue;
         if (log.state === "done") { doneCount++; actualMins += log.actualMinutes ?? 0; }
         else if (log.state === "missed") missedCount++;
-        else if (log.state === "rest") restCount++;
       }
-      return { date, doneCount, missedCount, restCount, loggedCount: doneCount + missedCount + restCount, projectedMins, actualMins };
+      return { date, doneCount, missedCount, loggedCount: doneCount + missedCount, projectedMins, actualMins };
     });
 
     const activeDays = daily.filter((d) => d.loggedCount > 0);
@@ -163,7 +162,10 @@ export async function GET(req: NextRequest) {
       const log = logMap[taskId]?.[date];
       return {
         date,
-        state: (log?.state ?? null) as "done" | "missed" | "rest" | null,
+        // A legacy TaskLog with state "rest" (no longer creatable — see
+        // CLAUDE.md's "Skip Types") falls through to null here, same as no
+        // log at all, rather than getting its own bucket.
+        state: (log?.state === "done" || log?.state === "missed" ? log.state : null) as "done" | "missed" | null,
         actualMinutes: (log?.actualMinutes ?? null) as number | null,
       };
     });
@@ -171,7 +173,6 @@ export async function GET(req: NextRequest) {
     const doneDays = daily.filter((d) => d.state === "done");
     const doneCount = doneDays.length;
     const missedCount = daily.filter((d) => d.state === "missed").length;
-    const restCount = daily.filter((d) => d.state === "rest").length;
 
     const isCheckbox = task.taskType === "checkbox";
     const isStopwatch = task.taskType === "stopwatch";
@@ -192,10 +193,10 @@ export async function GET(req: NextRequest) {
     // No real time target for checkbox/stopwatch tasks — timing color is
     // always null for those regardless of actualMinutes (see task-progress.ts).
     const targetMinutes = !isCheckbox && !isStopwatch ? task.projectedMinutes : null;
-    const weeklyLogsByDate: Record<string, { state: "done" | "missed" | "rest"; actualMinutes: number | null }> = {};
+    const weeklyLogsByDate: Record<string, { state: "done" | "missed"; actualMinutes: number | null }> = {};
     for (const date of dates) {
       const log = logMap[taskId]?.[date];
-      if (log?.state === "done" || log?.state === "missed" || log?.state === "rest") {
+      if (log?.state === "done" || log?.state === "missed") {
         weeklyLogsByDate[date] = { state: log.state, actualMinutes: log.actualMinutes ?? null };
       }
     }
@@ -213,8 +214,7 @@ export async function GET(req: NextRequest) {
       daily,
       doneCount,
       missedCount,
-      restCount,
-      unloggedCount: elapsedDates.length - doneCount - missedCount - restCount,
+      unloggedCount: elapsedDates.length - doneCount - missedCount,
       avgActualMins,
       avgVariance,
       weeklyProgress,

@@ -1,10 +1,10 @@
 // Pure math behind TaskListSessionView's live "projected finish time"
 // display — see docs/features/timer.md. Kept separate from the component so
-// the four-state contribution logic (done/missed-rest/active/pending) is
+// the four-state contribution logic (done/missed/active/pending) is
 // testable in isolation, the same way lib/task-progress.ts separates
 // weekly-progress math from the components that render it.
 
-export type TaskProjectionState = "done" | "missed" | "rest" | "active" | "pending";
+export type TaskProjectionState = "done" | "missed" | "active" | "pending";
 
 export interface TaskProjection {
   projectedMinutes: number;
@@ -39,7 +39,7 @@ export interface TaskProjection {
 // Total minutes of real work still standing between "now" (nowMs) and the
 // list being finished.
 //
-// Done/missed/rest tasks contribute nothing further: their time already
+// Done/missed tasks contribute nothing further: their time already
 // happened, and that's already reflected in wherever "now" currently sits.
 // Adding their actualMinutes on top of "now" a second time would double-
 // count it and push the projection later with every task you finish —
@@ -67,7 +67,7 @@ export function remainingMinutes(items: TaskProjection[], nowMs: number = Date.n
     if (item.state === "pending") {
       return total + item.projectedMinutes;
     }
-    return total; // done / missed / rest — already spent or zeroed out
+    return total; // done / missed — already spent or zeroed out
   }, 0);
 }
 

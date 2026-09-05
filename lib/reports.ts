@@ -7,11 +7,13 @@ import { getLatestInventoryLogs } from "@/lib/inventory";
 export interface LocationTaskCounts {
   doneCount: number;
   // done + missed — the same denominator GET /api/reports' per-task
-  // completionRate already uses (rest/unlogged days don't count against
-  // or for a task, by design — see CLAUDE.md's Skip Types).
+  // completionRate already uses (unlogged days don't count against or for
+  // a task, by design — see CLAUDE.md's Skip Types).
   engagedCount: number;
-  // done + missed + rest — a simple "how much activity happened" figure,
-  // for the rollup's "Tasks Logged" column.
+  // Same as engagedCount — kept as its own field for the rollup's "Tasks
+  // Logged" column, since it reads more naturally there than "engaged."
+  // (Used to also include the now-removed "rest" state, which made this
+  // genuinely different from engagedCount; it no longer is.)
   totalTasksLogged: number;
 }
 
@@ -42,14 +44,13 @@ export async function getLocationTaskCounts(
 
   let doneCount = 0;
   let missedCount = 0;
-  let restCount = 0;
   for (const log of logs) {
     if (log.state === "done") doneCount++;
     else if (log.state === "missed") missedCount++;
-    else if (log.state === "rest") restCount++;
   }
 
-  return { doneCount, engagedCount: doneCount + missedCount, totalTasksLogged: doneCount + missedCount + restCount };
+  const engagedCount = doneCount + missedCount;
+  return { doneCount, engagedCount, totalTasksLogged: engagedCount };
 }
 
 // "How many of this location's catalog items are at or below their

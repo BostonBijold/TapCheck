@@ -38,7 +38,7 @@ function fmtTime(t: string): string {
   return m ? `${h12}:${String(m).padStart(2, "0")}${suffix}` : `${h12}${suffix}`;
 }
 
-const TERMINAL_STATES = new Set(["done", "missed", "rest"]);
+const TERMINAL_STATES = new Set(["done", "missed"]);
 
 export async function POST(req: NextRequest) {
   const signature = req.headers.get("upstash-signature");

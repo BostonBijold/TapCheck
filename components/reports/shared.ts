@@ -7,7 +7,6 @@ export interface DailyStat {
   date: string;
   doneCount: number;
   missedCount: number;
-  restCount: number;
   loggedCount: number;
   projectedMins: number;
   actualMins: number;
@@ -32,10 +31,9 @@ export interface TaskStats {
   taskListId: string;
   taskListName: string;
   projectedMinutes: number;
-  daily: Array<{ date: string; state: "done" | "missed" | "rest" | null; actualMinutes: number | null }>;
+  daily: Array<{ date: string; state: "done" | "missed" | null; actualMinutes: number | null }>;
   doneCount: number;
   missedCount: number;
-  restCount: number;
   unloggedCount: number;
   avgActualMins: number | null;
   avgVariance: number | null;
@@ -97,10 +95,10 @@ export function completionBarColor(pct: number): string {
 // same thing a dot there does. Done is colored by timing (how close to the
 // target), not a flat color — amber covers "overtime" at any severity, red
 // is reserved exclusively for `missed` below, no other state ever renders
-// red. Everything that isn't a solid-fill success (done or rest) is a
-// hollow, no-fill box instead — border style/color carries the meaning,
-// since a close-but-different fill color (the old tobacco-vs-amber problem)
-// is hard to tell apart at a glance: dashed grey border = still open
+// red. Everything that isn't a solid-fill success (done) is a hollow,
+// no-fill box instead — border style/color carries the meaning, since a
+// close-but-different fill color (the old tobacco-vs-amber problem) is
+// hard to tell apart at a glance: dashed grey border = still open
 // (pending), solid grey border = past and simply never logged, solid red
 // border = explicitly marked missed.
 export function daySegmentStyle(day: DayBreakdown): { background: string; border?: string } {
@@ -108,7 +106,6 @@ export function daySegmentStyle(day: DayBreakdown): { background: string; border
     return { background: day.timing === "amber" ? "#d97706" : "#1f63b6" };
   }
   switch (day.state) {
-    case "rest": return { background: "#71717a" };
     case "missed": return { background: "transparent", border: "1px solid #ef4444" };
     case "unlogged": return { background: "transparent", border: "1px solid #94a3b8" };
     case "pending": return { background: "transparent", border: "1px dashed #94a3b8" };

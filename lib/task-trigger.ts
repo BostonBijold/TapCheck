@@ -49,7 +49,7 @@ async function buildTaskListTimeline(
       };
     }
     const log = logByTaskId.get(id);
-    if (log && (log.state === "done" || log.state === "missed" || log.state === "rest")) {
+    if (log && (log.state === "done" || log.state === "missed")) {
       return {
         projectedMinutes: t.projectedMinutes,
         state: log.state,

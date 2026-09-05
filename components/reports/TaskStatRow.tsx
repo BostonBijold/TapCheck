@@ -30,7 +30,6 @@ export default function TaskStatRow({ task }: { task: TaskStats }) {
   // already tells them apart visually.
   const weekDoneCount = wp?.days.filter((d) => d.state === "done").length ?? task.doneCount;
   const weekOvertimeCount = wp?.days.filter((d) => d.state === "done" && d.timing === "amber").length ?? 0;
-  const weekRestCount = wp?.days.filter((d) => d.state === "rest").length ?? task.restCount;
   const weekMissedCount = wp?.days.filter((d) => d.state === "missed").length ?? task.missedCount;
   const weekUnloggedCount = wp?.days.filter((d) => d.state === "unlogged").length ?? task.unloggedCount;
 
@@ -53,9 +52,6 @@ export default function TaskStatRow({ task }: { task: TaskStats }) {
         <span className="font-mono text-xs text-olive">{weekDoneCount} done</span>
         {weekOvertimeCount > 0 && (
           <span className="font-mono text-xs text-amber">{weekOvertimeCount} overtime</span>
-        )}
-        {weekRestCount > 0 && (
-          <span className="font-mono text-xs text-blue-muted">{weekRestCount} rest</span>
         )}
         {weekMissedCount > 0 && (
           <span className="font-mono text-xs text-burgundy-light">{weekMissedCount} missed</span>

@@ -74,7 +74,7 @@ function fmtMins(secs: number) {
   return `${pad(m)}:${pad(s)}`;
 }
 
-// Finds the next task that isn't done/missed/rest yet, starting just after
+// Finds the next task that isn't done/missed yet, starting just after
 // afterIndex and wrapping back to the start if nothing remains going
 // forward — so a session never reaches the summary screen just because it
 // ran off the end of the list. A task that's paused (jumped away from) or
@@ -240,7 +240,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       );
 
       const finishedIds = new Set(
-        records.filter((r) => r.state === "done" || r.state === "missed" || r.state === "rest").map((r) => r.taskId)
+        records.filter((r) => r.state === "done" || r.state === "missed").map((r) => r.taskId)
       );
       const nextIndex = nextUnfinishedIndex(tasks, finishedIds, currentIndex);
       if (nextIndex !== -1) {
@@ -274,7 +274,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // alongside the new one or marking it done. If this task was itself
   // paused earlier (jumped away and back), the server resumes it from its
   // banked time instead of restarting the clock. Nothing here ever sets a
-  // terminal state — only an explicit Done/Missed/Rest (or the external API)
+  // terminal state — only an explicit Done/Missed (or the external API)
   // does that. Re-fetching afterwards (rather than trusting the POST
   // response alone) keeps latestLogs correct for every task, including
   // whichever one was just paused.
@@ -370,7 +370,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
             };
           }
           const rec = records.find((r) => r.taskId === t._id);
-          if (rec && (rec.state === "done" || rec.state === "missed" || rec.state === "rest")) {
+          if (rec && (rec.state === "done" || rec.state === "missed")) {
             return {
               projectedMinutes: t.projectedMinutes,
               state: rec.state,
@@ -395,7 +395,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
         // specifically re-labels a *done-but-over-target* segment as
         // "activeOver" (amber), same color an over-target *active* segment
         // already uses. Looked up by id since computeTimeline drops
-        // zero-width (missed/rest) segments, so segment order can't be
+        // zero-width (missed) segments, so segment order can't be
         // zipped against `tasks`/`projectionItems` positionally.
         const projectionById = new Map(tasks.map((t, i) => [t._id, projectionItems[i]]));
 
@@ -513,7 +513,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // so this never adds latency beyond what the fetch already takes.
       setTransitioning(true);
       const [records] = await Promise.all([
-        // Skip past anything already FINISHED today (done/missed/rest), from
+        // Skip past anything already FINISHED today (done/missed), from
         // ANY source — an earlier API call, a manual tap elsewhere, or this
         // session itself. An in_progress or paused task is deliberately NOT
         // skipped — it becomes current instead, resuming from its real banked
@@ -531,7 +531,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       const finishedIds = new Set(sessionLogs.map((l) => l.taskId));
       finishedIds.add(currentTask._id);
       for (const r of records) {
-        if (r.state === "done" || r.state === "missed" || r.state === "rest") finishedIds.add(r.taskId);
+        if (r.state === "done" || r.state === "missed") finishedIds.add(r.taskId);
       }
 
       const nextIndex = nextUnfinishedIndex(tasks, finishedIds, currentIndex);
@@ -550,12 +550,12 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // Jump directly to a different task — pending (never started), in_progress
   // (rare: started earlier via another tab/device and still actively running),
   // or paused (started earlier in this session, left when you jumped away) —
-  // without marking the current one done, missed, or rest. The task you're
+  // without marking the current one done or missed. The task you're
   // leaving is paused, not completed: the per-task effect above switches the
   // active timer via switchActiveLog (sessionNav: true), which banks its
-  // elapsed time and marks it paused. Only an explicit Done/Missed/Rest (or
-  // the external API) ever marks a task. Only a FINISHED task (done/missed/
-  // rest) can't be jumped to — that's what Undo is for, not a jump.
+  // elapsed time and marks it paused. Only an explicit Done/Missed (or
+  // the external API) ever marks a task. Only a FINISHED task (done/missed)
+  // can't be jumped to — that's what Undo is for, not a jump.
   const handleJumpTo = useCallback(
     async (index: number) => {
       if (phase !== "running" || index === currentIndex) return;
@@ -565,7 +565,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       // state could be a moment stale if something finished it since the last render.
       const records = await fetchDayLogs();
       const targetLog = records.find((r) => r.taskId === targetTask._id);
-      if (targetLog && (targetLog.state === "done" || targetLog.state === "missed" || targetLog.state === "rest")) {
+      if (targetLog && (targetLog.state === "done" || targetLog.state === "missed")) {
         setJumpNotice(`${targetTask.name} was already logged — refreshed.`);
         return;
       }
@@ -593,7 +593,6 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
     }
   };
   const handleMissed = () => advance("missed", 0);
-  const handleRest = () => advance("rest", 0);
   const handleTaskFormDone = (
     formData: Record<string, FormFieldValue>,
     actualMinutes: number,
@@ -641,7 +640,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
     // wrong relative to tasks.length.
     const logMap: Record<string, SessionLog> = {};
     for (const [id, l] of Object.entries(latestLogs)) {
-      if (l.state === "done" || l.state === "missed" || l.state === "rest") {
+      if (l.state === "done" || l.state === "missed") {
         logMap[id] = { taskId: id, state: l.state, actualMinutes: l.actualMinutes };
       }
     }
@@ -745,14 +744,14 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // "upcoming".
   const externalDoneIds = new Set(
     Object.entries(externalLogs ?? {})
-      .filter(([, l]) => l.state === "done" || l.state === "missed" || l.state === "rest")
+      .filter(([, l]) => l.state === "done" || l.state === "missed")
       .map(([id]) => id)
   );
   // Same, but from live server state rather than the static prop — covers
   // anything completed mid-session by another source (a jump, an external call).
   const liveDoneIds = new Set(
     Object.entries(latestLogs)
-      .filter(([, l]) => l.state === "done" || l.state === "missed" || l.state === "rest")
+      .filter(([, l]) => l.state === "done" || l.state === "missed")
       .map(([id]) => id)
   );
   const loggedIds = new Set([
@@ -779,7 +778,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
   // sessionLogs > latestLogs > externalLogs > pending precedence the task
   // list below uses for its own per-row log lookup, generalized to include
   // the current task (always "active", never looked up from a log) and to
-  // return the exact terminal state (missed vs. rest) rather than a single
+  // return the exact terminal state (done vs. missed) rather than a single
   // boolean, since only "done" and "active" carry a nonzero contribution.
   // Recomputed on every render — including the once-a-second tick that
   // updates `elapsed` — so it's live without a second interval.
@@ -788,7 +787,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       return { projectedMinutes: task.projectedMinutes, state: "active", targetInstant: activeTargetInstant };
     }
     const sessionLog = sessionLogs.find((l) => l.taskId === task._id);
-    if (sessionLog && (sessionLog.state === "done" || sessionLog.state === "missed" || sessionLog.state === "rest")) {
+    if (sessionLog && (sessionLog.state === "done" || sessionLog.state === "missed")) {
       return {
         projectedMinutes: task.projectedMinutes,
         state: sessionLog.state,
@@ -796,7 +795,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       };
     }
     const live = latestLogs[task._id];
-    if (live && (live.state === "done" || live.state === "missed" || live.state === "rest")) {
+    if (live && (live.state === "done" || live.state === "missed")) {
       return {
         projectedMinutes: task.projectedMinutes,
         state: live.state,
@@ -804,7 +803,7 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
       };
     }
     const ext = externalLogs?.[task._id];
-    if (ext && (ext.state === "done" || ext.state === "missed" || ext.state === "rest")) {
+    if (ext && (ext.state === "done" || ext.state === "missed")) {
       return {
         projectedMinutes: task.projectedMinutes,
         state: ext.state,
@@ -1016,16 +1015,11 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
 
       {/* Action buttons */}
       <div className="px-4 pb-4 flex-shrink-0 space-y-2">
-        {/* Checkbox: just missed + rest (done is the big button/modal above) */}
+        {/* Checkbox: just missed (done is the big button/modal above) */}
         {isCheckbox ? (
-          <div className="flex gap-2">
-            <button onClick={handleMissed} className="flex-1 py-2.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px]">
-              ✗ Missed
-            </button>
-            <button onClick={handleRest} className="flex-1 py-2.5 rounded-card border border-blue-muted/30 text-blue-muted font-body text-sm min-h-[44px]">
-              ~ Rest
-            </button>
-          </div>
+          <button onClick={handleMissed} className="w-full py-2.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px]">
+            ✗ Missed
+          </button>
         ) : (
           <>
             <button onClick={handleDone} className="w-full py-3 rounded-card bg-olive text-text font-body font-medium">
@@ -1040,9 +1034,6 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
               </button>
               <button onClick={handleMissed} className="flex-1 py-2.5 rounded-card border border-burgundy/30 text-burgundy-light font-body text-sm min-h-[44px]">
                 ✗ Missed
-              </button>
-              <button onClick={handleRest} className="flex-1 py-2.5 rounded-card border border-blue-muted/30 text-blue-muted font-body text-sm min-h-[44px]">
-                ~ Rest
               </button>
             </div>
           </>
@@ -1065,9 +1056,9 @@ export default function TaskListSessionView({ taskListId, taskListName, taskList
             const ext = !isCurrent ? externalLogs?.[task._id] : undefined;
             const log: SessionLog | undefined =
               sessionLog ??
-              (live && (live.state === "done" || live.state === "missed" || live.state === "rest")
+              (live && (live.state === "done" || live.state === "missed")
                 ? { taskId: task._id, state: live.state, actualMinutes: live.actualMinutes }
-                : ext && (ext.state === "done" || ext.state === "missed" || ext.state === "rest")
+                : ext && (ext.state === "done" || ext.state === "missed")
                   ? { taskId: task._id, state: ext.state, actualMinutes: ext.actualMinutes ?? 0 }
                   : undefined);
             const isDone = loggedIds.has(task._id);

@@ -61,7 +61,7 @@ export async function GET(req: NextRequest) {
     companyId,
     locationId,
     date: { $in: dateWindow },
-    state: { $in: ["done", "missed"] }, // rest is an intentional, protected skip — not an "attempt" (see Story 1's resolved denominator)
+    state: { $in: ["done", "missed"] }, // the only two states a task can resolve to (see Story 1's resolved denominator)
   }).lean();
 
   interface Agg {

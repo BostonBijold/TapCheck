@@ -217,7 +217,7 @@ company, sees no UI change at all.
     `PATCH`es `activeLocationId` back to `null` — not a separate sentinel
     value.
 - **Tasks writes need no separate wiring.** `/api/task-logs`'s
-  start/complete/miss/rest handlers already resolved their location via
+  start/complete/miss handlers already resolved their location via
   `pickActiveLocationId` before this feature existed (originally only
   reachable via a raw `?locationId=`/body param nothing in the UI ever
   sent) — so once the session-level fallback was added, switching location

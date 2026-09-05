@@ -4,7 +4,7 @@ import { isTaskVisibleOn } from "@/lib/task-visibility";
 
 // "Current streak" for the Reports employee summary strip — counts
 // consecutive days, walking backward, where every one of the company's
-// active tasks scheduled on that weekday has a done/rest log from this
+// active tasks scheduled on that weekday has a done log from this
 // specific person. A day with zero scheduled tasks is skipped over (doesn't
 // count, doesn't break the streak). Task has no assignee concept — any
 // employee can complete any task (see models/Task.ts) — so this
@@ -29,7 +29,7 @@ function isDayAllClear(
   if (scheduledToday.length === 0) return { allClear: true, hasScheduledTasks: false };
   const allClear = scheduledToday.every((t) => {
     const log = logsByDateAndTask[dateStr]?.[t._id];
-    return log?.state === "done" || log?.state === "rest";
+    return log?.state === "done";
   });
   return { allClear, hasScheduledTasks: true };
 }

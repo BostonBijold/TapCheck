@@ -424,12 +424,6 @@ export default function TaskCard({
             ✗ Missed
           </button>
           <button
-            onClick={() => { onStateChange("rest", { isBackEntry }); setShowSkips(false); }}
-            className="flex-1 border border-blue-muted/30 text-blue-muted font-body text-xs py-2 rounded-card min-h-[36px]"
-          >
-            ~ Rest
-          </button>
-          <button
             onClick={() => setShowSkips(false)}
             className="px-3 text-dim font-mono text-[10px] min-h-[36px]"
           >

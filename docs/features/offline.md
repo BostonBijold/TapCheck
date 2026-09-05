@@ -51,7 +51,7 @@ attempted here.
 **In scope (this doc):**
 - Caching a company's task lists, task placements, task definitions
   (including NFC bindings), and today's task logs locally.
-- Queuing task-log mutations (start/complete/miss/rest) made while offline
+- Queuing task-log mutations (start/complete/miss) made while offline
   in either of the two places that write them — the standalone/anytime-task
   flow (`components/TasksView.tsx`) and the guided shift-list "Start Tasks"
   walkthrough (`components/TaskListSessionView.tsx`) — syncing when
@@ -153,13 +153,13 @@ Both places a task-log mutation gets made check `isOnline` (from
 `components/NetworkStatusProvider.tsx`) before their `fetch("/api/task-
 logs", …)` call:
 
-- `components/TasksView.tsx` — `handleStateChange` (quick done/missed/rest
+- `components/TasksView.tsx` — `handleStateChange` (quick done/missed
   and back-entry), `handleStartTimer`, `handleTimerComplete`,
   `handleTaskFormComplete`, `handleTimerMissed`. (`DELETE` for Undo is
   deliberately left unguarded — see Scope above.)
 - `components/TaskListSessionView.tsx` — the per-task-switch effect (starts/
-  resumes the active timer inside a session) and `saveLog` (done/missed/
-  rest, with or without form data).
+  resumes the active timer inside a session) and `saveLog` (done/missed,
+  with or without form data).
 
 When offline, instead of `fetch`, both call `lib/offline-sync.ts`'s
 `queueTaskLogMutation(...)`:

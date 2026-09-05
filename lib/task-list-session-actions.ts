@@ -57,14 +57,14 @@ export async function findNextTaskInList(companyId: string, locationId: string |
   return next ? resolveTask(next) : null;
 }
 
-// True once every active task in the list has a terminal (done/missed/
-// rest) log for date — what closes a TaskListSession. An empty/deleted list
+// True once every active task in the list has a terminal (done/missed)
+// log for date — what closes a TaskListSession. An empty/deleted list
 // is never "resolved" (nothing to close against).
 export async function isTaskListFullyResolved(companyId: string, locationId: string | null, taskListId: string, date: string): Promise<boolean> {
   const { tasks, logs } = await fetchTaskListTasksAndLogs(companyId, locationId, taskListId, date);
   if (tasks.length === 0) return false;
   const terminalIds = new Set(
-    logs.filter((l) => l.state === "done" || l.state === "missed" || l.state === "rest").map((l) => l.taskId.toString())
+    logs.filter((l) => l.state === "done" || l.state === "missed").map((l) => l.taskId.toString())
   );
   return tasks.every((t) => terminalIds.has(t._id.toString()));
 }

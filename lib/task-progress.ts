@@ -2,7 +2,7 @@
 // Shared by StreakDots (per-row dot strip) and the Reports Overview's Task
 // Breakdown (segmented bar + pacing verdict) so the two never diverge.
 
-export type DayState = "done" | "rest" | "missed" | "unlogged" | "pending" | "not_scheduled";
+export type DayState = "done" | "missed" | "unlogged" | "pending" | "not_scheduled";
 
 // How close a "done" day came to its target — a display-only tier layered
 // on top of `state`; it never affects successCount/pacing below (going over
@@ -52,7 +52,7 @@ function timingFor(actualMinutes: number | null, targetMinutes: number | null): 
 export function computeWeeklyProgress(
   scheduledDays: number[],
   successThreshold: number,
-  logsByDate: Record<string, { state: "done" | "missed" | "rest"; actualMinutes: number | null } | undefined>,
+  logsByDate: Record<string, { state: "done" | "missed"; actualMinutes: number | null } | undefined>,
   weekDates: string[], // Sunday→Saturday, from calendarWeekDates
   today: string,
   targetMinutes: number | null = null
@@ -69,7 +69,6 @@ export function computeWeeklyProgress(
     if (date > today) return { date, state: "pending", timing: null };
     const log = logsByDate[date];
     if (log?.state === "done") return { date, state: "done", timing: timingFor(log.actualMinutes, targetMinutes) };
-    if (log?.state === "rest") return { date, state: "rest", timing: null };
     if (log?.state === "missed") return { date, state: "missed", timing: null };
     // No log at all: today is still open (unresolved, not yet a miss) —
     // only a *strictly past* day with nothing logged defaults to unlogged.
@@ -78,7 +77,7 @@ export function computeWeeklyProgress(
   });
 
   const weekScheduledCount = days.filter((d) => d.state !== "not_scheduled").length;
-  const successCount = days.filter((d) => d.state === "done" || d.state === "rest").length;
+  const successCount = days.filter((d) => d.state === "done").length;
   const remainingScheduled = days.filter((d) => d.state === "pending").length;
   const percentage = successThreshold > 0 ? (successCount / successThreshold) * 100 : 0;
 

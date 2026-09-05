@@ -10,7 +10,7 @@ In `components/TaskListCard.tsx`:
 
 - **Never collapses.** `isAnytimeList = taskList.timeOfDay === "anytime"` forces `effectivelyCollapsed = false` unconditionally — the time-window collapse logic described in task-lists.md (`startTime`/`deriveCollapseAfter`) never applies, because this kind of list is created with `startTime: null`.
 - **No "Start Tasks" CTA, and no way at all to open a guided session for one of these lists.** The sequential-session button is explicitly excluded for `timeOfDay === "anytime"`; `TasksView.tsx` passes a no-op (`onStartTaskList={() => {}}`) for this section. The now-deleted external API's `trigger-task`/`start-timer` (`routineGroupId` param) used to be the one way around that restriction — see `docs/project-structure.md`'s note on the external API's removal — so this is now a genuinely unreachable capability, not just an in-app UI gap. Never had a real caller in practice (a personal app with no Shortcuts set up against it), so not treated as a regression worth restoring specifically for this.
-- **Renders `TaskCard` instead of `TaskRow`** — a visually different card (always-visible primary action, no tap-to-expand) but the same underlying `TaskLog` state machine (`pending`/`in_progress`/`paused`/`done`/`missed`/`rest`, same Undo behavior, same back-entry pattern when viewing a past date). This includes the single-active-timer invariant described in [timer.md](timer.md) — starting a task's timer while some other task is still `in_progress` for that same person auto-*completes* that other one server-side.
+- **Renders `TaskCard` instead of `TaskRow`** — a visually different card (always-visible primary action, no tap-to-expand) but the same underlying `TaskLog` state machine (`pending`/`in_progress`/`paused`/`done`/`missed`, same Undo behavior, same back-entry pattern when viewing a past date). This includes the single-active-timer invariant described in [timer.md](timer.md) — starting a task's timer while some other task is still `in_progress` for that same person auto-*completes* that other one server-side.
 
 Since this kind of list has no time window, `isBackEntry` for one of its tasks reduces to just "is this a past calendar date" (there's no "scheduled window already passed today" case).
 
@@ -35,7 +35,7 @@ There's no edit affordance directly on `TaskCard` — the edit path is the same 
 
 - `components/TasksView.tsx` — splits `taskLists` into scheduled shift lists vs. standalone anytime lists and renders this section.
 - `components/TaskListCard.tsx` — the `timeOfDay === "anytime"` branch described above.
-- `components/TaskCard.tsx` — per-task card for this kind of list (done/missed/rest/pending, timer-start, back-entry, skip options).
+- `components/TaskCard.tsx` — per-task card for this kind of list (done/missed/pending, timer-start, back-entry, skip options).
 - `components/AddTaskSheet.tsx` — browse-template / create-custom flow, including the field editor and schedule/threshold controls (custom-create only).
 - `components/TaskListEditView.tsx` — also the task edit path, see "Editing a task" above.
 - `components/AppIcon.tsx`, `components/StreakDots.tsx` — shared icon renderer/picker and the fixed-calendar-week (Sunday–Saturday) streak strip, see [task-lists.md](task-lists.md#streaks--variance).

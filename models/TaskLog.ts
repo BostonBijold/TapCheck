@@ -1,6 +1,15 @@
 import mongoose, { Schema, Document, model, models } from "mongoose";
 import type { FormFieldValue } from "@/models/TaskDefinition";
 
+// "rest" is a legacy value only — see CLAUDE.md's "Skip Types". A
+// restaurant work task has no personal "rest day" concept, so no code path
+// can write a new TaskLog with this state anymore (enforced at
+// app/api/task-logs/route.ts's POST, the only write boundary). Kept here
+// so any pre-existing TaskLog document that already has state: "rest"
+// (never migrated — see docs/features/reports.md) stays type-safe to
+// read/display; every calculation (streaks, weekly progress, Reports
+// aggregates) now treats it the same as "no log at all," not as a
+// protected success.
 export type LogState = "in_progress" | "paused" | "done" | "missed" | "rest";
 
 export interface ITaskLog extends Document {

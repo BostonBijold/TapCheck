@@ -84,7 +84,7 @@ export default function ConsoleOverviewTab() {
   const avgCompletion = activeLists.length > 0
     ? activeLists.reduce((s, tl) => s + tl.avgCompletionRate, 0) / activeLists.length
     : 0;
-  const tasksLogged = data.tasks.reduce((s, t) => s + t.doneCount + t.missedCount + t.restCount, 0);
+  const tasksLogged = data.tasks.reduce((s, t) => s + t.doneCount + t.missedCount, 0);
 
   const worstLists = data.taskLists
     .filter((tl) => tl.totalTasks > 0 && tl.avgCompletionRate < 0.9)
@@ -277,7 +277,6 @@ export default function ConsoleOverviewTab() {
                     <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Task</th>
                     <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Done</th>
                     <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Missed</th>
-                    <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Rest</th>
                     <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Unlogged</th>
                     <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Avg Actual</th>
                     <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-2.5">Progress</th>
@@ -301,7 +300,6 @@ export default function ConsoleOverviewTab() {
                         </td>
                         <td className="px-4 py-2.5 font-mono text-xs text-olive">{task.doneCount}</td>
                         <td className="px-4 py-2.5 font-mono text-xs text-burgundy-light">{task.missedCount}</td>
-                        <td className="px-4 py-2.5 font-mono text-xs text-blue-muted">{task.restCount}</td>
                         <td className="px-4 py-2.5 font-mono text-xs text-dim">{task.unloggedCount}</td>
                         <td className="px-4 py-2.5 font-mono text-xs">
                           {task.avgActualMins !== null ? (

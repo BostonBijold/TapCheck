@@ -16,7 +16,7 @@ function cyclic(values: number[], dayIdx: number): number {
 }
 
 // Actual-minute values per Opening/Mid-Shift task — these run clean every
-// day (the interesting signal is in Closing's misses/rests below), just
+// day (the interesting signal is in Closing's misses below), just
 // with realistic minute-to-minute variance around each task's time budget.
 const OPENING_ACTUALS: Record<string, number[]> = {
   "Walk-in Fridge Temp":          [2, 3, 2, 1, 2, 3, 2, 1, 2, 3],
@@ -35,22 +35,15 @@ const MIDSHIFT_ACTUALS: Record<string, number[]> = {
   "Trash & Recycling":   [5, 4, 6, 5, 4, 6, 5, 4, 6, 5],
 };
 
-// Closing task miss/rest pattern — indexed 0 (30 days ago) → 29 (today).
-// "rest" here reads as "restaurant closed that day" rather than a personal
-// day off, but protects the streak the same way.
+// Closing task miss pattern — indexed 0 (30 days ago) → 29 (today).
 const CLOSING_MISSED: Record<string, number[]> = {
-  "Equipment Powered Down":         [2, 5, 9, 14, 17, 21, 25],
+  "Equipment Powered Down":         [2, 5, 9, 14, 17, 21, 25, 26],
   "Deep Clean Kitchen":             [18],
   "Closing Cash Reconciliation":    [],
-  "Trash Taken Out":                [0, 3, 6, 9, 12, 15, 18, 21, 24, 27],
+  "Trash Taken Out":                [0, 3, 6, 7, 9, 12, 15, 18, 21, 24, 27],
   "Doors Locked / Alarm Set":       [],
   "Walk-in Fridge Temp (Close)":    [4, 11, 17, 22, 26],
   "Walk-in Freezer Temp (Close)":   [],
-};
-
-const CLOSING_REST: Record<string, number[]> = {
-  "Equipment Powered Down": [26], // holiday closure
-  "Trash Taken Out":        [7, 21],
 };
 
 // Actual-minute deltas from projected for Closing tasks (when done)
@@ -139,12 +132,8 @@ export async function GET() {
     // ── Closing: staggered ───────────────────────────────────────────────────
     for (const task of closingTasks) {
       const missedDays = CLOSING_MISSED[task.name] ?? [];
-      const restDays   = CLOSING_REST[task.name]   ?? [];
 
-      let state: "done" | "missed" | "rest";
-      if (restDays.includes(dayIdx))        state = "rest";
-      else if (missedDays.includes(dayIdx)) state = "missed";
-      else state = "done";
+      const state: "done" | "missed" = missedDays.includes(dayIdx) ? "missed" : "done";
 
       const offsets = CLOSING_OFFSETS[task.name] ?? [];
       const actualMinutes =

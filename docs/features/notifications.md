@@ -286,7 +286,7 @@ QStash schedule**, created/updated the moment the list's `startTime`/
   no-op) when: the list is missing/inactive, its company has
   `notificationsEnabled: false` or no `timezone`, nothing's scheduled on
   the list today (`isTaskVisibleOn`), or every visible task already has a
-  terminal `TaskLog` (`done`/`missed`/`rest`) for today — an early-arriving
+  terminal `TaskLog` (`done`/`missed`) for today — an early-arriving
   employee may have already worked through everything before the
   scheduled time, and a reminder to start something already finished would
   read as a bug, not a nudge.
@@ -331,7 +331,7 @@ condition, evaluated per `(company, list, today)` in
    any requesting device's own offset) must be past that grace-adjusted
    time.
 4. At least one task scheduled today (`isTaskVisibleOn`) on that list is
-   **not** in a terminal state (`done`/`missed`/`rest`) — i.e. still
+   **not** in a terminal state (`done`/`missed`) — i.e. still
    `pending`/`in_progress`/`paused`, or has no `TaskLog` row at all for
    today.
 5. A list with **zero** tasks scheduled today is skipped entirely.

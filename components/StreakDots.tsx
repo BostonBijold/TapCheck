@@ -19,11 +19,13 @@ interface Props {
                                  // green/amber "done" timing color
 }
 
-// Only done/missed/rest are meaningful to the weekly-progress math — a
-// same-day in_progress/paused log reads the same as "no log yet" (today
-// stays "pending" until it's explicitly resolved).
+// Only done/missed are meaningful to the weekly-progress math — a same-day
+// in_progress/paused log reads the same as "no log yet" (today stays
+// "pending" until it's explicitly resolved). A legacy TaskLog with state
+// "rest" (no longer creatable — see CLAUDE.md's "Skip Types") falls
+// through to undefined here too, same as no log at all.
 function toLoggedState(l: { state: LogState; actualMinutes: number | null }) {
-  return l.state === "done" || l.state === "missed" || l.state === "rest"
+  return l.state === "done" || l.state === "missed"
     ? { state: l.state, actualMinutes: l.actualMinutes }
     : undefined;
 }
@@ -32,17 +34,16 @@ function toLoggedState(l: { state: LogState; actualMinutes: number | null }) {
 // time, amber = over target by any amount) rather than a flat "done" color
 // — red is reserved exclusively for `missed`, no other state ever renders
 // red, so amber covers "overtime" regardless of severity. Everything that
-// isn't a solid-fill success (done or rest) is a hollow, no-fill ring
-// instead — border style/color carries the meaning, which reads more
-// clearly at 5px than another close-but-different fill color would: dashed
-// grey = still open (pending), solid grey = past and simply never logged,
-// solid red = explicitly marked missed.
+// isn't a solid-fill success (done) is a hollow, no-fill ring instead —
+// border style/color carries the meaning, which reads more clearly at 5px
+// than another close-but-different fill color would: dashed grey = still
+// open (pending), solid grey = past and simply never logged, solid red =
+// explicitly marked missed.
 function dotClass({ state, timing }: DayBreakdown): string {
   if (state === "done") {
     return timing === "amber" ? "bg-amber" : "bg-done";
   }
   switch (state) {
-    case "rest": return "bg-blue-muted";
     case "missed": return "bg-transparent border border-burgundy-light";
     case "unlogged": return "bg-transparent border border-dim";
     case "pending": return "bg-transparent border border-dashed border-dim";

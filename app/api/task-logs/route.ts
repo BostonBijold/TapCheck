@@ -40,7 +40,7 @@ export async function GET(req: NextRequest) {
 // POST — creates or replaces a log entry.
 // For state 'in_progress': delegates to startInProgressLog (see lib/task-log-actions),
 // which enforces the single-active-timer invariant server-side.
-// For terminal states (done/missed/rest): sets state + actualMinutes + isBackEntry.
+// For terminal states (done/missed): sets state + actualMinutes + isBackEntry.
 // Uses $set only — DO NOT put filter fields in $setOnInsert, MongoDB rejects it as
 // conflicting mods and the write silently fails on the client.
 export async function POST(req: NextRequest) {
@@ -73,6 +73,12 @@ export async function POST(req: NextRequest) {
   if (!taskId || !date || !state) {
     return NextResponse.json({ error: "Missing fields" }, { status: 400 });
   }
+  // "rest" is a legacy state only (see CLAUDE.md's "Skip Types") — no
+  // client can create a new one anymore. "paused" is never a valid POST
+  // value either — it's an internal-only transition (lib/task-log-actions.ts).
+  if (state !== "in_progress" && state !== "done" && state !== "missed") {
+    return NextResponse.json({ error: "Unsupported state" }, { status: 400 });
+  }
 
   await connectDB();
   const locationId = pickActiveLocationId(sessionUser, await validateLocationId(companyId, requestedLocationId));
@@ -95,21 +101,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(serializeLog(log));
   }
 
-  // A terminal state (done/missed/rest) is never session-anchored, regardless
+  // A terminal state (done/missed) is never session-anchored, regardless
   // of which state this log was in before — same rule PATCH enforces.
   // Read the prior sessionTaskListId before the write below clears it —
   // that's the only record of which TaskListSession (if any) this
   // completion belongs to (see lib/task-list-session-actions.ts). Covers
-  // TaskListSessionView's own advance()/handleMissed/handleRest (via
-  // saveLog), which write terminal states through this route rather than
-  // PATCH.
+  // TaskListSessionView's own advance()/handleMissed (via saveLog), which
+  // write terminal states through this route rather than PATCH.
   const priorLog = await TaskLog.findOne({ companyId, locationId, taskId, date }).lean();
   const priorSessionTaskListId = priorLog?.sessionTaskListId ? priorLog.sessionTaskListId.toString() : null;
 
   // Same shift-list gate as above: a terminal write only carries this
   // task's own taskListId in priorSessionTaskListId if it arrived here via
   // that list's session (the per-task in_progress start stamps it before
-  // Done/Missed/Rest becomes reachable) — a direct call bypassing the
+  // Done/Missed becomes reachable) — a direct call bypassing the
   // session has nothing to match and is rejected.
   try {
     await assertShiftListSessionAuthorized(companyId, taskId, priorSessionTaskListId);
@@ -149,7 +154,7 @@ export async function POST(req: NextRequest) {
     { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
   ).lean();
 
-  if (priorSessionTaskListId && (state === "done" || state === "missed" || state === "rest")) {
+  if (priorSessionTaskListId && (state === "done" || state === "missed")) {
     await recordSessionCompletion(companyId, locationId, priorSessionTaskListId, date, taskId, state, actualMinutes ?? 0);
   }
 

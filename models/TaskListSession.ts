@@ -1,6 +1,10 @@
 import mongoose, { Schema, Document, model, models } from "mongoose";
 
 export type TaskListSessionStatus = "in_progress" | "completed";
+// "rest" is a legacy value only — see models/TaskLog.ts's LogState. Kept so
+// a pre-existing session's completionSequence stays type-safe to read; no
+// code path writes a new one (recordSessionCompletion's callers only ever
+// pass "done"/"missed" now — see app/api/task-logs/route.ts).
 export type CompletionState = "done" | "missed" | "rest";
 
 export interface ICompletionEntry {

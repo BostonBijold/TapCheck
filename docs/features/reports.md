@@ -50,7 +50,7 @@ Role gates this outright for v1 — a manager always gets company-wide, an emplo
 
 No numeric "current streak" existed anywhere in this codebase before this feature — only `StreakDots`' 7-dot weekly visual and `computeWeeklyProgress`'s weekly %. `lib/streak.ts` adds one, computed employee-only (bundled into `/api/reports`'s response as `currentStreak`, `undefined` for a manager):
 
-- Walking backward from `today` (or from **yesterday** if today still has an unresolved scheduled task — an in-progress day shouldn't prematurely break the streak), a day counts toward the streak if **every one of the company's active tasks scheduled on that weekday** has a `done` or `rest` log from this specific person.
+- Walking backward from `today` (or from **yesterday** if today still has an unresolved scheduled task — an in-progress day shouldn't prematurely break the streak), a day counts toward the streak if **every one of the company's active tasks scheduled on that weekday** has a `done` log from this specific person. (A `rest` state existed here too until it was retired — see CLAUDE.md's "Skip Types"; a pre-existing `TaskLog` with that state no longer protects a streak.)
 - A day with zero scheduled tasks is skipped over — it neither extends nor breaks the streak.
 - The streak ends at the first fully-in-the-past day with a missed or unlogged scheduled task, or after `maxLookbackDays` (default 365).
 - Deliberately checks the **full active task catalog**, not "tasks this person has personally ever logged" — same "denominator is the schedule, not who logged it" philosophy as the role split above. This means an employee's streak can legitimately break because a teammate left a shift-shared task unlogged, not something the employee themselves missed — a known, accepted quirk, not a bug.
@@ -72,7 +72,7 @@ This is a **separate route from `GET /api/task-logs`**, not an extension of it �
 
 `taskListId` filtering resolves to a `taskId` set first (`Task.find({companyId, taskListId}, "_id")`) since `TaskLog` has no `taskListId` of its own — same join-direction pattern `/api/reports` already uses for its per-list start-time attribution.
 
-**Sort**: `{ date: -1, completedAt: -1, startedAt: -1, createdAt: -1 }` — grouping by day first, then falling through completedAt/startedAt/createdAt as tiebreakers, gives "most recent first" including logs with no `completedAt` (missed/rest) without needing a computed sort key.
+**Sort**: `{ date: -1, completedAt: -1, startedAt: -1, createdAt: -1 }` — grouping by day first, then falling through completedAt/startedAt/createdAt as tiebreakers, gives "most recent first" including logs with no `completedAt` (missed) without needing a computed sort key.
 
 **Denormalization**: three batch queries regardless of page size — `Task` (joined through `resolveTasks` for name/icon/taskType), `TaskList` (for `taskListName`), `User` (for `performedByName`, skipping any non-ObjectId id such as `SKIP_AUTH`'s dev sentinel).
 
@@ -104,7 +104,7 @@ Deferred: exact retention/paging limits for very old date ranges, and a CSV/expo
   taskLists: Array<{ _id, name, totalTasks, daily: DailyStat[], avgCompletionRate, avgActualMins, totalProjectedMins, avgStartMinutesUtc, startTimeSampleSize }>;
   tasks: Array<{
     _id, name, icon, taskListId, taskListName, projectedMinutes, daily,
-    doneCount, missedCount, restCount, unloggedCount, avgActualMins, avgVariance,
+    doneCount, missedCount, unloggedCount, avgActualMins, avgVariance,
     completionRate, engagedDays, totalDays, taskType,
     weeklyProgress?: WeeklyProgress; // only when days === 7 — see lib/task-progress.ts
   }>;
@@ -153,9 +153,10 @@ aggregates only over `elapsedDates`, never a not-yet-happened day.
 
 **Resolved denominator** (the addendum's own flagged open question):
 option (b) — a person's completion rate is `doneCount / (doneCount +
-missedCount)` over tasks *they themselves* logged, ignoring `rest` (an
-intentional, protected skip, not an "attempt" — same reasoning the
-existing `tasks[].engagedDays` already uses). Below **5 engaged tasks** in
+missedCount)` over tasks *they themselves* logged (the query itself
+filters to `state: { $in: ["done", "missed"] }` — a pre-existing `rest`
+log, now retired, was never counted here either, see CLAUDE.md's "Skip
+Types"). Below **5 engaged tasks** in
 the window, a person moves to an unranked "Not enough data" group instead
 of showing a misleadingly perfect (or empty) percentage. Ties in the
 ranked list break on raw `doneCount` descending.
