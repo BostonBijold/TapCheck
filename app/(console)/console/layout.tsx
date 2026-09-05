@@ -1,19 +1,25 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth";
-import { resolveSessionUser, isOwner } from "@/lib/session";
+import { resolveSessionUser, isManagerOrAbove, isOwner } from "@/lib/session";
 import NoCompanyMessage from "@/components/NoCompanyMessage";
 import ConsoleShell from "@/components/console/ConsoleShell";
 
 export const dynamic = "force-dynamic";
 
-// Owner-only gate for the whole /console section — see
-// docs/features/admin-console.md's "Auth gate". A manager/employee never
-// sees this section exist; no "upgrade your role" messaging, just a plain
-// redirect back to Tasks, matching the app's existing pattern of not
-// exposing UI a role can't use (e.g. NoCompanyMessage.tsx below). This is a
-// layout-level check, not a middleware.ts matcher — matches that same
-// precedent of resolving role/company state inside a server component
-// rather than at the edge.
+// Manager-or-above gate for the whole /console section — see
+// docs/features/admin-console.md's "Auth gate" and
+// docs/features/console-task-management.md's "Required change: the console
+// is no longer owner-only". An employee never sees this section exist; no
+// "upgrade your role" messaging, just a plain redirect back to Tasks,
+// matching the app's existing pattern of not exposing UI a role can't use
+// (e.g. NoCompanyMessage.tsx below). This is a layout-level check, not a
+// middleware.ts matcher — matches that same precedent of resolving
+// role/company state inside a server component rather than at the edge.
+// Task/task-list management is manager-and-up on mobile already
+// (ManageTasksView.tsx/TaskListEditView.tsx), so the console version can't
+// tighten that — the three owner-only pages (Locations, Team & Access,
+// Rollup Dashboard) now gate themselves individually instead of relying on
+// this blanket check.
 export default async function ConsoleLayout({ children }: { children: React.ReactNode }) {
   const skipAuth = process.env.SKIP_AUTH === "true";
   const session = await auth();
@@ -27,7 +33,11 @@ export default async function ConsoleLayout({ children }: { children: React.Reac
   if (!sessionUser.companyId) {
     return <NoCompanyMessage userName={userName} />;
   }
-  if (!isOwner(sessionUser.role)) redirect("/tasks");
+  if (!isManagerOrAbove(sessionUser.role)) redirect("/tasks");
 
-  return <ConsoleShell userName={userName}>{children}</ConsoleShell>;
+  return (
+    <ConsoleShell userName={userName} isOwner={isOwner(sessionUser.role)}>
+      {children}
+    </ConsoleShell>
+  );
 }

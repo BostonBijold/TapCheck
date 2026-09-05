@@ -24,8 +24,9 @@ This also introduces a third `User.role` tier (`owner`, alongside the
 existing `employee`/`manager`) and a second, independent axis on `User` —
 **job tags** (server/cook/busser/host/…) — for assigning different task
 lists to different job functions without overloading the permission role.
-The `jobTags` field exists on the schema; the tag-catalog/task-list-
-targeting UI is **not built** (see [Job tags](#job-tags)).
+The `jobTags` field's catalog and assignment UI (built as an Admin Console
+add-on) exist; the task-list-targeting half that would actually use a tag
+does not (see [Job tags](#job-tags)).
 
 ## Data model
 
@@ -61,8 +62,9 @@ Index: `{ companyId: 1, isActive: 1 }`.
   locations set is **computed**, not stored — every active `Location` under
   their `companyId` (`lib/locations.ts`'s `listActiveLocations`) — their own
   `locationId` is just their default context.
-- **`jobTags: string[]`** (default `[]`) — schema only, not yet read by any
-  route or UI.
+- **`jobTags: string[]`** (default `[]`) — assignable from the Admin
+  Console's Team page (see [Job tags](#job-tags)); not yet read by any
+  task-list-visibility logic.
 
 ### `models/Invite.ts`
 
@@ -260,11 +262,20 @@ requires the creating manager to have a `locationId`.
 
 ## Job tags
 
-Schema-only — `User.jobTags: string[]` exists, default `[]`, not read
-anywhere. The full design (company-level tag catalog, a
-`TaskList`/`Task.visibleToJobTags` field, assignment UI on
-`TeamMemberActionSheet.tsx`) is unbuilt — a distinct future pass, not part
-of this one.
+`User.jobTags: string[]` (default `[]`) now has a real catalog and
+assignment UI, built as an add-on to the Admin Console rather than
+`TeamMemberActionSheet.tsx` — see
+[`admin-console.md`](admin-console.md)'s "Job Tags catalog" section for
+the full implementation (`models/JobTag.ts`, `GET`/`POST /api/job-tags`,
+`PATCH`/`DELETE /api/job-tags/[id]`, the `jobTags` field on `PATCH
+/api/team/[userId]`, `components/console/JobTagsPanel.tsx` and
+`TeamTable.tsx`'s per-row toggle pills). **Still unbuilt**: a
+`TaskList`/`Task.visibleToJobTags` field that would actually use a tag to
+gate which task lists a tagged employee sees — a tag today is pure
+metadata, read nowhere outside the console's own display. Also still
+unbuilt: any mobile assignment UI (`TeamMemberActionSheet.tsx` has no tag
+picker) — tagging is console-only for now, same as the rest of the Admin
+Console's owner-only surface.
 
 ## Known gaps
 

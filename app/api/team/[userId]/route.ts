@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import { connectDB } from "@/lib/mongoose";
 import User from "@/models/User";
 import Location from "@/models/Location";
+import JobTag from "@/models/JobTag";
 import { resolveSessionUser, isManagerOrAbove, isOwner } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
@@ -30,11 +31,15 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   if (!companyId) return NextResponse.json({ error: "No company assigned" }, { status: 403 });
   if (!isManagerOrAbove(sessionRole)) return NextResponse.json({ error: "Managers only" }, { status: 403 });
 
-  const { role, locationId } = (await req.json()) as { role?: string; locationId?: string };
-  // Both fields are optional independently — a request may carry just role,
-  // just locationId, or (rarely) both — but at least one must be present.
-  if (role === undefined && locationId === undefined) {
-    return NextResponse.json({ error: "role or locationId required" }, { status: 400 });
+  const { role, locationId, jobTags } = (await req.json()) as {
+    role?: string;
+    locationId?: string;
+    jobTags?: string[];
+  };
+  // All three fields are optional independently — a request may carry any
+  // subset — but at least one must be present.
+  if (role === undefined && locationId === undefined && jobTags === undefined) {
+    return NextResponse.json({ error: "role, locationId, or jobTags required" }, { status: 400 });
   }
   if (role !== undefined && role !== "employee" && role !== "manager") {
     return NextResponse.json({ error: "role must be 'employee' or 'manager'" }, { status: 400 });
@@ -45,6 +50,12 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   // can't meaningfully be the one to move someone into one.
   if (locationId !== undefined && !isOwner(sessionRole)) {
     return NextResponse.json({ error: "Owners only" }, { status: 403 });
+  }
+  // Job tags are orthogonal to location visibility — any manager can tag
+  // their own teammates, same gate as the role change above (see
+  // docs/features/locations.md's "Job tags").
+  if (jobTags !== undefined && !Array.isArray(jobTags)) {
+    return NextResponse.json({ error: "jobTags must be an array" }, { status: 400 });
   }
 
   if (!isAddressable(companyId, params.userId)) {
@@ -59,6 +70,13 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   if (locationId !== undefined) {
     const location = await Location.findOne({ _id: locationId, companyId, isActive: true }).lean();
     if (!location) return NextResponse.json({ error: "Location not found" }, { status: 404 });
+  }
+
+  if (jobTags !== undefined && jobTags.length > 0) {
+    const validTags = await JobTag.find({ companyId, name: { $in: jobTags }, isActive: true }, "name").lean();
+    if (validTags.length !== new Set(jobTags).size) {
+      return NextResponse.json({ error: "One or more job tags are invalid" }, { status: 400 });
+    }
   }
 
   // An owner is a strict superset of manager (see docs/features/locations.md)
@@ -83,6 +101,7 @@ export async function PATCH(req: Request, { params }: { params: { userId: string
   const updates: Record<string, unknown> = {};
   if (role !== undefined) updates.role = role;
   if (locationId !== undefined) updates.locationId = locationId;
+  if (jobTags !== undefined) updates.jobTags = Array.from(new Set(jobTags));
   await User.findOneAndUpdate({ _id: params.userId, companyId }, { $set: updates });
 
   return NextResponse.json({ ok: true });

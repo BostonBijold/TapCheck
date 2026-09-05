@@ -8,6 +8,7 @@ interface Member {
   role: "manager" | "employee" | "owner";
   joinedAt: string | null;
   locationId: string | null;
+  jobTags: string[];
 }
 
 interface LocationOption {
@@ -15,12 +16,19 @@ interface LocationOption {
   name: string;
 }
 
+interface JobTagOption {
+  _id: string;
+  name: string;
+}
+
 interface Props {
   team: Member[] | null;
   locations: LocationOption[];
+  jobTags: JobTagOption[];
   currentUserId: string;
   onChangeRole: (userId: string, role: "manager" | "employee") => Promise<void>;
   onReassignLocation: (userId: string, locationId: string) => Promise<void>;
+  onUpdateJobTags: (userId: string, jobTags: string[]) => Promise<void>;
   onRemove: (userId: string) => Promise<void>;
 }
 
@@ -38,7 +46,7 @@ function fmtDate(iso: string | null) {
 // location-reassignment dropdown against PATCH /api/team/[userId]'s
 // existing owner-only locationId field, which TeamMemberActionSheet.tsx
 // (the mobile equivalent) has never had a button for.
-export default function TeamTable({ team, locations, currentUserId, onChangeRole, onReassignLocation, onRemove }: Props) {
+export default function TeamTable({ team, locations, jobTags, currentUserId, onChangeRole, onReassignLocation, onUpdateJobTags, onRemove }: Props) {
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const managerCount = team?.filter((m) => m.role === "manager").length ?? 0;
@@ -55,6 +63,13 @@ export default function TeamTable({ team, locations, currentUserId, onChangeRole
     setBusyId(null);
   };
 
+  const toggleJobTag = (m: Member, tagName: string) => {
+    const next = m.jobTags.includes(tagName)
+      ? m.jobTags.filter((t) => t !== tagName)
+      : [...m.jobTags, tagName];
+    run(m._id, () => onUpdateJobTags(m._id, next));
+  };
+
   return (
     <div className="border border-border rounded-card overflow-hidden bg-card">
       <table className="w-full text-sm">
@@ -63,6 +78,7 @@ export default function TeamTable({ team, locations, currentUserId, onChangeRole
             <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-3">Name</th>
             <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-3">Role</th>
             <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-3">Location</th>
+            <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-3">Job Tags</th>
             <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-3">Joined</th>
             <th className="font-mono text-[10px] text-dim uppercase tracking-widest px-4 py-3 w-44">Actions</th>
           </tr>
@@ -70,11 +86,11 @@ export default function TeamTable({ team, locations, currentUserId, onChangeRole
         <tbody>
           {team === null ? (
             <tr>
-              <td colSpan={5} className="px-4 py-8 text-center text-dim font-mono text-xs">Loading…</td>
+              <td colSpan={6} className="px-4 py-8 text-center text-dim font-mono text-xs">Loading…</td>
             </tr>
           ) : team.length === 0 ? (
             <tr>
-              <td colSpan={5} className="px-4 py-8 text-center text-dim font-mono text-xs">No teammates yet.</td>
+              <td colSpan={6} className="px-4 py-8 text-center text-dim font-mono text-xs">No teammates yet.</td>
             </tr>
           ) : (
             team.map((m) => {
@@ -110,6 +126,31 @@ export default function TeamTable({ team, locations, currentUserId, onChangeRole
                           <option key={l._id} value={l._id}>{l.name}</option>
                         ))}
                       </select>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    {jobTags.length === 0 ? (
+                      <span className="font-body text-xs text-dim">—</span>
+                    ) : (
+                      <div className="flex flex-wrap gap-1 max-w-[12rem]">
+                        {jobTags.map((tag) => {
+                          const assigned = m.jobTags.includes(tag.name);
+                          return (
+                            <button
+                              key={tag._id}
+                              onClick={() => toggleJobTag(m, tag.name)}
+                              disabled={busyId === m._id}
+                              className={`font-mono text-[10px] uppercase tracking-widest px-2 py-0.5 rounded-pill border transition-colors disabled:opacity-40 ${
+                                assigned
+                                  ? "bg-olive/10 border-olive text-olive"
+                                  : "bg-transparent border-border text-dim hover:border-border-light"
+                              }`}
+                            >
+                              {tag.name}
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
                   </td>
                   <td className="px-4 py-3 text-muted font-mono text-xs">{fmtDate(m.joinedAt)}</td>

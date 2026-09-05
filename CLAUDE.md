@@ -225,8 +225,10 @@ way around.
                                // PATCH /api/session/active-location.
   jobTags,                     // string[], default [] — company-defined job function tags (server/cook/
                                // busser/host/…), orthogonal to role (role = access, jobTags = task-list
-                               // assignment). Schema only — not yet read anywhere, see
-                               // docs/features/locations.md's "Job tags".
+                               // assignment). Catalog + assignment UI live in the Admin Console (Team
+                               // page); not yet read by any task-list-visibility logic — see
+                               // docs/features/locations.md's "Job tags" and
+                               // docs/features/admin-console.md's "Job Tags catalog".
   liveActivityPushToken,      // iOS Live Activity push updates
   liveActivityPushEnvironment,// 'sandbox' | 'production'
   createdAt
@@ -439,6 +441,23 @@ see "Task ↔ Inventory Linking" in `docs/features/inventory.md`.
   taskDefinitionId,  // ref TaskDefinition — lives at the definition level, shared by every list placement
   itemTypeId,        // ref InventoryItemType
   required: bool,    // a property of the PAIRING — the same item type can be required on one task, optional on another
+}
+```
+
+### JobTag
+Company-level catalog entry for job-function labels ("Server," "Cook,"
+"Busser," "Host") — see "Job tags" in `docs/features/locations.md` and
+"Job Tags catalog" in `docs/features/admin-console.md`. Assigned to a
+`User` by name (`User.jobTags: string[]`, not a ref) from the Admin
+Console's Team page; not yet read by any task-list-visibility logic.
+```js
+{
+  _id,
+  companyId,
+  name,              // 'Server' — renaming cascades onto every User.jobTags entry holding the old name
+  createdByUserId,
+  isActive: bool,    // archiving strips this tag from every User.jobTags array that held it (no
+                     //   "Ungrouped"-style fallback the way InventoryGroup has one)
 }
 ```
 
@@ -752,8 +771,11 @@ updated to include it, so two locations running the same shared task-list
 catalog never collide into one location's data.
 
 Also adds a second, independent axis on `User` — `jobTags: string[]`
-(server/cook/busser/host/…), schema-only for now, for a future task-list-
-by-job-function assignment pass that isn't built yet.
+(server/cook/busser/host/…), assignable via a company-level `JobTag`
+catalog managed from the Admin Console's Team page (see "Job Tags
+catalog" in `docs/features/admin-console.md`) — for a future task-list-
+by-job-function *targeting* pass that isn't built yet (a tag is currently
+pure metadata, not read by any task-list-visibility check).
 
 An owner now gets a real **location switcher** — a control on all 4
 bottom-nav pages (Tasks, Team, Reports, Inventory) to pick which location's
@@ -795,7 +817,7 @@ is in `docs/features/locations.md`.
 - [x] Task ↔ Inventory Linking (a task can capture one or more Inventory counts as part of its own form, with shared NFC verification when a tag backs both) — see "Inventory" above and docs/features/inventory.md's "Task ↔ Inventory Linking"
 - [x] Inventory grouping, par-level red-tint/warning cascade, per-item `nfcRequiredToLog` enforcement, and the manager-only "Manage Inventory" hub — see "Inventory" above and docs/features/inventory.md
 - [x] Shift-window alert push notifications — "start-time reminders" (per-list QStash schedule, managers+employees) and "missed" (shared QStash sweep, managers) — device registration for any company user, Company timezone/notificationsEnabled — see "Notifications" above and docs/features/notifications.md
-- [x] Admin Console (desktop, owner-only) — a separate `app/(console)/console/**` route group for cross-location management: Locations CRUD, a company-wide Team & Access table (with the location-reassignment wiring mobile's Team tab never had), and a net-new cross-location Rollup Dashboard (`GET /api/reports/rollup`, `lib/reports.ts`) — see docs/features/admin-console.md
+- [x] Admin Console (desktop) — a separate `app/(console)/console/**` route group, manager-or-above gated (originally owner-only): Locations CRUD, a company-wide Team & Access table (with the location-reassignment wiring mobile's Team tab never had) and a Job Tags catalog, a net-new cross-location Rollup Dashboard (`GET /api/reports/rollup`, `lib/reports.ts`), and Task & Task List Management (`/console/tasks` — the same task-list/task CRUD as mobile's `ManageTasksView.tsx`/`TaskListEditView.tsx`, reused APIs, no NFC scan action) — reached from a manager-or-above "Admin Console" card on the Profile page (no auto-redirect on login); Locations/Team & Access/Rollup Dashboard stay owner-only and self-gate now that the blanket layout gate loosened — see docs/features/admin-console.md and docs/features/console-task-management.md
 
 Personal-habit-tracker features from before the restaurant pivot — the
 timer-based Countdown/Stopwatch/Checkbox item types and the Sunday "Routine
@@ -916,8 +938,8 @@ table is a quick reference, not authoritative.
 - Inventory: BUILT — Inventory tab (top-up count tracker), grouped into manager-defined sections with search and a below-par red-tint cascade, manager-managed item-type catalog with optional NFC location binding (and a per-item `nfcRequiredToLog` toggle that turns that binding into an actual gate), plus a manager-only "Manage Inventory" hub (`/inventory/manage`) for name/unit/parLevel/group/tag editing and Groups CRUD, see "Inventory" above and `docs/features/inventory.md`
 - Task ↔ Inventory Linking: BUILT — a manager can attach Inventory item types to a task (required or optional per link); the task form then captures a count per linked item on Save, sharing NFC verification with the task's own scan when the tags match, see "Inventory" above and `docs/features/inventory.md`'s "Task ↔ Inventory Linking"
 - Notifications: BUILT — two independent shift-window alerts: "start-time reminders" fire at a list's exact startTime via its own per-list QStash schedule (managers+employees), "missed" fires 30min past the window's end via a shared QStash sweep every 5min (managers only, tasks still outstanding); device registration via `@capacitor/push-notifications` open to any company user, `Company.timezone`/`notificationsEnabled` drive both, see "Notifications" above and `docs/features/notifications.md`
-- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. NOT built: per-location split of the start-time-reminder cron, and job-tags UI — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
-- Admin Console: BUILT — desktop-first, owner-only `/console` section (`app/(console)/console/**`, gated in its `layout.tsx`, blocked from the native iOS shell): Locations CRUD, a company-wide Team & Access table + invite panel, and a Rollup Dashboard (`GET /api/reports/rollup`) giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent — see `docs/features/admin-console.md`
+- Locations: BUILT — `Location` model, new `owner` role tier, invite/team location assignment, Location CRUD API, locationId-scoping across TaskLog/TaskListSession/InventoryLog/MissedListAlert, and an owner-facing location switcher (`components/LocationSwitcher.tsx`) on Tasks/Team/Reports/Inventory; migration script at `scripts/backfill-locations.mjs`. Job tags now have a catalog + assignment UI (Admin Console's Team page — see `docs/features/admin-console.md`'s "Job Tags catalog"), though the tag-based task-list *targeting* they were originally meant for is still not built. NOT built: per-location split of the start-time-reminder cron — see "Locations" above and `docs/features/locations.md`'s "Known gaps"
+- Admin Console: BUILT — desktop-first `/console` section (`app/(console)/console/**`, gated manager-or-above in its `layout.tsx`, blocked from the native iOS shell): Locations CRUD, a company-wide Team & Access table + invite panel + Job Tags catalog (create/rename/archive tags, per-teammate toggle assignment), a Rollup Dashboard (`GET /api/reports/rollup`) giving an owner a cross-location snapshot (completion rate, tasks logged, missed lists, below-par items, active employees) that has no mobile equivalent, and Task & Task List Management (`/console/tasks`, manager-or-above) — a two-pane task-list/task editor reusing mobile's exact APIs and field-editing building blocks, NFC status-only (no scan action). Locations/Team & Access/Rollup Dashboard stay owner-only, each self-gating now that the blanket layout check loosened. Reached via a manager-or-above card on the Profile page (`components/ProfileView.tsx`) — login itself still always lands on Tasks, same as every other role — see `docs/features/admin-console.md` and `docs/features/console-task-management.md`
 
 Routine Review (the old Sunday goal-vs-average-minutes comparison) has been
 retired — it doesn't fit a checklist-based work app.

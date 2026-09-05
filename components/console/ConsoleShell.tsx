@@ -6,6 +6,7 @@ import ConsoleSidebar from "@/components/console/ConsoleSidebar";
 
 interface Props {
   userName: string;
+  isOwner: boolean;
   children: React.ReactNode;
 }
 
@@ -17,7 +18,7 @@ interface Props {
 // since Capacitor.isNativePlatform() has no server-side equivalent, and
 // this is the same layout file the spec flagged for resolving this either
 // way.
-export default function ConsoleShell({ userName, children }: Props) {
+export default function ConsoleShell({ userName, isOwner, children }: Props) {
   const [isNative, setIsNative] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -43,7 +44,7 @@ export default function ConsoleShell({ userName, children }: Props) {
 
   return (
     <div className="min-h-dvh bg-bg flex">
-      <ConsoleSidebar userName={userName} />
+      <ConsoleSidebar userName={userName} isOwner={isOwner} />
       <main className="flex-1 min-w-0 overflow-y-auto">
         <div className="max-w-5xl mx-auto px-8 py-8">{children}</div>
       </main>

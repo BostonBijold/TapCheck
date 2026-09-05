@@ -45,6 +45,13 @@ export async function GET() {
         timeOfDay: taskList.timeOfDay,
         startTime: taskList.startTime ?? null,
         order: taskList.order,
+        // Additive field for the Admin Console's Task Management page (see
+        // docs/features/console-task-management.md) — its list editor
+        // needs the list's own current scheduledDays to show accurate
+        // toggle state, not just each task's own (which defaults from this
+        // but can diverge). Ignored by the offline SQLite cache, which only
+        // reads the fields its own schema already mirrors.
+        scheduledDays: taskList.scheduledDays ?? [0, 1, 2, 3, 4, 5, 6],
         updatedAt: taskList.updatedAt ? new Date(taskList.updatedAt).toISOString() : null,
         tasks: rawTasks.map((task) => ({
           _id: task._id.toString(),

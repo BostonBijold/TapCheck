@@ -3,20 +3,31 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "next-auth/react";
-import { Building2, Users, BarChart3, LogOut } from "lucide-react";
+import { Building2, Users, BarChart3, LogOut, ListChecks } from "lucide-react";
 
-const NAV_ITEMS = [
+// Owner-only items come first (unchanged from before Task Management
+// existed); Task Management is the one item a manager can also see — see
+// docs/features/console-task-management.md's "Required change: the console
+// is no longer owner-only".
+const OWNER_NAV_ITEMS = [
   { href: "/console/locations", label: "Locations", icon: Building2 },
   { href: "/console/team", label: "Team & Access", icon: Users },
-  { href: "/console/rollup", label: "Rollup Dashboard", icon: BarChart3 },
 ] as const;
+const TASKS_NAV_ITEM = { href: "/console/tasks", label: "Task Management", icon: ListChecks } as const;
+const ROLLUP_NAV_ITEM = { href: "/console/rollup", label: "Rollup Dashboard", icon: BarChart3 } as const;
 
 // Desktop sidebar shell for the Admin Console — see
 // docs/features/admin-console.md's "Nav & shell". Distinct from
 // components/BottomNav.tsx's mobile bottom-nav chrome; this section is
 // desktop-first and never shares layout with the Capacitor app's pages.
-export default function ConsoleSidebar({ userName }: { userName: string }) {
+export default function ConsoleSidebar({ userName, isOwner }: { userName: string; isOwner: boolean }) {
   const pathname = usePathname();
+
+  // An owner sees all four items; a manager sees only Task Management —
+  // see docs/features/console-task-management.md.
+  const navItems = isOwner
+    ? [...OWNER_NAV_ITEMS, TASKS_NAV_ITEM, ROLLUP_NAV_ITEM]
+    : [TASKS_NAV_ITEM];
 
   return (
     <aside className="w-60 flex-shrink-0 border-r border-border bg-card flex flex-col h-dvh sticky top-0">
@@ -26,7 +37,7 @@ export default function ConsoleSidebar({ userName }: { userName: string }) {
       </div>
 
       <nav className="flex-1 px-3 space-y-1">
-        {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
+        {navItems.map(({ href, label, icon: Icon }) => {
           const active = pathname.startsWith(href);
           return (
             <Link

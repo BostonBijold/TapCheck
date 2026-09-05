@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import TeamTable from "@/components/console/TeamTable";
 import InvitePanel from "@/components/console/InvitePanel";
+import JobTagsPanel, { JobTagOption } from "@/components/console/JobTagsPanel";
 
 interface Member {
   _id: string;
@@ -10,6 +11,7 @@ interface Member {
   role: "manager" | "employee" | "owner";
   joinedAt: string | null;
   locationId: string | null;
+  jobTags: string[];
 }
 
 interface Invite {
@@ -36,6 +38,7 @@ export default function TeamConsoleView({ currentUserId }: { currentUserId: stri
   const [team, setTeam] = useState<Member[] | null>(null);
   const [invites, setInvites] = useState<Invite[] | null>(null);
   const [locations, setLocations] = useState<LocationOption[]>([]);
+  const [jobTags, setJobTags] = useState<JobTagOption[] | null>(null);
 
   const fetchTeam = useCallback(() => {
     fetch("/api/team").then((r) => r.json()).then(setTeam).catch(() => setTeam([]));
@@ -45,14 +48,19 @@ export default function TeamConsoleView({ currentUserId }: { currentUserId: stri
     fetch("/api/invites").then((r) => r.json()).then(setInvites).catch(() => setInvites([]));
   }, []);
 
+  const fetchJobTags = useCallback(() => {
+    fetch("/api/job-tags").then((r) => r.json()).then(setJobTags).catch(() => setJobTags([]));
+  }, []);
+
   useEffect(() => {
     fetchTeam();
     fetchInvites();
+    fetchJobTags();
     // Always fetched here (unlike TeamView.tsx's mobile owner-only guard) —
     // every console user is an owner, and both TeamTable's reassignment
     // dropdown and InvitePanel's location picker need the full list.
     fetch("/api/locations").then((r) => r.json()).then(setLocations).catch(() => setLocations([]));
-  }, [fetchTeam, fetchInvites]);
+  }, [fetchTeam, fetchInvites, fetchJobTags]);
 
   const handleChangeRole = async (userId: string, role: "manager" | "employee") => {
     await fetch(`/api/team/${userId}`, {
@@ -72,6 +80,15 @@ export default function TeamConsoleView({ currentUserId }: { currentUserId: stri
     fetchTeam();
   };
 
+  const handleUpdateJobTags = async (userId: string, jobTags: string[]) => {
+    await fetch(`/api/team/${userId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ jobTags }),
+    });
+    fetchTeam();
+  };
+
   const handleRemove = async (userId: string) => {
     await fetch(`/api/team/${userId}`, { method: "DELETE" });
     fetchTeam();
@@ -82,6 +99,32 @@ export default function TeamConsoleView({ currentUserId }: { currentUserId: stri
     setInvites((prev) => (prev ? prev.filter((i) => i._id !== id) : prev));
   };
 
+  const handleCreateJobTag = async (name: string) => {
+    const res = await fetch("/api/job-tags", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (!res.ok) throw new Error();
+    fetchJobTags();
+  };
+
+  const handleRenameJobTag = async (id: string, name: string) => {
+    await fetch(`/api/job-tags/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    fetchJobTags();
+    fetchTeam();
+  };
+
+  const handleArchiveJobTag = async (id: string) => {
+    await fetch(`/api/job-tags/${id}`, { method: "DELETE" });
+    fetchJobTags();
+    fetchTeam();
+  };
+
   return (
     <div>
       <h1 className="font-heading text-2xl text-text mb-1">Team &amp; Access</h1>
@@ -89,12 +132,20 @@ export default function TeamConsoleView({ currentUserId }: { currentUserId: stri
       <TeamTable
         team={team}
         locations={locations}
+        jobTags={jobTags ?? []}
         currentUserId={currentUserId}
         onChangeRole={handleChangeRole}
         onReassignLocation={handleReassignLocation}
+        onUpdateJobTags={handleUpdateJobTags}
         onRemove={handleRemove}
       />
       <InvitePanel locations={locations} invites={invites} onGenerated={fetchInvites} onRevoke={handleRevoke} />
+      <JobTagsPanel
+        tags={jobTags}
+        onCreate={handleCreateJobTag}
+        onRename={handleRenameJobTag}
+        onArchive={handleArchiveJobTag}
+      />
     </div>
   );
 }

@@ -2,8 +2,8 @@
 
 # Admin Console (Desktop) — Owner Multi-Location Management
 
-**Status: BUILT.** Phases 1a, 1b, and 2 are all shipped — see "Current
-state" below for what actually exists vs. the original spec's phrasing.
+**Status: BUILT.** Phases 1a, 1b, and 2 are all shipped — see the Phase
+sections below for what actually exists vs. the original spec's phrasing.
 
 ## Purpose & scope
 
@@ -36,12 +36,21 @@ genuinely new backend surface).
 `app/(console)/console/**` — a route group, parallel to `app/(app)/`, not
 nested inside it. Pages:
 
-- `app/(console)/console/layout.tsx` — owner-only gate + sidebar shell.
-- `app/(console)/console/page.tsx` — redirects to `/console/locations`
-  (no landing content of its own).
+- `app/(console)/console/layout.tsx` — manager-or-above gate + sidebar
+  shell (loosened from owner-only — see
+  [`console-task-management.md`](console-task-management.md)'s "Change:
+  the console is no longer owner-only").
+- `app/(console)/console/page.tsx` — role-aware redirect: owner →
+  `/console/locations`, manager → `/console/tasks`.
 - `app/(console)/console/locations/page.tsx` — Location CRUD (Phase 1a).
+  Owner-only, self-gated (see below).
 - `app/(console)/console/team/page.tsx` — Roster, invites, access (Phase 1b).
+  Owner-only, self-gated.
+- `app/(console)/console/tasks/page.tsx` — Task & task-list management.
+  Manager-or-above — see
+  [`console-task-management.md`](console-task-management.md).
 - `app/(console)/console/rollup/page.tsx` — Cross-location dashboard (Phase 2).
+  Owner-only, self-gated.
 
 ### Auth gate
 
@@ -50,30 +59,39 @@ nested inside it. Pages:
 
 - No `companyId` → renders `components/NoCompanyMessage.tsx`, same as the
   mobile app (not an owner-specific case — reused as-is).
-- `companyId` present but `role !== "owner"` → `redirect("/tasks")`. A
-  manager/employee never sees this section exist; no "upgrade your
-  role"/teaser messaging, just a plain redirect, matching the app's
-  existing pattern of not exposing UI a role can't use.
-- Owner → renders `components/console/ConsoleShell.tsx`.
+- `companyId` present but not manager-or-above → `redirect("/tasks")`. An
+  employee never sees this section exist; no "upgrade your role"/teaser
+  messaging, just a plain redirect, matching the app's existing pattern of
+  not exposing UI a role can't use. (Originally owner-only; loosened when
+  Task Management shipped, since that capability is manager-and-up on
+  mobile already — see
+  [`console-task-management.md`](console-task-management.md).)
+- Manager or owner → renders `components/console/ConsoleShell.tsx`.
 
 This is a layout-level check, not a `middleware.ts` matcher addition —
 `middleware.ts`'s existing matcher already covers `/console` for the
 plain "is there a session at all" check (it excludes only static assets,
 `api/auth`, and `api/cron`), so no middleware change was needed; the
 company/role-tier check happens one layer in, inside this server
-component, same precedent as `NoCompanyMessage.tsx`. Each of the three
-section pages (`locations`, `team`, `rollup`) also calls
-`resolveSessionUser()` itself for its own props (e.g. `team/page.tsx`
-needs `currentUserId` for the roster's "(you)" label) — a second DB read
-per navigation, same non-concern the original spec flagged, confirmed by
+component, same precedent as `NoCompanyMessage.tsx`. Since the blanket
+gate above is now manager-or-above rather than owner-only, the three
+owner-only pages (`locations`, `team`, `rollup`) each additionally check
+`!isOwner(sessionUser.role)` themselves and redirect a manager to
+`/console/tasks` — `team/page.tsx`'s `resolveSessionUser()` call already
+existed (for `currentUserId`, the roster's "(you)" label); `locations`/
+`rollup` gained their first one for this. Same non-concern the original
+spec flagged about a second DB read per navigation, confirmed by
 building it: every other page in the app already does its own
 `resolveSessionUser()` call regardless of any layout-level check.
 
 ### Nav & shell
 
 `components/console/ConsoleSidebar.tsx` — a fixed 240px sidebar (not
-bottom nav): **Locations**, **Team & Access**, **Rollup Dashboard**, with
-the signed-in user's name and a **Sign Out** button pinned at the bottom
+bottom nav), now role-aware via an `isOwner: boolean` prop threaded from
+the layout through `ConsoleShell`: an owner sees **Locations**, **Team &
+Access**, **Task Management**, **Rollup Dashboard**; a manager sees only
+**Task Management**. The signed-in user's name and a **Sign Out** button
+stay pinned at the bottom regardless of role
 (`next-auth/react`'s `signOut()`, same call `ProfileView.tsx` uses).
 `components/console/ConsoleShell.tsx` wraps the sidebar and a
 `max-w-5xl` centered content area — desktop layout, no mobile safe-area
@@ -86,13 +104,16 @@ Tailwind setup as the rest of the app, same `lucide-react` icon set.
 
 Logging in always lands on `/tasks`, same as before this feature — there
 is no auto-redirect into the console based on role or device.
-`components/ProfileView.tsx` gets an **owner-only** "Admin Console" card
-(above the Manage Tasks/Manage Inventory/Company Settings cards), linking
-to `/console`. No native-platform check needed on the card itself —
-tapping it from inside the Capacitor iOS shell still navigates, and
-`ConsoleShell.tsx`'s own `Capacitor.isNativePlatform()` check (see
-"Reachability from the iOS app" below) is what actually blocks it there
-with the "open this on a computer" message, so the logic isn't duplicated.
+`components/ProfileView.tsx` gets a **manager-or-above** "Admin Console"
+card (above the Manage Tasks/Manage Inventory/Company Settings cards;
+originally owner-only, loosened alongside the layout gate — see
+[`console-task-management.md`](console-task-management.md)), linking to
+`/console` with role-aware subtitle copy. No native-platform check
+needed on the card itself — tapping it from inside the Capacitor iOS
+shell still navigates, and `ConsoleShell.tsx`'s own
+`Capacitor.isNativePlatform()` check (see "Reachability from the iOS app"
+below) is what actually blocks it there with the "open this on a
+computer" message, so the logic isn't duplicated.
 
 ### Reachability from the iOS app
 
@@ -160,6 +181,57 @@ Created by, Revoke button (`DELETE /api/invites/[id]`).
 both `TeamTable` and `InvitePanel` need and wiring their callbacks to the
 API routes above — not one of the spec's originally-named components, but
 needed to avoid duplicating that fetch/refresh logic across two files.
+
+## Job Tags catalog (built, add-on to Phase 1b)
+
+The candidate add-on flagged in the original spec's Open Question #3,
+built after Phase 2 shipped. Gives the company-wide `User.jobTags` field
+(schema-only since the Locations feature — see
+[`locations.md`](locations.md)'s "Job tags") an actual catalog and
+assignment UI, homed in the console rather than wedged into a mobile
+bottom sheet, per that question's reasoning.
+
+**New model** — `models/JobTag.ts`: `{ companyId, name, createdByUserId,
+isActive }`, same shape/conventions as `InventoryGroup`. Manager-or-above
+gated (`isManagerOrAbove`), not owner-only — job tags are a company
+configuration concern like the task/inventory catalogs, not a
+location-visibility one, even though the only UI consuming it today is
+the owner-only console.
+
+**New routes**: `GET`/`POST /api/job-tags` (list active tags; create,
+manager+) and `PATCH`/`DELETE /api/job-tags/[id]` (rename; archive,
+manager+). Because `User.jobTags` stores plain tag-name strings rather
+than a `JobTag._id` ref (matching the pre-existing schema — no join
+needed to display a member's tags), a rename or archive must cascade into
+every `User.jobTags` array that references the old name or the catalog
+and assignments silently drift apart. `lib/job-tags.ts`'s
+`renameJobTag`/`archiveJobTag` do this in the same request (positional
+`$` update for rename, `$pull` for archive) — mirrors
+`lib/inventory.ts`'s `archiveInventoryGroup` cascade pattern, though a job
+tag has no "Ungrouped" fallback the way an archived `InventoryGroup`'s
+members get one; it's just removed from whoever had it.
+
+**Assignment**: `PATCH /api/team/[userId]` gained a third optional field,
+`jobTags: string[]` (alongside the pre-existing `role`/`locationId`),
+validated against the company's active `JobTag` catalog and gated the
+same as the role-change field (manager-or-above, not owner-only — unlike
+`locationId` reassignment, tagging has no location-visibility concern).
+`GET /api/team` now also returns each member's `jobTags` (additive,
+ignored by mobile's `TeamView.tsx`, same convention as the earlier
+`locationId` addition).
+
+**UI**: `components/console/TeamTable.tsx`'s roster gained a Job Tags
+column — one toggle pill per catalog tag, filled when assigned — calling
+`onUpdateJobTags` per click. `components/console/JobTagsPanel.tsx` (new,
+rendered below `InvitePanel` on `/console/team`) is the catalog manager
+itself: an inline "+ Add Tag" input plus a pill list with inline
+rename/archive icons, mirroring `InvitePanel.tsx`'s desktop-inline style
+rather than a mobile bottom sheet.
+
+**Scope note**: this ships only the catalog + assignment half. Actually
+*using* a tag to control which task lists a tagged employee sees
+(`TaskList`/`Task.visibleToJobTags`) is not part of this pass — flagged
+in `locations.md` as "a distinct future pass" and left that way here too.
 
 ## Phase 2 — Cross-location rollup dashboard (built)
 
@@ -260,9 +332,16 @@ draft.
 2. **Single-location owner visibility** — resolved as recommended: the
    console is visible regardless of location count. Nothing in the layout
    gate checks location count at all.
-3. **Job tags catalog UI** — still not built. Remains a candidate add-on
-   for the Team page, same as the original note; `User.jobTags` is still
-   schema-only.
+3. **Job tags catalog UI** — built. `components/console/JobTagsPanel.tsx`
+   (below the roster/invite panel on `/console/team`) manages a company-
+   level `JobTag` catalog (create/rename/archive, manager-or-above gated
+   same as `InventoryGroup`), and `TeamTable.tsx` gained a Job Tags column
+   of toggleable pills per teammate, wired through `PATCH
+   /api/team/[userId]`'s new `jobTags` field. This is the tag-catalog half
+   of `locations.md`'s "Job tags" only — the `TaskList`/
+   `Task.visibleToJobTags` targeting half (actually gating which tasks a
+   tagged employee sees) remains unbuilt, a distinct future pass. See the
+   new "Job Tags" section below.
 4. **`missedTaskListCount`/`belowParItemCount` as the two "at a glance"
    signals** — kept as the first-shipped pair. An avg-variance outlier
    column (borrowing `ExceptionCallouts.tsx`'s logic) remains a plausible

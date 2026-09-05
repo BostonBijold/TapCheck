@@ -133,14 +133,17 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
             </div>
           )}
 
-          {/* Owner-only entry point into the desktop Admin Console — see
-              docs/features/admin-console.md. Only a link, no device check
-              here: opening it from the native iOS shell still navigates,
-              but app/(console)/console/layout.tsx's ConsoleShell blocks
-              native access itself with an "open this on a computer"
-              message rather than this card needing to duplicate that
-              logic. */}
-          {isOwner && (
+          {/* Manager-or-above entry point into the desktop Admin Console —
+              see docs/features/admin-console.md and
+              docs/features/console-task-management.md's "Required change:
+              the console is no longer owner-only" (a manager now reaches
+              Task Management there; the other three pages stay owner-only
+              and self-gate). Only a link, no device check here: opening it
+              from the native iOS shell still navigates, but
+              app/(console)/console/layout.tsx's ConsoleShell blocks native
+              access itself with an "open this on a computer" message
+              rather than this card needing to duplicate that logic. */}
+          {isManager && (
             <Link
               href="/console"
               className="flex items-center justify-between bg-card rounded-card border border-border p-5 hover:bg-card-hover transition-colors"
@@ -149,7 +152,11 @@ export default function ProfileView({ name, email, today, skipAuth, isManager = 
                 <Monitor size={18} className="text-olive flex-shrink-0" />
                 <div>
                   <p className="font-body text-sm text-text">Admin Console</p>
-                  <p className="font-mono text-[10px] text-dim mt-0.5">Locations, team & access, and the cross-location rollup — best on a computer</p>
+                  <p className="font-mono text-[10px] text-dim mt-0.5">
+                    {isOwner
+                      ? "Locations, team & access, task lists, and the cross-location rollup — best on a computer"
+                      : "Manage task lists and tasks — best on a computer"}
+                  </p>
                 </div>
               </div>
               <ChevronRight size={16} className="text-dim flex-shrink-0" />
